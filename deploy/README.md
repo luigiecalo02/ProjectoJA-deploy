@@ -46,7 +46,7 @@ Salud API: http://localhost:8080/up
 2. Clone el repo y copie `.env`
 3. Los mismos comandos del paso 2
 4. Ponga Caddy o Traefik delante (80/443 → `nginx:80`)
-5. No publique el puerto 3306
+5. MySQL solo en `127.0.0.1:3306` (Navicat por túnel SSH). No abra 3306 en el firewall.
 
 Backup:
 
@@ -60,7 +60,7 @@ docker compose exec mysql mysqldump -u projectja -p ProjetJA > backup.sql
 2. Cree un proyecto Compose apuntando a este `docker-compose.yml`
 3. Pegue las variables de `.env` en el panel (equivalente al archivo `.env`)
 4. Dominio HTTPS sobre el servicio **nginx**, puerto **80**
-5. No exponga `mysql`, `app`, `reverb` ni `queue`
+5. No exponga `mysql`, `app`, `reverb` ni `queue` a internet. Navicat: SSH al VPS y host `127.0.0.1` puerto `3306`.
 
 Dokploy/Traefik termina TLS; Reverb queda en `wss://tudominio.com/app`.
 
