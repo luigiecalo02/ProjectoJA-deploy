@@ -1,0 +1,28 @@
+import { initializeApp, type FirebaseApp } from 'firebase/app'
+import { getStorage, type FirebaseStorage } from 'firebase/storage'
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'projectja-2d55d',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+}
+
+let app: FirebaseApp | null = null
+let storage: FirebaseStorage | null = null
+
+export function getFirebaseApp(): FirebaseApp {
+  if (!app) {
+    app = initializeApp(firebaseConfig)
+  }
+  return app
+}
+
+export function getFirebaseStorage(): FirebaseStorage {
+  if (!storage) {
+    storage = getStorage(getFirebaseApp())
+  }
+  return storage
+}

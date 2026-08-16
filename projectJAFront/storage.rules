@@ -1,0 +1,17 @@
+rules_version = '2';
+
+// Fase 1: avatares sin Firebase Auth (la app usa Sanctum).
+// Más adelante se puede endurecer con tokens custom o Auth.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{userId}/avatar/{fileName} {
+      allow read: if true;
+      allow write: if request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

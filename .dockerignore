@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.vscode
+.cursor
+.env
+**/.env
+**/node_modules
+**/vendor
+**/dist
+**/.firebase
+**/storage/logs
+**/storage/pail
+ProjectJABack/tests
+**/*.md

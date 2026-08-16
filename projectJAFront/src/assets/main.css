@@ -1,0 +1,232 @@
+:root {
+  /* Plus Jakarta Sans: UI compacta y limpia. Sora: títulos con carácter sin ocupar tanto. */
+  --pj-font-sans: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  --pj-font-display: 'Sora', 'Plus Jakarta Sans', sans-serif;
+
+  /* Paleta logos clubes */
+  --pj-navy: #0b2f6b;
+  --pj-navy-dark: #071e48;
+  --pj-gold: #ffcc00;
+  --pj-gold-soft: #f5c518;
+  --pj-red: #ed1c24;
+  --pj-green: #39b54a;
+  --pj-sky: #00aeef;
+
+  --pj-bg: #f4f6f9;
+  --pj-bg-elevated: #ffffff;
+  --pj-bg-muted: #e8eef6;
+  --pj-surface: #ffffff;
+  --pj-border: #c5d0e0;
+  --pj-text: #071e48;
+  --pj-text-muted: #5b6b82;
+  --pj-primary: var(--pj-navy);
+  --pj-primary-hover: var(--pj-navy-dark);
+  --pj-primary-soft: rgba(11, 47, 107, 0.1);
+  --pj-accent: var(--pj-gold);
+  --pj-accent-soft: rgba(255, 204, 0, 0.18);
+  --pj-danger: var(--pj-red);
+  --pj-success: var(--pj-green);
+  --pj-shadow: 0 6px 18px -10px rgba(7, 30, 72, 0.18);
+  --pj-radius: 10px;
+  --pj-sidebar-width: 220px;
+  --pj-topbar-height: 52px;
+  --pj-space-page: 0.85rem;
+  --pj-space-panel: 0.9rem;
+
+  color-scheme: light;
+  font-family: var(--pj-font-sans);
+  font-size: 14.5px;
+  line-height: 1.4;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--pj-text);
+  background: var(--pj-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html.dark {
+  --pj-bg: #07131f;
+  --pj-bg-elevated: #0d1a2b;
+  --pj-bg-muted: #152338;
+  --pj-surface: #0b1828;
+  --pj-border: #2a3d57;
+  --pj-text: #e8eef8;
+  --pj-text-muted: #9aabc2;
+  --pj-primary: #4f84c2;
+  --pj-primary-hover: #82abd9;
+  --pj-primary-soft: rgba(79, 132, 194, 0.18);
+  --pj-accent: #ffcc00;
+  --pj-accent-soft: rgba(255, 204, 0, 0.16);
+  --pj-danger: #ff5a5f;
+  --pj-success: #56c968;
+  --pj-shadow: 0 8px 22px -12px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+  background: var(--pj-bg);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 320px;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+h1,
+h2,
+h3,
+.pj-display {
+  font-family: var(--pj-font-display);
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.pj-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pj-page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.pj-page__title {
+  margin: 0;
+  font-size: clamp(1.2rem, 1.6vw, 1.45rem);
+  font-weight: 600;
+  color: var(--pj-text);
+}
+
+.pj-page__subtitle {
+  margin: 0.2rem 0 0;
+  color: var(--pj-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.pj-panel {
+  background: var(--pj-bg-elevated);
+  border: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
+  border-radius: var(--pj-radius);
+  box-shadow: var(--pj-shadow);
+  padding: var(--pj-space-panel);
+}
+
+.pj-form-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .pj-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pj-form-grid .pj-span-2 {
+    grid-column: span 2;
+  }
+}
+
+.pj-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pj-field label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pj-text-muted);
+}
+
+.pj-field-error {
+  color: var(--pj-danger);
+  font-size: 0.75rem;
+}
+
+.pj-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.pj-muted {
+  color: var(--pj-text-muted);
+}
+
+.pj-avatar-preview {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--pj-border);
+  background: var(--pj-bg-muted);
+}
+
+.pj-empty {
+  text-align: center;
+  padding: 1.5rem 0.75rem;
+  color: var(--pj-text-muted);
+}
+
+/* Densidad más compacta en tablas y controles PrimeVue */
+.p-datatable .p-datatable-thead > tr > th,
+.p-datatable .p-datatable-tbody > tr > td {
+  padding: 0.55rem 0.7rem;
+}
+
+.p-datatable .p-datatable-thead > tr > th {
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.p-inputtext,
+.p-select,
+.p-multiselect,
+.p-password,
+.p-textarea,
+.p-datepicker {
+  font-size: 0.9rem;
+}
+
+.p-button {
+  font-size: 0.875rem;
+  padding: 0.45rem 0.85rem;
+}
+
+.p-button.p-button-sm,
+.p-button.p-button-text.p-button-rounded {
+  padding: 0.35rem;
+}
