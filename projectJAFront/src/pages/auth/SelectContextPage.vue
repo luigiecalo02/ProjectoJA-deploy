@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/auth'
 import { getApiErrorMessage } from '@/services/api'
 import type { AuthContextOption } from '@/modules/auth/types'
 import { brandConfig } from '@/config/brand'
+import { clubLoaderKeyFromContext, persistClubLoader } from '@/modules/auth/clubLogin'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -53,6 +54,7 @@ function cardClasses(option: AuthContextOption): string[] {
 async function enter(option: AuthContextOption): Promise<void> {
   selectingKey.value = option.key
   errorMessage.value = ''
+  persistClubLoader(clubLoaderKeyFromContext(option))
   try {
     await auth.selectContext(option)
     await router.replace(redirectTarget.value)

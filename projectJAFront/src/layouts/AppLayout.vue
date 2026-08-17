@@ -7,6 +7,7 @@ import Drawer from 'primevue/drawer'
 import Avatar from 'primevue/avatar'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import { useBrandStore } from '@/stores/brand'
 import { usePermission } from '@/composables/usePermission'
 import { brandConfig } from '@/config/brand'
 
@@ -15,6 +16,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const theme = useThemeStore()
+const brand = useBrandStore()
 const { can } = usePermission()
 
 const drawerOpen = ref(false)
@@ -49,6 +51,7 @@ const navItems = computed(() => {
     { to: { name: 'dashboard' }, label: t('nav.dashboard'), icon: 'pi pi-home', show: true },
     { to: { name: 'users' }, label: t('nav.users'), icon: 'pi pi-users', show: can('users.view') },
     { to: { name: 'roles' }, label: t('nav.roles'), icon: 'pi pi-shield', show: can('roles.view') },
+    { to: { name: 'settings.brand' }, label: t('nav.settingsBrand'), icon: 'pi pi-palette', show: can('settings.view') },
     { to: { name: 'clubs' }, label: t('nav.clubs'), icon: 'pi pi-building', show: can('clubs.view') },
     { to: { name: 'organizaciones' }, label: t('nav.organizaciones'), icon: 'pi pi-sitemap', show: can('organizaciones.view') },
     { to: { name: 'personas' }, label: t('nav.personas'), icon: 'pi pi-id-card', show: can('personas.view') },
@@ -76,6 +79,7 @@ function isActive(name: string): boolean {
   if (
     name === 'users' ||
     name === 'roles' ||
+    name === 'settings.brand' ||
     name === 'events' ||
     name === 'clubs' ||
     name === 'personas' ||
@@ -117,7 +121,7 @@ function navigate(to: { name: string }): void {
     class="app-shell"
     :class="{ 'app-shell--dark': theme.isDark }"
     :style="{
-      '--pj-pattern': `url(${theme.isDark ? brandConfig.patternDark : brandConfig.pattern})`,
+      '--pj-pattern': brand.patternCss,
     }"
   >
     <aside class="app-sidebar desktop-only">

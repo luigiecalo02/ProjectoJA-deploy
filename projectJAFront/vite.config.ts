@@ -22,8 +22,8 @@ export default defineConfig({
         name: 'ProjectJA',
         short_name: 'ProjectJA',
         description: 'Gestión de organizaciones, clubes y personas',
-        theme_color: '#ED1C24',
-        background_color: '#000000',
+        theme_color: '#0A1B3D',
+        background_color: '#0A1B3D',
         display: 'standalone',
         orientation: 'portrait-primary',
         start_url: '/',
@@ -74,5 +74,11 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    proxy: {
+      '/storage': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
   },
 })

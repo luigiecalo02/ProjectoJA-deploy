@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { authService } from '@/services/authService'
 import { TOKEN_KEY } from '@/services/api'
 import type { AuthContextOption, AuthUser, LoginPayload } from '@/modules/auth/types'
+import { clubLoaderKeyFromContext, persistClubLoader } from '@/modules/auth/clubLogin'
 
 const USER_KEY = 'projectja_user'
 
@@ -30,6 +31,7 @@ export const useAuthStore = defineStore('auth', () => {
   function persistUser(nextUser: AuthUser): void {
     user.value = nextUser
     localStorage.setItem(USER_KEY, JSON.stringify(nextUser))
+    persistClubLoader(clubLoaderKeyFromContext(nextUser.contexto ?? null))
   }
 
   function persistSession(nextToken: string, nextUser: AuthUser): void {

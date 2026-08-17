@@ -56,6 +56,18 @@ class RolePermissionSeeder extends Seeder
                 ],
             ],
             [
+                'key' => 'settings',
+                'name' => 'Apariencia',
+                'route_name' => 'settings.brand',
+                'icon' => 'pi pi-palette',
+                'sort_order' => 35,
+                'description' => 'Imágenes de inicio de sesión y fondos de la plataforma',
+                'permissions' => [
+                    ['action' => 'view', 'display_name' => 'Ver apariencia', 'sort_order' => 1],
+                    ['action' => 'update', 'display_name' => 'Actualizar apariencia', 'sort_order' => 2],
+                ],
+            ],
+            [
                 'key' => 'events',
                 'name' => 'Eventos',
                 'route_name' => 'events',

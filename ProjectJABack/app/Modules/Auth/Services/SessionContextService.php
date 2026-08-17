@@ -63,7 +63,7 @@ final class SessionContextService
             ? collect()
             : Club::query()
                 ->whereIn('organizacion_id', array_keys($clubOrgIds))
-                ->get(['id', 'organizacion_id', 'nombre', 'logo', 'color_principal', 'color_secundario'])
+                ->get(['id', 'organizacion_id', 'nombre', 'logo', 'color_principal', 'color_secundario', 'tipos'])
                 ->keyBy('organizacion_id');
 
         foreach ($rows as $po) {
@@ -99,6 +99,7 @@ final class SessionContextService
                     'icon' => $rol->icon ?: $this->iconForTipo($tipoId),
                     'is_platform' => false,
                     'is_club' => $isClub,
+                    'club_tipos' => $isClub ? $this->clubTipos($club) : [],
                     'club_logo_url' => $club?->logo,
                     'color_principal' => $club?->color_principal,
                     'color_secundario' => $club?->color_secundario,
@@ -233,10 +234,26 @@ final class SessionContextService
             'icon' => $role->icon ?: 'pi pi-shield',
             'is_platform' => true,
             'is_club' => false,
+            'club_tipos' => [],
             'club_logo_url' => null,
             'color_principal' => null,
             'color_secundario' => null,
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function clubTipos(?Club $club): array
+    {
+        if (! $club || ! is_array($club->tipos)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $club->tipos,
+            static fn ($tipo) => is_string($tipo) && $tipo !== '',
+        ));
     }
 
     private function isClubTipo(int $tipoId): bool

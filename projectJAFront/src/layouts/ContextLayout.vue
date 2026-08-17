@@ -2,16 +2,17 @@
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import Button from 'primevue/button'
-import { brandConfig } from '@/config/brand'
+import { useBrandStore } from '@/stores/brand'
 
 const { t } = useI18n()
 const theme = useThemeStore()
+const brand = useBrandStore()
 </script>
 
 <template>
   <div
     class="context-shell"
-    :style="{ '--pj-pattern': `url(${brandConfig.pattern})` }"
+    :style="{ '--pj-pattern': brand.patternCss }"
   >
     <Button
       class="context-shell__theme"

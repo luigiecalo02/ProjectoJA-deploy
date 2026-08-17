@@ -85,6 +85,12 @@ const routes: RouteRecordRaw[] = [
         meta: { permission: 'roles.view' },
       },
       {
+        path: 'configuracion/apariencia',
+        name: 'settings.brand',
+        component: () => import('@/pages/settings/BrandSettingsPage.vue'),
+        meta: { permission: 'settings.view' },
+      },
+      {
         path: 'events',
         name: 'events',
         component: () => import('@/pages/events/EventsListPage.vue'),

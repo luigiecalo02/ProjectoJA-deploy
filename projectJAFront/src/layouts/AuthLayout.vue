@@ -1,47 +1,83 @@
 <script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/theme'
 import Button from 'primevue/button'
 import { brandConfig } from '@/config/brand'
+import { toCssImageUrl } from '@/modules/settings/assetUrl'
+import { loginHeroFitVars } from '@/modules/settings/loginHeroFit'
+import { useBrandStore } from '@/stores/brand'
 
 const { t } = useI18n()
 const theme = useThemeStore()
+const brand = useBrandStore()
+const heroBroken = ref(false)
+const isDesktop = ref(window.matchMedia('(min-width: 960px)').matches)
+let media: MediaQueryList | null = null
 
-const features = [
-  { icon: 'pi pi-users', titleKey: 'auth.featureClubsTitle', descKey: 'auth.featureClubsDesc' },
-  { icon: 'pi pi-shield', titleKey: 'auth.featureFaithTitle', descKey: 'auth.featureFaithDesc' },
-  { icon: 'pi pi-heart', titleKey: 'auth.featureServiceTitle', descKey: 'auth.featureServiceDesc' },
-] as const
+function syncViewport(): void {
+  isDesktop.value = Boolean(media?.matches)
+}
+
+onMounted(() => {
+  media = window.matchMedia('(min-width: 960px)')
+  syncViewport()
+  media.addEventListener('change', syncViewport)
+})
+
+onBeforeUnmount(() => {
+  media?.removeEventListener('change', syncViewport)
+})
+
+watch(() => brand.loginHero, () => {
+  heroBroken.value = false
+})
+
+const heroUrl = computed(() => (heroBroken.value ? brandConfig.loginHero : brand.loginHero))
+const heroCss = computed(() => toCssImageUrl(heroUrl.value))
+const heroCopy = computed(() =>
+  isDesktop.value ? brand.loginHeroCopy.desktop : brand.loginHeroCopy.mobile,
+)
+const heroStyle = computed(() => ({
+  backgroundImage: heroCss.value,
+  ...loginHeroFitVars(heroCopy.value.fit),
+}))
 </script>
 
 <template>
   <div class="login-shell">
-    <section class="login-hero" aria-label="ProjectJA">
+    <section
+      class="login-hero"
+      aria-label="ProjectJA"
+      :style="heroStyle"
+    >
       <img
         class="login-hero__image"
-        :src="brandConfig.loginHero"
+        :key="heroUrl"
+        :src="heroUrl"
         alt=""
         decoding="async"
+        @error="heroBroken = true"
       />
       <div class="login-hero__overlay" />
 
       <div class="login-hero__content">
         <div class="login-hero__copy">
           <h1 class="login-hero__title">
-            <span>{{ t('auth.heroLine1') }}</span>
-            <em>{{ t('auth.heroLine2') }}</em>
+            <span>{{ heroCopy.line1 }}</span>
+            <em>{{ heroCopy.line2 }}</em>
           </h1>
-          <p class="login-hero__subtitle">{{ t('auth.heroSubtitle') }}</p>
+          <p class="login-hero__subtitle">{{ heroCopy.subtitle }}</p>
         </div>
 
         <ul class="login-hero__features">
-          <li v-for="item in features" :key="item.titleKey">
+          <li v-for="(item, index) in heroCopy.features" :key="`${item.title}-${index}`">
             <span class="feature-icon" aria-hidden="true">
               <i :class="item.icon" />
             </span>
             <div>
-              <strong>{{ t(item.titleKey) }}</strong>
-              <p>{{ t(item.descKey) }}</p>
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.desc }}</p>
             </div>
           </li>
         </ul>
@@ -85,7 +121,7 @@ const features = [
 
     <section
       class="login-panel"
-      :style="{ '--pj-pattern': `url(${brandConfig.pattern})` }"
+      :style="{ '--pj-pattern': brand.patternCss }"
     >
       <Button
         class="login-panel__theme"
@@ -116,6 +152,10 @@ const features = [
   overflow: hidden;
   color: #fff;
   isolation: isolate;
+  background-color: #07122a;
+  background-size: cover;
+  background-position: var(--hero-x, 50%) var(--hero-y, 50%);
+  background-repeat: no-repeat;
 }
 
 .login-hero__image {
@@ -124,7 +164,9 @@ const features = [
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 35%;
+  object-position: var(--hero-x, 50%) var(--hero-y, 50%);
+  transform: scale(var(--hero-zoom, 1));
+  transform-origin: var(--hero-x, 50%) var(--hero-y, 50%);
   z-index: 0;
 }
 
@@ -133,8 +175,8 @@ const features = [
   inset: 0;
   z-index: 1;
   background:
-    linear-gradient(180deg, rgba(7, 18, 42, 0.42) 0%, rgba(7, 18, 42, 0.72) 52%, rgba(7, 18, 42, 0.9) 100%),
-    radial-gradient(circle at 18% 18%, rgba(245, 197, 24, 0.16), transparent 42%);
+    linear-gradient(180deg, rgba(7, 18, 42, 0.18) 0%, rgba(7, 18, 42, 0.42) 55%, rgba(7, 18, 42, 0.72) 100%),
+    radial-gradient(circle at 18% 18%, rgba(245, 197, 24, 0.12), transparent 42%);
 }
 
 .login-hero__content {
@@ -181,8 +223,9 @@ const features = [
   list-style: none;
   margin: 0;
   padding: 0;
-  display: none;
-  gap: 1rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
 }
 
 .login-hero__features li {
@@ -221,6 +264,25 @@ const features = [
   z-index: 3;
   color: #f4f6f9;
   pointer-events: none;
+}
+
+@media (max-width: 959px) {
+  .login-hero {
+    min-height: 58vh;
+  }
+
+  .feature-icon {
+    width: 1.85rem;
+    height: 1.85rem;
+  }
+
+  .login-hero__features strong {
+    font-size: 0.8rem;
+  }
+
+  .login-hero__features p {
+    font-size: 0.74rem;
+  }
 }
 
 .login-hero__wave--side {

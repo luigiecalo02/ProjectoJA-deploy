@@ -69,6 +69,7 @@ export interface AuthContextOption {
   icon?: string
   is_platform?: boolean
   is_club?: boolean
+  club_tipos?: string[]
   club_logo_url?: string | null
   color_principal?: string | null
   color_secundario?: string | null

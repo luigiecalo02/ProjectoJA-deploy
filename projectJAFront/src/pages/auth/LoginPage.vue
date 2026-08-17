@@ -17,7 +17,6 @@ const { t } = useI18n()
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
-
 const form = reactive({
   email: '',
   password: '',
@@ -147,7 +146,11 @@ async function completeRegistration(): Promise<void> {
 </script>
 
 <template>
-  <form v-if="mode === 'login'" class="login-form" @submit.prevent="submit">
+  <form
+    v-if="mode === 'login'"
+    class="login-form"
+    @submit.prevent="submit"
+  >
     <header class="login-form__header">
       <img class="login-form__logos" :src="brandConfig.logos" :alt="t('auth.clubsAlt')" />
       <h1>{{ t('auth.welcomeBack') }}</h1>

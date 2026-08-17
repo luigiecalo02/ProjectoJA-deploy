@@ -7,6 +7,7 @@ import { ProjectJaPreset } from '@/theme/preset'
 import { i18n } from '@/i18n'
 import router from '@/router'
 import { useThemeStore } from '@/stores/theme'
+import { useBrandStore } from '@/stores/brand'
 import App from '@/App.vue'
 import 'primeicons/primeicons.css'
 import '@/assets/main.css'
@@ -31,5 +32,6 @@ app.use(ToastService)
 app.directive('tooltip', Tooltip)
 
 useThemeStore(pinia).init()
+await useBrandStore(pinia).load()
 
 app.mount('#app')

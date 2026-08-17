@@ -1,11 +1,20 @@
 <script setup lang="ts">
-import ConquistadoresLoader from '@/components/ConquistadoresLoader.vue'
+import { computed } from 'vue'
+import ClubLoader from '@/components/ClubLoader.vue'
+import { useAuthStore } from '@/stores/auth'
+import { useBrandStore } from '@/stores/brand'
+import {
+  clubLoaderKeyFromContext,
+  readStoredClubLoader,
+  type ClubLoaderKey,
+} from '@/modules/auth/clubLogin'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     show?: boolean
     label?: string
     fullscreen?: boolean
+    variant?: ClubLoaderKey
   }>(),
   {
     show: true,
@@ -13,6 +22,23 @@ withDefaults(
     fullscreen: false,
   },
 )
+
+const auth = useAuthStore()
+const brand = useBrandStore()
+
+const resolvedVariant = computed<ClubLoaderKey>(() => {
+  if (props.variant) {
+    return props.variant
+  }
+
+  if (auth.contexto) {
+    return clubLoaderKeyFromContext(auth.contexto)
+  }
+
+  return readStoredClubLoader() ?? 'neutral'
+})
+
+const resolvedPreset = computed(() => brand.loaderPreset(resolvedVariant.value))
 </script>
 
 <template>
@@ -21,7 +47,12 @@ withDefaults(
     class="page-loader"
     :class="{ 'page-loader--fullscreen': fullscreen }"
   >
-    <ConquistadoresLoader :label="label" :size="fullscreen ? 110 : 88" />
+    <ClubLoader
+      :variant="resolvedVariant"
+      :preset="resolvedPreset"
+      :label="label"
+      :size="fullscreen ? 110 : 88"
+    />
   </div>
 </template>
 
