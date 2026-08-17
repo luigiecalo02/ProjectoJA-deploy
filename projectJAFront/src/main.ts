@@ -32,6 +32,8 @@ app.use(ToastService)
 app.directive('tooltip', Tooltip)
 
 useThemeStore(pinia).init()
-await useBrandStore(pinia).load()
 
-app.mount('#app')
+void (async () => {
+  await useBrandStore(pinia).load()
+  app.mount('#app')
+})()
