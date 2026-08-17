@@ -9,9 +9,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('evento_inscripcion_persona', function (Blueprint $table) {
-            $table->dropForeign('eip_persona_id_foreign');
-        });
+        $this->dropColumnForeignKey('evento_inscripcion_persona', 'persona_id');
 
         DB::statement('ALTER TABLE evento_inscripcion_persona MODIFY persona_id BIGINT UNSIGNED NULL');
 
@@ -41,9 +39,7 @@ return new class extends Migration
             'valor_base' => DB::raw('valor_inscripcion'),
         ]);
 
-        Schema::table('evento_servicio_reserva', function (Blueprint $table) {
-            $table->dropForeign('esr_persona_id_foreign');
-        });
+        $this->dropColumnForeignKey('evento_servicio_reserva', 'persona_id');
 
         DB::statement('ALTER TABLE evento_servicio_reserva MODIFY persona_id BIGINT UNSIGNED NULL');
 
@@ -90,5 +86,25 @@ return new class extends Migration
                 'valor_seguro',
             ]);
         });
+    }
+
+    private function dropColumnForeignKey(string $table, string $column): void
+    {
+        $schema = Schema::getConnection()->getDatabaseName();
+        $keys = DB::select(
+            'SELECT CONSTRAINT_NAME AS name
+             FROM information_schema.KEY_COLUMN_USAGE
+             WHERE TABLE_SCHEMA = ?
+               AND TABLE_NAME = ?
+               AND COLUMN_NAME = ?
+               AND REFERENCED_TABLE_NAME IS NOT NULL',
+            [$schema, $table, $column]
+        );
+
+        foreach ($keys as $key) {
+            Schema::table($table, function (Blueprint $blueprint) use ($key) {
+                $blueprint->dropForeign($key->name);
+            });
+        }
     }
 };
