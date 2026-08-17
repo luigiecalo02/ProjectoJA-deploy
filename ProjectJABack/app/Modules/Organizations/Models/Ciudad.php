@@ -12,6 +12,7 @@ class Ciudad extends Model
 
     protected $fillable = [
         'departamento_id',
+        'codigo',
         'nombre',
     ];
 

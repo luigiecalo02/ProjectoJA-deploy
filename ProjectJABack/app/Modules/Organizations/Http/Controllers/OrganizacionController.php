@@ -71,7 +71,9 @@ final class OrganizacionController
                 'departamentos' => $org->relationLoaded('departamentos')
                     ? $org->departamentos->map(fn ($dep) => [
                         'id' => $dep->id,
+                        'codigo' => $dep->codigo,
                         'nombre' => $dep->nombre,
+                        'label' => $dep->codigo ? "{$dep->codigo} — {$dep->nombre}" : $dep->nombre,
                         'pais_id' => $dep->pais_id,
                     ])->values()->all()
                     : [],
@@ -160,7 +162,9 @@ final class OrganizacionController
             'departamentos' => $org->relationLoaded('departamentos')
                 ? $org->departamentos->map(fn ($dep) => [
                     'id' => $dep->id,
+                    'codigo' => $dep->codigo,
                     'nombre' => $dep->nombre,
+                    'label' => $dep->codigo ? "{$dep->codigo} — {$dep->nombre}" : $dep->nombre,
                     'pais_id' => $dep->pais_id,
                 ])->values()->all()
                 : [],

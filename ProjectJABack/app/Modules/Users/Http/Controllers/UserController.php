@@ -109,7 +109,7 @@ final class UserController
             Response::HTTP_FORBIDDEN
         );
 
-        $roles = Role::query()->orderBy('name')->get(['id', 'name', 'display_name']);
+        $roles = Role::query()->orderBy('sort_order')->orderBy('display_name')->get(['id', 'name', 'display_name']);
 
         return ApiResponse::success($roles);
     }

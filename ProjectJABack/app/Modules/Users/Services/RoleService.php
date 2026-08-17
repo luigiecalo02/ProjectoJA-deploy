@@ -20,7 +20,7 @@ final class RoleService
         return Role::query()
             ->withCount(['permissions'])
             ->with(['permissions:id,name'])
-            ->orderByDesc('is_super')
+            ->orderBy('sort_order')
             ->orderBy('display_name')
             ->get()
             ->each(function (Role $role) {
@@ -47,6 +47,7 @@ final class RoleService
             $data['name'] = $data['name'] ?? Str::slug($data['display_name'], '_');
             $data['is_system'] = false;
             $data['is_super'] = false;
+            $data['sort_order'] = $data['sort_order'] ?? ((int) Role::query()->max('sort_order') + 1);
 
             $role = Role::query()->create($data);
             $role->permissions()->sync($permissionIds);

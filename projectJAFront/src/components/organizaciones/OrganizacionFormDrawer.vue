@@ -149,13 +149,19 @@ const estadoOptions = computed(() => [
 
 const parentDepartamentos = computed<DepartamentoOption[]>(() => {
   const deps = selectedParent.value?.departamentos ?? []
-  if (deps.length) return deps
+  if (deps.length) {
+    return deps.map((d) => ({
+      ...d,
+      label: d.label || (d.codigo ? `${d.codigo} — ${d.nombre}` : d.nombre),
+    }))
+  }
   if (selectedParent.value?.departamento_id && selectedParent.value.departamento_nombre) {
     return [
       {
         id: selectedParent.value.departamento_id,
         pais_id: selectedParent.value.pais_id ?? 0,
         nombre: selectedParent.value.departamento_nombre,
+        label: selectedParent.value.departamento_nombre,
       },
     ]
   }
@@ -456,7 +462,7 @@ async function save(): Promise<void> {
           <MultiSelect
             v-model="form.departamento_ids"
             :options="departamentos.length ? departamentos : parentDepartamentos"
-            option-label="nombre"
+            option-label="label"
             option-value="id"
             display="chip"
             filter
@@ -470,7 +476,7 @@ async function save(): Promise<void> {
           <Select
             v-model="form.departamento_id"
             :options="parentDepartamentos.length ? parentDepartamentos : departamentos"
-            option-label="nombre"
+            option-label="label"
             option-value="id"
             fluid
             filter
@@ -483,7 +489,7 @@ async function save(): Promise<void> {
           <Select
             v-model="form.ciudad_id"
             :options="ciudades"
-            option-label="nombre"
+            option-label="label"
             option-value="id"
             fluid
             filter

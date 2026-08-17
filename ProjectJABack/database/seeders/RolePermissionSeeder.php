@@ -193,60 +193,70 @@ class RolePermissionSeeder extends Seeder
                 'display_name' => 'Super Administrador',
                 'description' => 'Acceso total a todas las páginas y permisos',
                 'is_super' => true,
+                'sort_order' => 1,
             ],
             [
                 'name' => 'admin',
                 'display_name' => 'Administrador',
                 'description' => 'Administración general del sistema',
                 'is_super' => false,
-            ],
-            [
-                'name' => 'director',
-                'display_name' => 'Director',
-                'description' => 'Dirección de club / ministerio',
-                'is_super' => false,
-            ],
-            [
-                'name' => 'subdirector',
-                'display_name' => 'Subdirector',
-                'description' => 'Apoya la dirección del club y asume en su ausencia',
-                'is_super' => false,
-            ],
-            [
-                'name' => 'secretario',
-                'display_name' => 'Secretario',
-                'description' => 'Secretaría',
-                'is_super' => false,
-            ],
-            [
-                'name' => 'tesorero',
-                'display_name' => 'Tesorero',
-                'description' => 'Tesorería',
-                'is_super' => false,
-            ],
-            [
-                'name' => 'pastor',
-                'display_name' => 'Pastor',
-                'description' => 'Cuenta pastoral: asocia y consulta sus clubes',
-                'is_super' => false,
-            ],
-            [
-                'name' => 'invitado',
-                'display_name' => 'Invitado',
-                'description' => 'Acceso mínimo de solo lectura (creado por el sistema)',
-                'is_super' => false,
-            ],
-            [
-                'name' => 'juez',
-                'display_name' => 'Juez',
-                'description' => 'Evalúa y califica eventos y subeventos',
-                'is_super' => false,
+                'sort_order' => 2,
             ],
             [
                 'name' => 'supervisor',
                 'display_name' => 'Supervisor',
                 'description' => 'Consulta puntajes de eventos sin poder editar ni calificar',
                 'is_super' => false,
+                'sort_order' => 3,
+            ],
+            [
+                'name' => 'pastor',
+                'display_name' => 'Pastor',
+                'description' => 'Cuenta pastoral: asocia y consulta sus clubes',
+                'is_super' => false,
+                'sort_order' => 4,
+            ],
+            [
+                'name' => 'juez',
+                'display_name' => 'Juez',
+                'description' => 'Evalúa y califica eventos y subeventos',
+                'is_super' => false,
+                'sort_order' => 5,
+            ],
+            [
+                'name' => 'director',
+                'display_name' => 'Director',
+                'description' => 'Dirección de club / ministerio',
+                'is_super' => false,
+                'sort_order' => 6,
+            ],
+            [
+                'name' => 'subdirector',
+                'display_name' => 'Subdirector',
+                'description' => 'Apoya la dirección del club y asume en su ausencia',
+                'is_super' => false,
+                'sort_order' => 7,
+            ],
+            [
+                'name' => 'secretario',
+                'display_name' => 'Secretario',
+                'description' => 'Secretaría',
+                'is_super' => false,
+                'sort_order' => 8,
+            ],
+            [
+                'name' => 'tesorero',
+                'display_name' => 'Tesorero',
+                'description' => 'Tesorería',
+                'is_super' => false,
+                'sort_order' => 9,
+            ],
+            [
+                'name' => 'invitado',
+                'display_name' => 'Invitado',
+                'description' => 'Acceso mínimo de solo lectura (creado por el sistema)',
+                'is_super' => false,
+                'sort_order' => 10,
             ],
         ];
 
@@ -259,6 +269,7 @@ class RolePermissionSeeder extends Seeder
                     'is_system' => true,
                     'is_super' => $roleData['is_super'],
                     'estado' => true,
+                    'sort_order' => $roleData['sort_order'],
                 ]
             );
         }
@@ -413,14 +424,14 @@ class RolePermissionSeeder extends Seeder
             ->whereNotIn('name', [
                 'super_admin',
                 'admin',
+                'supervisor',
+                'pastor',
+                'juez',
                 'director',
                 'subdirector',
                 'secretario',
                 'tesorero',
-                'pastor',
                 'invitado',
-                'juez',
-                'supervisor',
             ])
             ->update(['is_system' => false]);
     }

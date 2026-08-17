@@ -193,6 +193,7 @@ final class OrganizationAccessService
                     ->where('persona_organizacion.estado', true);
             })
             ->with('permissions')
+            ->orderBy('sort_order')
             ->get()
             ->all();
     }

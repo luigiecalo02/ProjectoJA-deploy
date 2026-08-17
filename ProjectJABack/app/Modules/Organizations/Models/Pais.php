@@ -10,6 +10,7 @@ class Pais extends Model
     protected $table = 'pais';
 
     protected $fillable = [
+        'codigo',
         'nombre',
     ];
 

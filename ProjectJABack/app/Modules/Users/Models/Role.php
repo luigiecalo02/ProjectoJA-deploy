@@ -15,6 +15,7 @@ class Role extends Model
         'is_system',
         'is_super',
         'estado',
+        'sort_order',
     ];
 
     protected function casts(): array
@@ -23,6 +24,7 @@ class Role extends Model
             'is_system' => 'boolean',
             'is_super' => 'boolean',
             'estado' => 'boolean',
+            'sort_order' => 'integer',
         ];
     }
 

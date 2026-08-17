@@ -12,6 +12,7 @@ class Departamento extends Model
 
     protected $fillable = [
         'pais_id',
+        'codigo',
         'nombre',
     ];
 

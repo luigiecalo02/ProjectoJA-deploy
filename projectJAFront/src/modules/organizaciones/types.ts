@@ -13,20 +13,26 @@ export interface UbicacionRef {
 
 export interface PaisOption {
   id: number
+  codigo?: string | null
   nombre: string
+  label?: string
 }
 
 export interface DepartamentoOption {
   id: number
   pais_id: number
+  codigo?: string | null
   nombre: string
+  label?: string
   pais_nombre?: string | null
 }
 
 export interface CiudadOption {
   id: number
   departamento_id: number
+  codigo?: string | null
   nombre: string
+  label?: string
   departamento_nombre?: string | null
 }
 

@@ -22,7 +22,9 @@ final class UbicacionController
 
         $items = collect($this->ubicacionService->paises())->map(fn (Pais $pais) => [
             'id' => $pais->id,
+            'codigo' => $pais->codigo,
             'nombre' => $pais->nombre,
+            'label' => $this->ubicacionLabel($pais->codigo, $pais->nombre),
         ]);
 
         return ApiResponse::success($items);
@@ -36,7 +38,9 @@ final class UbicacionController
         $items = collect($this->ubicacionService->departamentos($paisId ?: null))->map(fn (Departamento $dep) => [
             'id' => $dep->id,
             'pais_id' => $dep->pais_id,
+            'codigo' => $dep->codigo,
             'nombre' => $dep->nombre,
+            'label' => $this->ubicacionLabel($dep->codigo, $dep->nombre),
             'pais_nombre' => $dep->pais?->nombre,
         ]);
 
@@ -51,10 +55,17 @@ final class UbicacionController
         $items = collect($this->ubicacionService->ciudades($departamentoId ?: null))->map(fn (Ciudad $ciudad) => [
             'id' => $ciudad->id,
             'departamento_id' => $ciudad->departamento_id,
+            'codigo' => $ciudad->codigo,
             'nombre' => $ciudad->nombre,
+            'label' => $this->ubicacionLabel($ciudad->codigo, $ciudad->nombre),
             'departamento_nombre' => $ciudad->departamento?->nombre,
         ]);
 
         return ApiResponse::success($items);
+    }
+
+    private function ubicacionLabel(?string $codigo, string $nombre): string
+    {
+        return $codigo ? "{$codigo} — {$nombre}" : $nombre;
     }
 }
