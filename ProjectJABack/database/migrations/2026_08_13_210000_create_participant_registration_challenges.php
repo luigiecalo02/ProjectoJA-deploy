@@ -16,7 +16,8 @@ return new class extends Migration
             $table->unsignedTinyInteger('attempts')->default(0);
             $table->timestamp('expires_at')->index();
             $table->timestamp('consumed_at')->nullable();
-            $table->string('verification_token_hash', 64)->nullable()->unique();
+            $table->string('verification_token_hash', 64)->nullable();
+            $table->unique('verification_token_hash', 'prc_verification_token_hash_uq');
             $table->timestamp('verification_expires_at')->nullable();
             $table->timestamps();
         });
