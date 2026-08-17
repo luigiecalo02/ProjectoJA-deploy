@@ -72,8 +72,8 @@ return new class extends Migration
         ');
 
         Schema::table('lotes_terreno', function (Blueprint $table) {
-            $table->dropUnique(['terreno_id', 'codigo']);
             $table->dropForeign(['terreno_id']);
+            $table->dropUnique(['terreno_id', 'codigo']);
             $table->dropColumn('terreno_id');
             $table->unique(['configuracion_terreno_id', 'codigo']);
         });
