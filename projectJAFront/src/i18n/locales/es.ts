@@ -26,6 +26,14 @@ export default {
     warning: 'Atención',
     info: 'Información',
   },
+  pwa: {
+    install: 'Instalar aplicación',
+    iosStep1: 'Toca el botón Compartir de Safari.',
+    iosStep2: 'Elige “Añadir a pantalla de inicio”.',
+    iosStep3: 'Confirma con “Añadir”.',
+    androidHint:
+      'Abre el menú del navegador (⋮) y elige “Instalar aplicación” o “Añadir a pantalla de inicio”.',
+  },
   nav: {
     dashboard: 'Inicio',
     users: 'Usuarios',

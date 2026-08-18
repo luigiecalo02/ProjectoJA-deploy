@@ -7,6 +7,7 @@ import { brandConfig } from '@/config/brand'
 import { toCssImageUrl } from '@/modules/settings/assetUrl'
 import { loginHeroFitVars } from '@/modules/settings/loginHeroFit'
 import { useBrandStore } from '@/stores/brand'
+import PwaInstallButton from '@/components/pwa/PwaInstallButton.vue'
 
 const { t } = useI18n()
 const theme = useThemeStore()
@@ -134,6 +135,7 @@ const heroStyle = computed(() => ({
       <div class="login-panel__card">
         <RouterView />
       </div>
+      <PwaInstallButton class="login-panel__pwa" />
     </section>
   </div>
 </template>
@@ -300,7 +302,9 @@ const heroStyle = computed(() => ({
 .login-panel {
   position: relative;
   display: grid;
-  place-items: center;
+  justify-items: center;
+  align-content: center;
+  gap: 0.85rem;
   padding: 1.25rem;
   background-color: #f4f6f9;
   background-image: var(--pj-pattern);
@@ -314,6 +318,10 @@ const heroStyle = computed(() => ({
   top: 0.75rem;
   right: 0.75rem;
   color: var(--pj-navy) !important;
+}
+
+.login-panel__pwa {
+  width: min(100%, 420px);
 }
 
 .login-panel__card {
@@ -359,6 +367,10 @@ const heroStyle = computed(() => ({
     right: -1px;
     width: clamp(72px, 8vw, 120px);
     height: 100%;
+  }
+
+  .login-panel__pwa {
+    display: none;
   }
 
   .login-panel {
