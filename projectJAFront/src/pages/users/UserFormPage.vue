@@ -9,9 +9,8 @@ import Password from 'primevue/password'
 import MultiSelect from 'primevue/multiselect'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Checkbox from 'primevue/checkbox'
-import FileUpload from 'primevue/fileupload'
-import type { FileUploadSelectEvent } from 'primevue/fileupload'
 import Message from 'primevue/message'
+import MediaProfileUpload from '@/components/media/MediaProfileUpload.vue'
 import Drawer from 'primevue/drawer'
 import RadioButton from 'primevue/radiobutton'
 import DataTable from 'primevue/datatable'
@@ -291,13 +290,12 @@ async function loadUser(): Promise<void> {
   }
 }
 
-async function onAvatarSelect(event: FileUploadSelectEvent): Promise<void> {
-  const file = Array.isArray(event.files) ? event.files[0] : event.files
+async function onAvatarSelect(file: File): Promise<void> {
   if (!file || !isEdit.value) return
 
   uploading.value = true
   try {
-    const url = await storageService.uploadUserAvatar(userId.value, file as File)
+    const url = await storageService.uploadUserAvatar(userId.value, file)
     form.avatar_url = url
     toast.add({
       severity: 'success',
@@ -508,30 +506,14 @@ onMounted(async () => {
       <PageLoader v-if="loading" :label="t('common.loading')" />
 
       <div v-else class="pj-form-grid">
-        <div class="pj-field pj-span-2 avatar-block">
-          <label>{{ t('users.avatar') }}</label>
-          <div class="avatar-row">
-            <img
-              v-if="form.avatar_url"
-              :src="form.avatar_url"
-              alt=""
-              class="pj-avatar-preview"
-            />
-            <div v-else class="pj-avatar-preview avatar-placeholder">
-              {{ form.name?.charAt(0)?.toUpperCase() || '?' }}
-            </div>
-            <FileUpload
-              v-if="isEdit"
-              mode="basic"
-              accept="image/*"
-              :auto="false"
-              :choose-label="t('users.uploadAvatar')"
-              :disabled="uploading"
-              custom-upload
-              @select="onAvatarSelect"
-            />
-            <span v-else class="pj-muted">{{ t('users.uploadAvatar') }} — {{ t('common.save') }}</span>
-          </div>
+        <div class="pj-field pj-span-2">
+          <MediaProfileUpload
+            :src="form.avatar_url"
+            :busy="uploading"
+            :disabled="!isEdit"
+            :hint="isEdit ? undefined : `${t('users.uploadAvatar')} — ${t('common.save')}`"
+            @select="onAvatarSelect"
+          />
         </div>
 
         <div class="pj-field">

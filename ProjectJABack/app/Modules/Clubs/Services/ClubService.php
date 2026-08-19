@@ -12,6 +12,7 @@ use App\Modules\Organizations\Services\OrganizacionRealtimeNotifier;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
+use App\Modules\Shared\Services\ImageOptimizer;
 use App\Modules\Users\Models\Role;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
@@ -27,6 +28,7 @@ final class ClubService
         private readonly PersonaService $personaService,
         private readonly OrganizationAccessService $orgAccess,
         private readonly OrganizacionRealtimeNotifier $orgRealtime,
+        private readonly ImageOptimizer $imageOptimizer,
     ) {}
 
     public function list(User $actor, array $filters = [], int $perPage = 15): LengthAwarePaginator
@@ -496,16 +498,15 @@ final class ClubService
 
     public function storeLogo(Club $club, UploadedFile $file, User $actor): Club
     {
-        $directory = "clubs/{$club->id}";
-        $storedPath = $file->store($directory, 'public');
-        $url = url('storage/'.$storedPath);
+        $stored = $this->imageOptimizer->store($file, "clubs/{$club->id}", 'logo');
+        $url = url('storage/'.$stored->path);
 
         StoredFile::query()->create([
             'name' => $file->getClientOriginalName(),
-            'path' => $storedPath,
-            'size' => $file->getSize() ?: 0,
-            'mime_type' => $file->getMimeType(),
-            'hash' => hash_file('sha256', $file->getRealPath()) ?: null,
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
             'uploaded_by' => $actor->id,
         ]);
 

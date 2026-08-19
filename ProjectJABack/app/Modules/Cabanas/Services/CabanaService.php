@@ -90,6 +90,9 @@ final class CabanaService
                         'y' => $cuartoData['y'],
                         'ancho' => $cuartoData['ancho'],
                         'alto' => $cuartoData['alto'],
+                        'forma' => $cuartoData['forma'] ?? 'rect',
+                        'vertices' => $cuartoData['vertices'] ?? null,
+                        'puertas' => $cuartoData['puertas'] ?? null,
                         'genero' => $cuartoData['genero'],
                         'capacidad' => max(1, $capacidad ?: (int) ($cuartoData['capacidad'] ?? 1)),
                         'orden' => $cuartoData['orden'] ?? $cuartoIndex,
@@ -120,19 +123,60 @@ final class CabanaService
      */
     private function assertBedsInsideRoom(array $cuarto, array $camas): void
     {
-        $rx = (float) $cuarto['x'];
-        $ry = (float) $cuarto['y'];
-        $rw = (float) $cuarto['ancho'];
-        $rh = (float) $cuarto['alto'];
-
         foreach ($camas as $cama) {
-            $x = (float) $cama['x'];
-            $y = (float) $cama['y'];
-            if ($x < $rx || $y < $ry || $x > $rx + $rw || $y > $ry + $rh) {
+            if (! $this->pointInsideRoom($cuarto, (float) $cama['x'], (float) $cama['y'])) {
                 throw ValidationException::withMessages([
                     'pisos' => ['Las camas deben permanecer dentro de su cuarto.'],
                 ]);
             }
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $cuarto
+     */
+    private function pointInsideRoom(array $cuarto, float $x, float $y): bool
+    {
+        $forma = $cuarto['forma'] ?? 'rect';
+        $left = (float) $cuarto['x'];
+        $top = (float) $cuarto['y'];
+        $width = (float) $cuarto['ancho'];
+        $height = (float) $cuarto['alto'];
+
+        if ($forma === 'circle') {
+            $cx = $left + $width / 2;
+            $cy = $top + $height / 2;
+            $radius = min($width, $height) / 2;
+
+            return (($x - $cx) ** 2 + ($y - $cy) ** 2) <= $radius ** 2;
+        }
+
+        if ($forma === 'polygon' && is_array($cuarto['vertices'] ?? null) && count($cuarto['vertices']) >= 3) {
+            return $this->pointInPolygon($x, $y, $cuarto['vertices']);
+        }
+
+        return $x >= $left && $y >= $top && $x <= $left + $width && $y <= $top + $height;
+    }
+
+    /**
+     * @param  list<array{x?: mixed, y?: mixed}>  $vertices
+     */
+    private function pointInPolygon(float $x, float $y, array $vertices): bool
+    {
+        $inside = false;
+        $count = count($vertices);
+        for ($i = 0, $j = $count - 1; $i < $count; $j = $i, $i++) {
+            $ax = (float) ($vertices[$i]['x'] ?? 0);
+            $ay = (float) ($vertices[$i]['y'] ?? 0);
+            $bx = (float) ($vertices[$j]['x'] ?? 0);
+            $by = (float) ($vertices[$j]['y'] ?? 0);
+            $intersects = ($ay > $y) !== ($by > $y)
+                && $x < (($bx - $ax) * ($y - $ay)) / (($by - $ay) ?: PHP_FLOAT_EPSILON) + $ax;
+            if ($intersects) {
+                $inside = ! $inside;
+            }
+        }
+
+        return $inside;
     }
 }

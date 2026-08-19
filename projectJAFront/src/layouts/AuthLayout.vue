@@ -305,7 +305,8 @@ const heroStyle = computed(() => ({
   justify-items: center;
   align-content: center;
   gap: 0.85rem;
-  padding: 1.25rem;
+  padding: 1.25rem max(1.25rem, env(safe-area-inset-right, 0px))
+    max(1.25rem, env(safe-area-inset-bottom, 0px)) max(1.25rem, env(safe-area-inset-left, 0px));
   background-color: #f4f6f9;
   background-image: var(--pj-pattern);
   background-repeat: repeat;

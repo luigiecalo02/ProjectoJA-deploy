@@ -9,6 +9,7 @@ use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
+use App\Modules\Shared\Services\ImageOptimizer;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -22,6 +23,7 @@ final class EventService
         private readonly AuditLogger $auditLogger,
         private readonly OrganizationAccessService $orgAccess,
         private readonly CriterioEvaluacionService $criterioService,
+        private readonly ImageOptimizer $imageOptimizer,
     ) {}
 
     public function list(User $actor, array $filters = [], int $perPage = 15): LengthAwarePaginator
@@ -633,16 +635,15 @@ final class EventService
 
     public function storeImage(Event $event, UploadedFile $file, User $actor): Event
     {
-        $directory = "events/{$event->id}";
-        $storedPath = $file->store($directory, 'public');
-        $url = url('storage/'.$storedPath);
+        $stored = $this->imageOptimizer->store($file, "events/{$event->id}", 'evt');
+        $url = url('storage/'.$stored->path);
 
         StoredFile::query()->create([
             'name' => $file->getClientOriginalName(),
-            'path' => $storedPath,
-            'size' => $file->getSize() ?: 0,
-            'mime_type' => $file->getMimeType(),
-            'hash' => hash_file('sha256', $file->getRealPath()) ?: null,
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
             'uploaded_by' => $actor->id,
         ]);
 

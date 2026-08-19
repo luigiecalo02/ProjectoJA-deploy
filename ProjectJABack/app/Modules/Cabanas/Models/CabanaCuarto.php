@@ -14,13 +14,14 @@ class CabanaCuarto extends Model
 
     protected $fillable = [
         'cabana_piso_id', 'nombre', 'codigo', 'x', 'y', 'ancho', 'alto',
-        'genero', 'capacidad', 'orden',
+        'forma', 'vertices', 'puertas', 'genero', 'capacidad', 'orden',
     ];
 
     protected function casts(): array
     {
         return [
             'x' => 'float', 'y' => 'float', 'ancho' => 'float', 'alto' => 'float',
+            'vertices' => 'array', 'puertas' => 'array',
             'capacidad' => 'integer', 'orden' => 'integer',
         ];
     }

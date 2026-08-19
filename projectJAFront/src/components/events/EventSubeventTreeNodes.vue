@@ -81,6 +81,8 @@ function dropClassFor(itemId: number): string {
         @dragover="emit('dragOver', node, $event)"
         @drop="emit('drop', node, $event)"
       >
+        <i class="pi pi-bars sub-tree__handle" />
+        <span class="sub-tree__orden">{{ node.orden ?? 0 }}</span>
         <button
           v-if="hasChildren(node)"
           type="button"
@@ -91,8 +93,6 @@ function dropClassFor(itemId: number): string {
           <i :class="expanded.has(node.id) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" />
         </button>
         <span v-else class="sub-tree__spacer" />
-
-        <i class="pi pi-bars sub-tree__handle" />
 
         <span v-if="node.image_url" class="sub-tree__thumb">
           <img :src="node.image_url" :alt="node.name" />
@@ -334,6 +334,15 @@ function dropClassFor(itemId: number): string {
 .sub-tree__handle {
   color: var(--pj-text-muted);
   font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.sub-tree__orden {
+  min-width: 1.35rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--pj-text-muted);
+  text-align: center;
   flex-shrink: 0;
 }
 

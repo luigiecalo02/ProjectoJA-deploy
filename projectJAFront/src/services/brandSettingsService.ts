@@ -1,4 +1,5 @@
 import { api } from '@/services/api'
+import { prepareUploadFile } from '@/utils/optimizeImage'
 import type { ApiEnvelope } from '@/types/api'
 import type { BrandAssetKey, BrandSettings, ClubLoaderKey, LoaderPreset, LoginHeroCopy, LoginHeroFit } from '@/modules/settings/types'
 
@@ -12,7 +13,7 @@ export const brandSettingsService = {
 
   async upload(asset: BrandAssetKey, file: File): Promise<BrandSettings> {
     const body = new FormData()
-    body.append('image', file)
+    body.append('image', await prepareUploadFile(file))
     const { data } = await api.post<ApiEnvelope<BrandSettings>>(
       `/api/v1/settings/brand/${asset}`,
       body,
@@ -45,7 +46,7 @@ export const brandSettingsService = {
 
   async uploadLoaderLogo(key: ClubLoaderKey, file: File): Promise<BrandSettings> {
     const body = new FormData()
-    body.append('image', file)
+    body.append('image', await prepareUploadFile(file))
     const { data } = await api.post<ApiEnvelope<BrandSettings>>(
       `/api/v1/settings/brand/loaders/${key}/logo`,
       body,

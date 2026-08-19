@@ -1,4 +1,5 @@
 import { api } from '@/services/api'
+import { prepareUploadFile } from '@/utils/optimizeImage'
 import type { ApiEnvelope, PaginationMeta } from '@/types/api'
 import type {
   Club,
@@ -88,7 +89,7 @@ export const clubsService = {
 
   async uploadLogo(id: number, file: File): Promise<Club> {
     const body = new FormData()
-    body.append('logo', file)
+    body.append('logo', await prepareUploadFile(file))
     const { data } = await api.post<ApiEnvelope<Club>>(`/api/v1/clubs/${id}/logo`, body, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })

@@ -77,7 +77,13 @@ html,
 body,
 #app {
   min-height: 100%;
+  max-width: 100%;
   margin: 0;
+}
+
+html,
+body {
+  overflow-x: clip;
 }
 
 body {
@@ -109,6 +115,8 @@ h3,
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .pj-page__header {
@@ -139,6 +147,8 @@ h3,
   border-radius: var(--pj-radius);
   box-shadow: var(--pj-shadow);
   padding: var(--pj-space-panel);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .pj-form-grid {
@@ -229,4 +239,55 @@ h3,
 .p-button.p-button-sm,
 .p-button.p-button-text.p-button-rounded {
   padding: 0.35rem;
+}
+
+.p-datatable,
+.p-datatable-table-container,
+.p-datatable-wrapper {
+  max-width: 100%;
+}
+
+.p-datatable-table-container,
+.p-datatable-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 899px) {
+  .pj-page__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pj-page__header > .p-button {
+    width: 100%;
+  }
+
+  .pj-toolbar {
+    align-items: stretch;
+  }
+
+  .pj-toolbar > .p-button:not(.p-button-rounded) {
+    flex: 1 1 auto;
+  }
+
+  .p-dialog {
+    max-width: calc(100vw - 1rem) !important;
+    margin: 0.5rem;
+  }
+
+  .p-datatable .p-datatable-thead > tr > th,
+  .p-datatable .p-datatable-tbody > tr > td {
+    padding: 0.45rem 0.55rem;
+    white-space: nowrap;
+  }
+
+  .p-inputtext,
+  .p-select,
+  .p-multiselect,
+  .p-password,
+  .p-textarea,
+  .p-datepicker {
+    width: 100%;
+  }
 }

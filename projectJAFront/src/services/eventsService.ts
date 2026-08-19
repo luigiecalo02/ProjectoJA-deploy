@@ -1,4 +1,5 @@
 import { api } from '@/services/api'
+import { prepareUploadFile } from '@/utils/optimizeImage'
 import type { ApiEnvelope, PaginationMeta } from '@/types/api'
 import type {
   ClubEvent,
@@ -269,9 +270,10 @@ export const eventsService = {
     inscripcionId: number,
     payload: { valor: number; archivo: File; movimiento_id?: number | null },
   ): Promise<EventoInscripcionComprobante> {
+    const archivo = await prepareUploadFile(payload.archivo)
     const body = new FormData()
     body.append('valor', String(payload.valor))
-    body.append('archivo', payload.archivo)
+    body.append('archivo', archivo)
     if (payload.movimiento_id) body.append('movimiento_id', String(payload.movimiento_id))
     const { data } = await api.post<ApiEnvelope<EventoInscripcionComprobante>>(
       `/api/v1/evento-inscripciones/${inscripcionId}/comprobantes`,
@@ -289,9 +291,10 @@ export const eventsService = {
     comprobanteId: number,
     payload: { valor: number; archivo: File },
   ): Promise<EventoInscripcionComprobante> {
+    const archivo = await prepareUploadFile(payload.archivo)
     const body = new FormData()
     body.append('valor', String(payload.valor))
-    body.append('archivo', payload.archivo)
+    body.append('archivo', archivo)
     const { data } = await api.post<ApiEnvelope<EventoInscripcionComprobante>>(
       `/api/v1/evento-inscripcion-comprobantes/${comprobanteId}/reemplazo`,
       body,
@@ -353,13 +356,14 @@ export const eventsService = {
     },
   ): Promise<EventoEvidenciaItem> {
     if (payload.archivo) {
+      const archivo = await prepareUploadFile(payload.archivo)
       const body = new FormData()
       body.append('tipo', payload.tipo)
       if (payload.titulo) body.append('titulo', payload.titulo)
       if (payload.descripcion) body.append('descripcion', payload.descripcion)
       if (payload.url) body.append('url', payload.url)
       if (payload.estado) body.append('estado', payload.estado)
-      body.append('archivo', payload.archivo)
+      body.append('archivo', archivo)
 
       const { data } = await api.post<ApiEnvelope<EventoEvidenciaItem>>(
         `/api/v1/events/${eventId}/evidencias`,
@@ -546,8 +550,9 @@ export const eventsService = {
       throw new Error('La imagen no puede superar 5 MB.')
     }
 
+    const image = await prepareUploadFile(file)
     const body = new FormData()
-    body.append('image', file)
+    body.append('image', image)
 
     const { data } = await api.post<ApiEnvelope<ClubEvent>>(`/api/v1/events/${id}/image`, body, {
       headers: { 'Content-Type': 'multipart/form-data' },

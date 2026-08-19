@@ -64,7 +64,6 @@ function iconFor(node: JudgeTreeNode): string {
         >
           <i :class="expanded.has(node.id) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" />
         </span>
-        <span v-else class="judge-tree__spacer" />
 
         <span
           class="judge-tree__thumb"
@@ -184,8 +183,7 @@ function iconFor(node: JudgeTreeNode): string {
 
 .judge-tree__row {
   position: relative;
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  display: flex;
   gap: 0.45rem;
   align-items: center;
   width: 100%;
@@ -220,8 +218,7 @@ function iconFor(node: JudgeTreeNode): string {
   box-shadow: inset 3px 0 0 #2563eb;
 }
 
-.judge-tree__toggle,
-.judge-tree__spacer {
+.judge-tree__toggle {
   width: 1.3rem;
   height: 1.3rem;
   display: inline-grid;
@@ -269,6 +266,7 @@ function iconFor(node: JudgeTreeNode): string {
 
 .judge-tree__body {
   min-width: 0;
+  flex: 1;
   display: grid;
   gap: 0.12rem;
 }

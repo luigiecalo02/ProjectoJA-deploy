@@ -1,4 +1,5 @@
 import { api } from '@/services/api'
+import { prepareUploadFile } from '@/utils/optimizeImage'
 import type { ApiEnvelope } from '@/types/api'
 import type { User } from '@/modules/auth/types'
 
@@ -18,7 +19,7 @@ export const storageService = {
     }
 
     const body = new FormData()
-    body.append('avatar', file)
+    body.append('avatar', await prepareUploadFile(file))
 
     const { data } = await api.post<ApiEnvelope<User>>(`/api/v1/users/${userId}/avatar`, body, {
       headers: { 'Content-Type': 'multipart/form-data' },

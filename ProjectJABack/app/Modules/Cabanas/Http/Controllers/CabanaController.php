@@ -174,18 +174,16 @@ final class CabanaController
         $ocupacion = 0;
         $capacidad = 0;
 
-        return [
-            'id' => $cabana->id, 'evento_id' => $cabana->evento_id,
-            'cabana_id' => $cabana->cabana_id, 'orden' => $cabana->orden,
-            'nombre' => $cabana->nombre, 'descripcion' => $cabana->descripcion,
-            'ancho' => $cabana->ancho, 'alto' => $cabana->alto, 'estado' => $cabana->estado,
-            'pisos' => $cabana->pisos->map(function ($piso) use ($personaId, &$ocupacion, &$capacidad) {
-                return [
-                    'id' => $piso->id, 'nombre' => $piso->nombre,
-                    'ancho' => $piso->ancho, 'alto' => $piso->alto, 'orden' => $piso->orden,
-                    'cuartos' => $piso->cuartos->map(function ($cuarto) use ($personaId, &$ocupacion, &$capacidad) {
-                        $roomOccupancy = 0;
-                        $beds = $cuarto->camas->map(function ($cama) use ($personaId, &$ocupacion, &$capacidad, &$roomOccupancy) {
+        $pisos = $cabana->pisos->map(function ($piso) use ($personaId, &$ocupacion, &$capacidad) {
+            return [
+                'id' => $piso->id,
+                'nombre' => $piso->nombre,
+                'ancho' => $piso->ancho,
+                'alto' => $piso->alto,
+                'orden' => $piso->orden,
+                'cuartos' => $piso->cuartos->map(function ($cuarto) use ($personaId, &$ocupacion, &$capacidad) {
+                    $roomOccupancy = 0;
+                    $beds = $cuarto->camas->map(function ($cama) use ($personaId, &$ocupacion, &$capacidad, &$roomOccupancy) {
                         $activas = $cama->asignaciones->where('estado', AsignacionCama::ESTADO_ACTIVA);
                         $bedOccupancy = $activas->count();
                         $ocupacion += $bedOccupancy;
@@ -193,26 +191,54 @@ final class CabanaController
                         $capacidad += (int) $cama->capacidad;
 
                         return [
-                            'id' => $cama->id, 'codigo' => $cama->codigo, 'nombre' => $cama->nombre,
+                            'id' => $cama->id,
+                            'codigo' => $cama->codigo,
+                            'nombre' => $cama->nombre,
                             'capacidad' => $cama->capacidad,
-                            'x' => $cama->x, 'y' => $cama->y, 'ancho' => $cama->ancho, 'alto' => $cama->alto,
-                            'rotacion' => $cama->rotacion, 'estado' => $cama->estado,
+                            'x' => $cama->x,
+                            'y' => $cama->y,
+                            'ancho' => $cama->ancho,
+                            'alto' => $cama->alto,
+                            'rotacion' => $cama->rotacion,
+                            'estado' => $cama->estado,
                             'ocupacion' => $bedOccupancy,
                             'ocupadas' => $bedOccupancy,
-                            'asignada_a_mi' => $activas->contains(fn ($a) => (int) $a->inscripcionPersona?->persona_id === $personaId),
+                            'asignada_a_mi' => $activas->contains(
+                                fn ($a) => (int) $a->inscripcionPersona?->persona_id === $personaId
+                            ),
                         ];
-                    })->values(),
-                        return [
-                            'id' => $cuarto->id, 'nombre' => $cuarto->nombre,
-                            'codigo' => $cuarto->codigo, 'x' => $cuarto->x, 'y' => $cuarto->y,
-                            'ancho' => $cuarto->ancho, 'alto' => $cuarto->alto,
-                            'genero' => $cuarto->genero, 'capacidad' => $cuarto->capacidad,
-                            'ocupacion' => $roomOccupancy, 'ocupadas' => $roomOccupancy, 'orden' => $cuarto->orden,
-                            'camas' => $beds,
-                        ];
-                    })->values(),
-                ];
-            })->values(),
+                    })->values();
+
+                    return [
+                        'id' => $cuarto->id,
+                        'nombre' => $cuarto->nombre,
+                        'codigo' => $cuarto->codigo,
+                        'x' => $cuarto->x,
+                        'y' => $cuarto->y,
+                        'ancho' => $cuarto->ancho,
+                        'alto' => $cuarto->alto,
+                        'genero' => $cuarto->genero,
+                        'capacidad' => $cuarto->capacidad,
+                        'ocupacion' => $roomOccupancy,
+                        'ocupadas' => $roomOccupancy,
+                        'orden' => $cuarto->orden,
+                        'camas' => $beds,
+                    ];
+                })->values(),
+            ];
+        })->values();
+
+        return [
+            'id' => $cabana->id,
+            'evento_id' => $cabana->evento_id,
+            'cabana_id' => $cabana->cabana_id,
+            'orden' => $cabana->orden,
+            'nombre' => $cabana->nombre,
+            'descripcion' => $cabana->descripcion,
+            'ancho' => $cabana->ancho,
+            'alto' => $cabana->alto,
+            'estado' => $cabana->estado,
+            'pisos' => $pisos,
             'ocupacion' => $ocupacion,
             'ocupadas' => $ocupacion,
             'capacidad' => $capacidad,

@@ -891,6 +891,7 @@ onMounted(() => {
 
 .club-hero--form {
   min-height: 0;
+  overflow: visible;
 }
 
 .club-hero__info {
@@ -907,7 +908,8 @@ onMounted(() => {
 }
 
 .club-hero--form .club-hero__info {
-  padding: 0.55rem 0.75rem;
+  padding: 0.85rem 1rem;
+  overflow: visible;
 }
 
 .club-hero__brand {

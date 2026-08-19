@@ -20,6 +20,8 @@ import EventCabanasStep from '@/components/events/EventCabanasStep.vue'
 import CategoriaSubeventosAdminDrawer from '@/components/events/CategoriaSubeventosAdminDrawer.vue'
 import CriteriosEvaluacionAdminDrawer from '@/components/events/CriteriosEvaluacionAdminDrawer.vue'
 import { eventsService } from '@/services/eventsService'
+import { optimizeImageFile } from '@/utils/optimizeImage'
+import MediaCoverUpload from '@/components/media/MediaCoverUpload.vue'
 import { clubsService } from '@/services/clubsService'
 import { organizacionesService } from '@/services/organizacionesService'
 import { getApiErrorMessage } from '@/services/api'
@@ -83,6 +85,9 @@ const pendingBanner = ref<File | null>(null)
 const pendingBannerPreview = ref<string | null>(null)
 const categoriesAdminVisible = ref(false)
 const criteriosAdminVisible = ref(false)
+const configTab = ref<'inscripcion' | 'descuentos' | 'seguro' | 'categorias' | 'criterios' | 'servicios'>(
+  'inscripcion',
+)
 const categoriasVersion = ref(0)
 const previewVisible = ref(
   typeof localStorage === 'undefined' ? true : localStorage.getItem('pj.eventWizardPreview') !== '0',
@@ -389,23 +394,20 @@ function revokeUrl(url: string | null): void {
   if (url) URL.revokeObjectURL(url)
 }
 
-function onPickImage(event: Event): void {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
+async function onPickImage(file: File): Promise<void> {
   if (!file) return
   pendingImage.value = file
   revokeUrl(pendingPreview.value)
   pendingPreview.value = URL.createObjectURL(file)
-  input.value = ''
 }
 
-function onPickBanner(event: Event): void {
+async function onPickBanner(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  pendingBanner.value = file
+  pendingBanner.value = await optimizeImageFile(file)
   revokeUrl(pendingBannerPreview.value)
-  pendingBannerPreview.value = URL.createObjectURL(file)
+  pendingBannerPreview.value = URL.createObjectURL(pendingBanner.value)
   input.value = ''
 }
 
@@ -880,16 +882,12 @@ onBeforeUnmount(() => {
 
           <div class="media-uploads">
             <div class="field">
-              <label>{{ t('events.wizard.eventImage') }}</label>
-              <label class="dropzone dropzone--compact" :class="{ 'has-preview': !!imagePreview }">
-                <input type="file" accept="image/*" class="sr-only" @change="onPickImage" />
-                <img v-if="imagePreview" :src="imagePreview" :alt="form.name || t('events.image')" />
-                <div v-else class="dropzone__empty">
-                  <i class="pi pi-cloud-upload" />
-                  <strong>{{ t('events.wizard.dropImage') }}</strong>
-                  <span>{{ t('events.wizard.imageHint') }}</span>
-                </div>
-              </label>
+              <MediaCoverUpload
+                :src="imagePreview"
+                :title="t('events.wizard.eventImage')"
+                :subtitle="t('media.eventCoverSubtitle')"
+                @select="onPickImage"
+              />
             </div>
 
             <div class="field">
@@ -1095,7 +1093,28 @@ onBeforeUnmount(() => {
         </div>
         <p class="step-lead">{{ t('events.wizard.configLead') }}</p>
 
-        <div class="config-section config-section--scoring">
+        <div class="config-tabs" role="tablist">
+          <button type="button" :class="{ 'is-active': configTab === 'inscripcion' }" @click="configTab = 'inscripcion'">
+            {{ t('events.wizard.configTabInscription') }}
+          </button>
+          <button type="button" :class="{ 'is-active': configTab === 'descuentos' }" @click="configTab = 'descuentos'">
+            {{ t('events.wizard.configTabDiscounts') }}
+          </button>
+          <button type="button" :class="{ 'is-active': configTab === 'seguro' }" @click="configTab = 'seguro'">
+            {{ t('events.wizard.configTabInsurance') }}
+          </button>
+          <button type="button" :class="{ 'is-active': configTab === 'categorias' }" @click="configTab = 'categorias'">
+            {{ t('events.wizard.configTabCategories') }}
+          </button>
+          <button type="button" :class="{ 'is-active': configTab === 'criterios' }" @click="configTab = 'criterios'">
+            {{ t('events.wizard.configTabCriteria') }}
+          </button>
+          <button type="button" :class="{ 'is-active': configTab === 'servicios' }" @click="configTab = 'servicios'">
+            {{ t('events.wizard.configTabServices') }}
+          </button>
+        </div>
+
+        <div v-show="configTab === 'inscripcion'" class="config-section config-section--scoring">
           <h3>{{ t('events.wizard.scoringTitle') }}</h3>
           <div class="field field--row">
             <label for="es_calificable">{{ t('events.wizard.scorable') }}</label>
@@ -1107,7 +1126,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="config-section config-section--categories">
+        <div v-show="configTab === 'categorias'" class="config-section config-section--categories">
           <h3>{{ t('events.wizard.catAdminTitle') }}</h3>
           <p class="step-lead" style="margin-bottom: 0.75rem">{{ t('events.wizard.catAdminLead') }}</p>
           <Button
@@ -1119,7 +1138,7 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <div class="config-section config-section--criteria">
+        <div v-show="configTab === 'criterios'" class="config-section config-section--criteria">
           <h3>{{ t('events.wizard.criteriaAdminTitle') }}</h3>
           <p class="step-lead" style="margin-bottom: 0.75rem">{{ t('events.wizard.criteriaAdminLead') }}</p>
           <Button
@@ -1135,7 +1154,7 @@ onBeforeUnmount(() => {
           </p>
         </div>
 
-        <div class="config-section config-section--payment">
+        <div v-show="configTab === 'inscripcion'" class="config-section config-section--payment">
           <h3>{{ t('events.wizard.paymentTitle') }}</h3>
           <div class="field field--row">
             <label for="requiere_pago">{{ t('events.enrollmentRequires') }}</label>
@@ -1262,7 +1281,10 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-if="form.requiere_pago" class="descuentos-block">
+        </div>
+
+        <div v-show="configTab === 'descuentos'" class="config-section">
+          <div class="descuentos-block">
             <div class="descuentos-block__head">
               <div>
                 <h4>{{ t('events.directiveDiscountsTitle') }}</h4>
@@ -1318,7 +1340,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="config-section config-section--insurance">
+        <div v-show="configTab === 'seguro'" class="config-section config-section--insurance">
           <h3>{{ t('events.insuranceTitle') }}</h3>
           <div class="field field--row">
             <label for="requiere_seguro">{{ t('events.requiresInsurance') }}</label>
@@ -1372,7 +1394,9 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div v-if="persistedId" class="config-section config-section--services">
+        <div v-show="configTab === 'servicios'" class="config-section config-section--services">
+          <p v-if="!persistedId" class="pj-muted">{{ t('events.wizard.servicesNeedSave') }}</p>
+          <template v-else>
           <h3>{{ t('events.servicesTitle') }}</h3>
           <p class="step-lead" style="margin-bottom: 0.75rem">{{ t('events.servicesLead') }}</p>
 
@@ -1435,6 +1459,7 @@ onBeforeUnmount(() => {
             class="mt-3"
             @click="saveServiceOffers"
           />
+          </template>
         </div>
       </div>
 
@@ -2266,6 +2291,30 @@ onBeforeUnmount(() => {
   gap: 0.4rem;
   font-size: 0.8rem;
   color: color-mix(in srgb, var(--pj-text) 80%, transparent);
+}
+
+.config-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0.85rem;
+}
+
+.config-tabs button {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+}
+
+.config-tabs button.is-active {
+  background: var(--pj-navy);
+  border-color: var(--pj-navy);
+  color: #fff;
 }
 
 .config-section {

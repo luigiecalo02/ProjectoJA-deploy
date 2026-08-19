@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Settings\Models\AppSetting;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
+use App\Modules\Shared\Services\ImageOptimizer;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
@@ -13,7 +14,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 final class BrandSettingsService
 {
-    public function __construct(private readonly AuditLogger $auditLogger) {}
+    public function __construct(
+        private readonly AuditLogger $auditLogger,
+        private readonly ImageOptimizer $imageOptimizer,
+    ) {}
 
     public function current(): AppSetting
     {
@@ -125,14 +129,15 @@ final class BrandSettingsService
         $settings = $this->current();
         $presets = $this->mergedPresets($settings);
         $oldPath = $presets[$key]['logo_path'] ?? null;
-        $storedPath = $file->store("brand/loaders/{$key}", 'public');
+        $stored = $this->imageOptimizer->store($file, "brand/loaders/{$key}", 'loader');
+        $storedPath = $stored->path;
 
         StoredFile::query()->create([
             'name' => $file->getClientOriginalName(),
-            'path' => $storedPath,
-            'size' => $file->getSize() ?: 0,
-            'mime_type' => $file->getMimeType(),
-            'hash' => hash_file('sha256', $file->getRealPath()) ?: null,
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
             'uploaded_by' => $actor->id,
         ]);
 
@@ -277,15 +282,15 @@ final class BrandSettingsService
         $column = $this->columnFor($asset);
         $settings = $this->current();
         $oldPath = $settings->{$column};
-        $directory = "brand/{$asset}";
-        $storedPath = $file->store($directory, 'public');
+        $stored = $this->imageOptimizer->store($file, "brand/{$asset}", $asset);
+        $storedPath = $stored->path;
 
         StoredFile::query()->create([
             'name' => $file->getClientOriginalName(),
-            'path' => $storedPath,
-            'size' => $file->getSize() ?: 0,
-            'mime_type' => $file->getMimeType(),
-            'hash' => hash_file('sha256', $file->getRealPath()) ?: null,
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
             'uploaded_by' => $actor->id,
         ]);
 

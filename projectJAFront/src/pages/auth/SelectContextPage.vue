@@ -182,9 +182,11 @@ onMounted(async () => {
 
 .context-page__user {
   margin-top: 0.75rem;
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: center;
+  gap: 0.5rem 0.75rem;
   color: #475569;
   font-size: 0.88rem;
 }

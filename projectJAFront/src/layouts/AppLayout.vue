@@ -114,6 +114,11 @@ function navigate(to: { name: string }): void {
   drawerOpen.value = false
   void router.push(to)
 }
+
+function openContextSwitch(): void {
+  drawerOpen.value = false
+  void changeContext()
+}
 </script>
 
 <template>
@@ -160,7 +165,6 @@ function navigate(to: { name: string }): void {
             @click="drawerOpen = true"
           />
           <img class="mobile-brand-logo mobile-only" :src="brandConfig.appIcon" :alt="t('app.name')" />
-          <strong class="pj-display mobile-brand">{{ t('app.name') }}</strong>
         </div>
 
         <div class="app-topbar__right">
@@ -170,6 +174,7 @@ function navigate(to: { name: string }): void {
             class="context-chip"
             :class="{ 'context-chip--club': auth.contexto.is_club && auth.contexto.color_principal }"
             :style="contextChipStyle"
+            :title="contextLabel"
             @click="changeContext"
           >
             <img
@@ -184,6 +189,7 @@ function navigate(to: { name: string }): void {
           </button>
 
           <Button
+            class="app-topbar__action"
             text
             rounded
             :icon="theme.isDark ? 'pi pi-sun' : 'pi pi-moon'"
@@ -202,6 +208,7 @@ function navigate(to: { name: string }): void {
           </div>
 
           <Button
+            class="app-topbar__action"
             text
             rounded
             icon="pi pi-sign-out"
@@ -234,6 +241,28 @@ function navigate(to: { name: string }): void {
           <span>{{ item.label }}</span>
         </button>
       </nav>
+      <div class="mobile-drawer__footer">
+        <p v-if="auth.user?.name" class="mobile-drawer__user">{{ auth.user.name }}</p>
+        <Button
+          v-if="auth.contexto && (auth.contextOptions?.length ?? 0) > 1"
+          type="button"
+          outlined
+          fluid
+          icon="pi pi-sitemap"
+          :label="t('auth.switchContext')"
+          @click="openContextSwitch"
+        />
+        <Button
+          type="button"
+          severity="danger"
+          outlined
+          fluid
+          icon="pi pi-sign-out"
+          :label="t('nav.logout')"
+          :loading="loggingOut"
+          @click="logout"
+        />
+      </div>
     </Drawer>
   </div>
 </template>
@@ -243,6 +272,7 @@ function navigate(to: { name: string }): void {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1fr;
+  overflow-x: clip;
 }
 
 .app-sidebar {
@@ -341,12 +371,13 @@ function navigate(to: { name: string }): void {
 }
 
 .app-topbar {
-  height: var(--pj-topbar-height);
+  min-height: calc(var(--pj-topbar-height) + env(safe-area-inset-top, 0px));
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0 0.75rem;
+  gap: 0.35rem;
+  padding: env(safe-area-inset-top, 0px) max(0.5rem, env(safe-area-inset-right, 0px)) 0
+    max(0.5rem, env(safe-area-inset-left, 0px));
   border-bottom: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
   background: color-mix(in srgb, #ffffff 88%, transparent);
   backdrop-filter: blur(10px);
@@ -355,15 +386,24 @@ function navigate(to: { name: string }): void {
   z-index: 20;
 }
 
-.app-topbar__left,
+.app-topbar__left {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+
 .app-topbar__right {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: flex-end;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
-.mobile-brand {
-  font-size: 1.05rem;
+.app-topbar__action {
+  flex-shrink: 0;
 }
 
 .mobile-brand-logo {
@@ -384,7 +424,8 @@ function navigate(to: { name: string }): void {
 }
 
 .context-chip {
-  max-width: min(320px, 48vw);
+  min-width: 0;
+  max-width: 7.5rem;
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -451,7 +492,42 @@ function navigate(to: { name: string }): void {
 
 .app-content {
   padding: var(--pj-space-page);
+  padding-bottom: max(var(--pj-space-page), env(safe-area-inset-bottom, 0px));
   flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+:deep(.mobile-drawer .p-drawer-content) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.mobile-drawer__footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 1rem 0 max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+
+.mobile-drawer__user {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pj-text-muted);
+}
+
+@media (max-width: 899px) {
+  .context-chip__label {
+    display: none;
+  }
+
+  .context-chip {
+    max-width: none;
+    padding-right: 0.45rem;
+  }
 }
 
 .desktop-only {
@@ -471,9 +547,12 @@ function navigate(to: { name: string }): void {
     display: flex;
   }
 
-  .mobile-only,
-  .mobile-brand {
+  .mobile-only {
     display: none !important;
+  }
+
+  .context-chip {
+    max-width: min(320px, 48vw);
   }
 
   .mobile-brand-logo {

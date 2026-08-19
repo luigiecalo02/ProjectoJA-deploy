@@ -102,7 +102,7 @@ const drawerVisible = computed({
   padding: 0 !important;
   border-radius: 0 !important;
   overflow: hidden !important;
-  max-width: 100vw;
+  max-width: 100vw !important;
   /* Anula drawer-style de PrimeVue (border-style: solid + border-inline-start-width) */
   border: none !important;
   border-style: none !important;
@@ -237,5 +237,15 @@ const drawerVisible = computed({
 .p-drawer.stack-drawer--l4 {
   box-shadow: -8px 0 28px color-mix(in srgb, #111827 35%, transparent);
   z-index: 1203 !important;
+}
+
+@media (max-width: 899px) {
+  .p-drawer.stack-drawer,
+  .p-drawer.stack-drawer--l1,
+  .p-drawer.stack-drawer--l2,
+  .p-drawer.stack-drawer--l3,
+  .p-drawer.stack-drawer--l4 {
+    width: 100vw !important;
+  }
 }
 </style>

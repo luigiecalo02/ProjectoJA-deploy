@@ -62,6 +62,7 @@ function onOpen(node: ClubEvent): void {
         }"
         @click="isClickable(node) ? onOpen(node) : hasChildren(node) ? emit('toggle', node.id) : undefined"
       >
+        <span class="evt-tree__orden">{{ node.orden ?? 0 }}</span>
         <span
           v-if="hasChildren(node)"
           class="evt-tree__toggle"
@@ -73,7 +74,6 @@ function onOpen(node: ClubEvent): void {
         >
           <i :class="expanded.has(node.id) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" />
         </span>
-        <span v-else class="evt-tree__spacer" />
 
         <span v-if="node.image_url" class="evt-tree__thumb">
           <img :src="node.image_url" :alt="node.name" />
@@ -88,18 +88,18 @@ function onOpen(node: ClubEvent): void {
 
         <div class="evt-tree__body">
           <strong>{{ node.name }}</strong>
-          <small v-if="node.puntaje_maximo != null">{{ Number(node.puntaje_maximo) }} pts</small>
+          <small>{{ Number(node.puntaje_maximo ?? 0) }} pts</small>
         </div>
 
-        <div v-if="mode === 'judge' && node.progreso_juez" class="evt-tree__stats">
+        <div v-if="mode === 'judge'" class="evt-tree__stats">
           <span class="stat is-ok">
             <i class="pi pi-check" />
-            {{ node.progreso_juez.calificados }}
+            {{ node.progreso_juez?.calificados ?? 0 }}
             {{ t('events.listScoredShort') }}
           </span>
           <span class="stat is-pending">
             <i class="pi pi-clock" />
-            {{ node.progreso_juez.pendientes }}
+            {{ node.progreso_juez?.pendientes ?? 0 }}
             {{ t('events.listPendingShort') }}
           </span>
         </div>
@@ -158,9 +158,11 @@ function onOpen(node: ClubEvent): void {
 }
 
 .evt-tree__children {
-  margin: 0.35rem 0 0.1rem 0.7rem;
-  padding-left: 0.65rem;
-  border-left: 2px solid color-mix(in srgb, #0f766e 22%, transparent);
+  margin: 0.4rem 0 0.15rem;
+  padding: 0.45rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, #f1f5f9 88%, #fff);
+  border: 1px solid color-mix(in srgb, var(--pj-border) 45%, transparent);
   display: grid;
   gap: 0.4rem;
   animation: evt-open 160ms ease-out;
@@ -179,12 +181,11 @@ function onOpen(node: ClubEvent): void {
 
 .evt-tree__card {
   width: 100%;
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
-  gap: 0.55rem;
+  display: flex;
   align-items: center;
+  gap: 0.55rem;
   text-align: left;
-  padding: 0.55rem 0.65rem;
+  padding: 0.6rem 0.75rem;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--pj-border) 60%, transparent);
   background: #fff;
@@ -206,30 +207,24 @@ function onOpen(node: ClubEvent): void {
   background: color-mix(in srgb, #0f766e 5%, #fff);
 }
 
-.evt-tree__card.has-evidence {
-  box-shadow: inset 3px 0 0 #16a34a;
-}
-
-.evt-tree__card.no-evidence {
-  box-shadow: inset 3px 0 0 #ca8a04;
-}
-
-.evt-tree__card.is-assigned:not(.has-evidence):not(.no-evidence) {
-  box-shadow: inset 3px 0 0 #0f766e;
-}
-
-.evt-tree__toggle,
-.evt-tree__spacer {
-  width: 1.35rem;
-  height: 1.35rem;
-  display: inline-grid;
-  place-items: center;
+.evt-tree__orden {
+  min-width: 1.15rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #64748b;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .evt-tree__toggle {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-grid;
+  place-items: center;
   border-radius: 8px;
   color: #64748b;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .evt-tree__toggle:hover {
@@ -264,6 +259,7 @@ function onOpen(node: ClubEvent): void {
 
 .evt-tree__body {
   min-width: 0;
+  flex: 1;
   display: grid;
   gap: 0.1rem;
 }
@@ -274,6 +270,8 @@ function onOpen(node: ClubEvent): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-transform: uppercase;
+  color: var(--pj-navy, #0b2f6b);
 }
 
 .evt-tree__body small {
@@ -286,6 +284,7 @@ function onOpen(node: ClubEvent): void {
   flex-wrap: wrap;
   gap: 0.3rem;
   justify-content: flex-end;
+  margin-left: auto;
 }
 
 .stat {
@@ -316,16 +315,13 @@ function onOpen(node: ClubEvent): void {
 
 @media (max-width: 700px) {
   .evt-tree__card {
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    flex-wrap: wrap;
   }
 
   .evt-tree__stats {
-    grid-column: 3 / -1;
+    width: 100%;
     justify-content: flex-start;
-  }
-
-  .evt-tree__go {
-    display: none;
+    margin-left: 0;
   }
 }
 </style>

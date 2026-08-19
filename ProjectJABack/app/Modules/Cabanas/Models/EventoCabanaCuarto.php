@@ -12,13 +12,15 @@ class EventoCabanaCuarto extends Model
 
     protected $fillable = [
         'evento_cabana_piso_id', 'cabana_cuarto_id', 'nombre', 'codigo',
-        'x', 'y', 'ancho', 'alto', 'genero', 'capacidad', 'orden',
+        'x', 'y', 'ancho', 'alto', 'forma', 'vertices', 'puertas',
+        'genero', 'capacidad', 'orden',
     ];
 
     protected function casts(): array
     {
         return [
             'x' => 'float', 'y' => 'float', 'ancho' => 'float', 'alto' => 'float',
+            'vertices' => 'array', 'puertas' => 'array',
             'capacidad' => 'integer', 'orden' => 'integer',
         ];
     }

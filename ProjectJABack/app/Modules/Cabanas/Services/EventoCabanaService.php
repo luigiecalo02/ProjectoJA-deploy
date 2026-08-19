@@ -52,6 +52,9 @@ final class EventoCabanaService
                         'nombre' => $cuarto->nombre, 'codigo' => $cuarto->codigo,
                         'x' => $cuarto->x, 'y' => $cuarto->y,
                         'ancho' => $cuarto->ancho, 'alto' => $cuarto->alto,
+                        'forma' => $cuarto->forma ?? 'rect',
+                        'vertices' => $cuarto->vertices,
+                        'puertas' => $cuarto->puertas,
                         'genero' => $cuarto->genero, 'capacidad' => $cuarto->capacidad,
                         'orden' => $cuarto->orden,
                     ]);

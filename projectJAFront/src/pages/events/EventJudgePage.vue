@@ -7,11 +7,12 @@ import Button from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
 import PageLoader from '@/components/PageLoader.vue'
-import AppSearchField from '@/components/AppSearchField.vue'
+import EventSearchPanel from '@/components/events/EventSearchPanel.vue'
 import AppStackDrawer from '@/components/drawers/AppStackDrawer.vue'
 import EventJudgeTreeNodes from '@/components/events/EventJudgeTreeNodes.vue'
 import EventJudgeActivityCard from '@/components/events/EventJudgeActivityCard.vue'
 import { eventsService } from '@/services/eventsService'
+import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
 import { getApiErrorMessage } from '@/services/api'
 import type {
   EventoEvidenciaItem,
@@ -50,6 +51,10 @@ const treeInitialized = ref(false)
 const drawerVisible = ref(false)
 
 const eventId = computed(() => Number(route.params.id))
+const heroStyle = computed(() => {
+  const url = resolveAssetUrl(board.value?.evento.image_url)
+  return url ? { '--hero-image': toCssImageUrl(url) } : undefined
+})
 
 const subevento = computed<JudgeSubevento | null>(() => board.value?.subevento ?? null)
 const actividad = computed<JudgeSubevento | null>(() => board.value?.actividad ?? board.value?.subevento ?? null)
@@ -682,7 +687,11 @@ onMounted(() => {
     <PageLoader v-if="loading && !board" />
 
     <template v-else-if="board">
-      <div class="judge-top">
+      <div
+        class="judge-top"
+        :class="{ 'has-cover': Boolean(board.evento.image_url) }"
+        :style="heroStyle"
+      >
         <div>
           <Button
             type="button"
@@ -731,9 +740,13 @@ onMounted(() => {
                 <p class="pj-muted">{{ t('events.judgePhaseClubHint') }}</p>
               </div>
             </div>
-            <AppSearchField
+            <EventSearchPanel
               v-model="search"
+              input-id="judge-club-search"
+              icon="pi pi-users"
+              :label="t('events.standingsSearchLabel')"
               :placeholder="t('events.judgeSearchClub')"
+              :hint="t('segurosConsulta.liveSearchHint')"
             />
             <div class="filter-tabs">
               <button
@@ -1151,6 +1164,23 @@ onMounted(() => {
   gap: 1rem;
   align-items: flex-start;
   flex-wrap: wrap;
+  padding: 1.1rem 1.2rem;
+  border-radius: 16px;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.judge-top.has-cover {
+  color: #fff;
+  background-image:
+    linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%),
+    var(--hero-image);
+  background-size: cover;
+  background-position: center;
+}
+
+.judge-top.has-cover .pj-muted {
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .judge-top h1 {

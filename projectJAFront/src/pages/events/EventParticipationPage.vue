@@ -8,6 +8,8 @@ import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import PageLoader from '@/components/PageLoader.vue'
 import EventJudgeActivityCard from '@/components/events/EventJudgeActivityCard.vue'
+import MediaGalleryUpload from '@/components/media/MediaGalleryUpload.vue'
+import MediaDocumentsUpload from '@/components/media/MediaDocumentsUpload.vue'
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import type {
@@ -23,6 +25,12 @@ import {
   parseEvidenceUrl,
   type EvidencePreview,
 } from '@/modules/events/evidencePreview'
+import {
+  documentKindFromName,
+  formatFileSize,
+  type MediaDocumentItem,
+  type MediaGalleryItem,
+} from '@/modules/media/types'
 
 type EvalStatus = 'calificada' | 'en_revision' | 'pendiente'
 type FlatNode = ParticipationNode & { depth: number }
@@ -40,7 +48,6 @@ const selectedId = ref<number | null>(null)
 const editingEvidence = ref(true)
 const pendingFile = ref<File | null>(null)
 const fileObjectUrl = ref<string | null>(null)
-const fileInputRef = ref<HTMLInputElement | null>(null)
 const evidenceForm = ref({
   tipo: 'link' as string,
   titulo: '',
@@ -284,6 +291,23 @@ const fileHint = computed(() => {
   }
 })
 
+const evidenceGalleryItems = computed<MediaGalleryItem[]>(() => {
+  if (evidenceForm.value.tipo !== 'imagen' || !pendingFile.value || !fileObjectUrl.value) return []
+  return [{ id: 'pending', src: fileObjectUrl.value, name: pendingFile.value.name }]
+})
+
+const evidenceDocumentItems = computed<MediaDocumentItem[]>(() => {
+  if (evidenceForm.value.tipo === 'link' || evidenceForm.value.tipo === 'imagen' || !pendingFile.value) return []
+  return [{
+    id: 'pending',
+    name: pendingFile.value.name,
+    sizeLabel: formatFileSize(pendingFile.value.size),
+    kind: documentKindFromName(pendingFile.value.name),
+  }]
+})
+
+const evidenceDocsAccept = computed(() => acceptForTipo.value)
+
 function revokeFileObjectUrl(): void {
   if (fileObjectUrl.value) {
     URL.revokeObjectURL(fileObjectUrl.value)
@@ -488,7 +512,7 @@ async function saveDirectorObservacion(observaciones: string): Promise<void> {
 
 function selectEvidenceTipo(tipo: string): void {
   evidenceForm.value.tipo = tipo
-  pendingFile.value = null
+  clearPendingFile()
   if (tipo === 'link') {
     // keep url
   } else {
@@ -510,9 +534,8 @@ function startChangeEvidence(): void {
 
 const EVIDENCE_MAX_BYTES = 100 * 1024 * 1024
 
-function onPickFile(event: Event): void {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0] || null
+function setPendingEvidenceFile(file: File | null): void {
+  revokeFileObjectUrl()
   if (file && file.size > EVIDENCE_MAX_BYTES) {
     pendingFile.value = null
     toast.add({
@@ -521,17 +544,23 @@ function onPickFile(event: Event): void {
       detail: t('events.evidenceFileTooLarge'),
       life: 4000,
     })
-    input.value = ''
     return
   }
   pendingFile.value = file
+  if (file?.type.startsWith('image/')) {
+    fileObjectUrl.value = URL.createObjectURL(file)
+  }
   if (file && !evidenceForm.value.titulo) {
     evidenceForm.value.titulo = file.name.replace(/\.[^.]+$/, '')
   }
-  input.value = ''
+}
+
+function onEvidenceFiles(files: File[]): void {
+  setPendingEvidenceFile(files[0] ?? null)
 }
 
 function clearPendingFile(): void {
+  revokeFileObjectUrl()
   pendingFile.value = null
 }
 
@@ -969,36 +998,25 @@ onMounted(() => {
                   </div>
 
                   <div v-else class="field">
-                    <label>{{ t('events.evidenceFile') }} *</label>
-                    <input
-                      ref="fileInputRef"
-                      type="file"
-                      class="sr-only"
-                      :accept="acceptForTipo"
-                      @change="onPickFile"
+                    <MediaGalleryUpload
+                      v-if="evidenceForm.tipo === 'imagen'"
+                      :items="evidenceGalleryItems"
+                      :max="1"
+                      :subtitle="t('media.evidenceGallerySubtitle')"
+                      @add="onEvidenceFiles"
+                      @remove="clearPendingFile"
                     />
-                    <div
-                      class="file-drop"
-                      role="button"
-                      tabindex="0"
-                      @click="fileInputRef?.click()"
-                      @keydown.enter.prevent="fileInputRef?.click()"
-                    >
-                      <i class="pi pi-cloud-upload" />
-                      <div>
-                        <strong>{{ pendingFile?.name || t('events.evidenceFilePick') }}</strong>
-                        <p class="pj-muted">{{ fileHint }}</p>
-                      </div>
-                      <Button
-                        v-if="pendingFile"
-                        type="button"
-                        text
-                        rounded
-                        icon="pi pi-times"
-                        severity="secondary"
-                        @click.stop="clearPendingFile"
-                      />
-                    </div>
+                    <MediaDocumentsUpload
+                      v-else
+                      :files="evidenceDocumentItems"
+                      :accept="evidenceDocsAccept"
+                      :max-bytes="EVIDENCE_MAX_BYTES"
+                      :optimize-images="false"
+                      :subtitle="t('media.evidenceDocsSubtitle')"
+                      :hint="fileHint"
+                      @add="onEvidenceFiles"
+                      @remove="clearPendingFile"
+                    />
                     <div class="field field--nested">
                       <label>{{ t('events.evidenceUrlOptional') }}</label>
                       <InputText

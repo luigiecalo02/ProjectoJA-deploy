@@ -22,6 +22,21 @@ export interface CabanaBed {
   asignada_a_mi?: boolean
 }
 
+export type RoomShape = 'rect' | 'circle' | 'polygon'
+
+export interface CabanaPoint {
+  x: number
+  y: number
+}
+
+export interface CabanaDoor {
+  id: number
+  x: number
+  y: number
+  ancho: number
+  rotacion?: number
+}
+
 export interface CabanaRoom {
   id: number
   piso_id?: number
@@ -31,6 +46,9 @@ export interface CabanaRoom {
   y: number
   ancho: number
   alto: number
+  forma?: RoomShape
+  vertices?: CabanaPoint[]
+  puertas?: CabanaDoor[]
   genero: GeneroAlojamiento
   capacidad: number
   ocupacion?: number
@@ -86,6 +104,9 @@ export interface CabanaLayoutPayload {
       alto: number
       genero: GeneroAlojamiento
       capacidad: number
+      forma?: RoomShape
+      vertices?: CabanaPoint[]
+      puertas?: CabanaDoor[]
       camas: Array<{
         id?: number
         codigo: string
@@ -97,6 +118,7 @@ export interface CabanaLayoutPayload {
         rotacion?: number
         genero?: GeneroAlojamiento | null
         capacidad: number
+        estado?: string
       }>
     }>
   }>

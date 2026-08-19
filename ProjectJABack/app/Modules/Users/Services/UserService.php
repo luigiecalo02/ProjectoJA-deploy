@@ -10,6 +10,7 @@ use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacionRol;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
+use App\Modules\Shared\Services\ImageOptimizer;
 use App\Modules\Users\Models\Role;
 use App\Modules\Users\Repositories\UserRepository;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -22,6 +23,7 @@ final class UserService
     public function __construct(
         private readonly UserRepository $users,
         private readonly AuditLogger $auditLogger,
+        private readonly ImageOptimizer $imageOptimizer,
     ) {}
 
     public function list(array $filters = [], int $perPage = 15): LengthAwarePaginator
@@ -191,17 +193,15 @@ final class UserService
 
     public function storeAvatarFile(User $user, UploadedFile $file): User
     {
-        $directory = "avatars/{$user->id}";
-        $storedPath = $file->store($directory, 'public');
-        $url = url('storage/'.$storedPath);
+        $stored = $this->imageOptimizer->store($file, "avatars/{$user->id}", 'avatar');
 
         return $this->updateAvatar($user, [
             'name' => $file->getClientOriginalName(),
-            'path' => $storedPath,
-            'url' => $url,
-            'size' => $file->getSize() ?: 0,
-            'mime_type' => $file->getMimeType(),
-            'hash' => hash_file('sha256', $file->getRealPath()) ?: null,
+            'path' => $stored->path,
+            'url' => url('storage/'.$stored->path),
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
         ]);
     }
 

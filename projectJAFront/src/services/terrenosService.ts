@@ -1,4 +1,5 @@
 import { api } from '@/services/api'
+import { prepareUploadFile } from '@/utils/optimizeImage'
 import type { ApiEnvelope, PaginationMeta } from '@/types/api'
 import type {
   AsignacionLote,
@@ -52,7 +53,7 @@ export const terrenosService = {
 
   async uploadImagen(id: number, file: File): Promise<Terreno> {
     const form = new FormData()
-    form.append('imagen', file)
+    form.append('imagen', await prepareUploadFile(file))
     const { data } = await api.post<ApiEnvelope<Terreno>>(`/api/v1/terrenos/${id}/imagen`, form)
     return data.data
   },

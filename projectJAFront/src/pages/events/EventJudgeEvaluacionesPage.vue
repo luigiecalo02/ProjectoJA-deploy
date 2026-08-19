@@ -8,8 +8,9 @@ import Select from 'primevue/select'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import PageLoader from '@/components/PageLoader.vue'
-import AppSearchField from '@/components/AppSearchField.vue'
+import EventSearchPanel from '@/components/events/EventSearchPanel.vue'
 import { eventsService } from '@/services/eventsService'
+import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
 import { getApiErrorMessage } from '@/services/api'
 import type {
   JudgeEvaluacionClub,
@@ -33,6 +34,10 @@ const selectedOrgId = ref<number | null>(null)
 const bootstrapped = ref(false)
 
 const eventId = computed(() => Number(route.params.id))
+const heroStyle = computed(() => {
+  const url = resolveAssetUrl(data.value?.evento.image_url)
+  return url ? { '--hero-image': toCssImageUrl(url) } : undefined
+})
 
 const estadoOptions = computed(() => [
   { value: '', label: t('events.judgeFilterAll') },
@@ -163,7 +168,11 @@ onMounted(() => {
 
 <template>
   <div class="eval-page" :class="{ 'has-detail': !!detalle }">
-    <header class="eval-hero">
+    <header
+      class="eval-hero"
+      :class="{ 'has-cover': Boolean(data?.evento.image_url) }"
+      :style="heroStyle"
+    >
       <div>
         <Button
           type="button"
@@ -217,7 +226,14 @@ onMounted(() => {
 
       <section class="pj-toolbar eval-toolbar">
         <div class="field field--search">
-          <AppSearchField v-model="search" :placeholder="t('events.judgeEvalSearch')" />
+          <EventSearchPanel
+            v-model="search"
+            input-id="judge-eval-search"
+            icon="pi pi-users"
+            :label="t('events.standingsSearchLabel')"
+            :placeholder="t('events.judgeEvalSearch')"
+            :hint="t('segurosConsulta.liveSearchHint')"
+          />
         </div>
         <div class="field">
           <Select
@@ -471,10 +487,27 @@ onMounted(() => {
 .eval-hero {
   padding: 1.15rem 1.3rem;
   border-radius: 16px;
+  overflow: hidden;
+  isolation: isolate;
   background:
     linear-gradient(135deg, color-mix(in srgb, #0f766e 16%, transparent), transparent 55%),
     linear-gradient(180deg, #f8fafc, #fff);
   border: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
+}
+
+.eval-hero.has-cover {
+  color: #fff;
+  background-image:
+    linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%),
+    var(--hero-image);
+  background-size: cover;
+  background-position: center;
+  border-color: transparent;
+}
+
+.eval-hero.has-cover .pj-muted,
+.eval-hero.has-cover .eval-kicker {
+  color: rgba(255, 255, 255, 0.86);
 }
 
 .eval-back {

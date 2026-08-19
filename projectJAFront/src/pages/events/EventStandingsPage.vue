@@ -8,8 +8,9 @@ import Select from 'primevue/select'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import PageLoader from '@/components/PageLoader.vue'
-import AppSearchField from '@/components/AppSearchField.vue'
+import EventSearchPanel from '@/components/events/EventSearchPanel.vue'
 import { eventsService } from '@/services/eventsService'
+import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
 import { getApiErrorMessage } from '@/services/api'
 import type { EventStandings, EventStandingsSort } from '@/modules/events/types'
 
@@ -26,6 +27,10 @@ const search = ref('')
 const bootstrapped = ref(false)
 
 const eventId = computed(() => Number(route.params.id))
+const heroStyle = computed(() => {
+  const url = resolveAssetUrl(data.value?.evento.image_url)
+  return url ? { '--hero-image': toCssImageUrl(url) } : undefined
+})
 
 const sortOptions = computed(() => [
   { value: 'puesto' as const, label: t('events.standingsSortPuesto') },
@@ -109,7 +114,11 @@ onMounted(() => {
 
 <template>
   <div class="standings-page">
-    <header class="pj-page__header standings-hero">
+    <header
+      class="pj-page__header standings-hero"
+      :class="{ 'has-cover': Boolean(data?.evento.image_url) }"
+      :style="heroStyle"
+    >
       <div class="standings-hero__copy">
         <Button
           type="button"
@@ -172,14 +181,16 @@ onMounted(() => {
             @update:model-value="onSortChange"
           />
         </div>
-        <div class="field field--search">
-          <label>{{ t('common.search') }}</label>
-          <AppSearchField
-            v-model="search"
-            :placeholder="t('events.standingsSearch')"
-          />
-        </div>
       </section>
+
+      <EventSearchPanel
+        v-model="search"
+        input-id="standings-search"
+        icon="pi pi-users"
+        :label="t('events.standingsSearchLabel')"
+        :placeholder="t('events.standingsSearch')"
+        :hint="t('segurosConsulta.liveSearchHint')"
+      />
 
       <section class="pj-panel standings-panel">
         <DataTable
@@ -255,10 +266,42 @@ onMounted(() => {
   flex-wrap: wrap;
   padding: 1.25rem 1.35rem;
   border-radius: 16px;
+  overflow: hidden;
+  isolation: isolate;
   background:
     linear-gradient(135deg, color-mix(in srgb, #0f766e 18%, transparent), transparent 55%),
     linear-gradient(180deg, color-mix(in srgb, #f8fafc 88%, #ecfdf5), #fff);
   border: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
+}
+
+.standings-hero.has-cover {
+  min-height: 11rem;
+  color: #fff;
+  background-image:
+    linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%),
+    var(--hero-image);
+  background-size: cover;
+  background-position: center;
+  border-color: transparent;
+}
+
+.standings-hero.has-cover .pj-muted,
+.standings-hero.has-cover .standings-kicker {
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.standings-hero.has-cover .standings-summary > div {
+  background: color-mix(in srgb, #07122a 45%, transparent);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.standings-hero.has-cover .standings-summary span {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.standings-hero.has-cover :deep(.standings-back) {
+  color: #fff;
 }
 
 .standings-back {
@@ -308,7 +351,7 @@ onMounted(() => {
 
 .standings-toolbar {
   display: grid;
-  grid-template-columns: minmax(14rem, 1.4fr) minmax(10rem, 0.8fr) minmax(12rem, 1fr);
+  grid-template-columns: minmax(14rem, 1.4fr) minmax(10rem, 0.8fr);
   gap: 0.85rem;
   align-items: end;
 }

@@ -17,6 +17,7 @@ import AppStackDrawer from '@/components/drawers/AppStackDrawer.vue'
 import EventSubeventTreeNodes from '@/components/events/EventSubeventTreeNodes.vue'
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
+import MediaCoverUpload from '@/components/media/MediaCoverUpload.vue'
 import type {
   CategoriaSubevento,
   ClubEvent,
@@ -415,14 +416,11 @@ function clearPendingImage(): void {
   pendingPreview.value = null
 }
 
-function onPickImage(event: Event): void {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
+async function onPickImage(file: File): Promise<void> {
   if (!file) return
   pendingImage.value = file
   revokeUrl(pendingPreview.value)
   pendingPreview.value = URL.createObjectURL(file)
-  input.value = ''
 }
 
 function toNavNode(item: ClubEvent): NavNode {
@@ -1731,16 +1729,12 @@ onBeforeUnmount(() => {
           <Textarea v-model="form.descripcion" rows="3" class="w-full" auto-resize />
         </div>
         <div class="field">
-          <label>{{ t('events.wizard.subImage') }}</label>
-          <label class="sub-dropzone" :class="{ 'has-preview': !!imagePreview }">
-            <input type="file" accept="image/*" class="sr-only" @change="onPickImage" />
-            <img v-if="imagePreview" :src="imagePreview" :alt="form.name || t('events.image')" />
-            <div v-else class="sub-dropzone__empty">
-              <i class="pi pi-cloud-upload" />
-              <strong>{{ t('events.wizard.dropImage') }}</strong>
-              <span>{{ t('events.wizard.imageHint') }}</span>
-            </div>
-          </label>
+          <MediaCoverUpload
+            :src="imagePreview"
+            :title="t('events.wizard.subImage')"
+            :subtitle="t('media.eventCoverSubtitle')"
+            @select="onPickImage"
+          />
         </div>
         <div class="field">
           <label>{{ t('events.wizard.subTabRules') }}</label>

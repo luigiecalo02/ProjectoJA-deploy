@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'primevue/usetoast'
@@ -18,13 +18,19 @@ const toast = useToast()
 const { can } = usePermission()
 const cabanaId = computed(() => Number(route.params.id))
 const cabana = ref<Cabana | null>(null)
+const catalog = ref<Cabana[]>([])
 const loading = ref(true)
 const saving = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
   try {
-    cabana.value = await cabanasService.get(cabanaId.value)
+    const [current, list] = await Promise.all([
+      cabanasService.get(cabanaId.value),
+      cabanasService.list({ per_page: 200 }),
+    ])
+    cabana.value = current
+    catalog.value = list.items
   } catch (error) {
     toast.add({ severity: 'error', summary: t('common.error'), detail: getApiErrorMessage(error), life: 4000 })
     await router.push({ name: 'cabanas' })
@@ -45,7 +51,7 @@ async function save(payload: CabanaLayoutPayload): Promise<void> {
   }
 }
 
-onMounted(() => void load())
+watch(cabanaId, () => void load(), { immediate: true })
 </script>
 
 <template>
@@ -63,9 +69,11 @@ onMounted(() => void load())
     <div v-else-if="cabana" class="pj-panel editor-panel">
       <CabanaLayoutEditor
         :cabana="cabana"
+        :catalog="catalog"
         :saving="saving"
         :readonly="!can('cabanas.update')"
         @save="save"
+        @open-cabana="(id) => router.push({ name: 'cabanas.layout', params: { id } })"
       />
     </div>
   </section>

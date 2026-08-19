@@ -19,6 +19,7 @@ use App\Modules\Cabanas\Services\AsignacionCamaService;
 use App\Modules\Events\Models\TipoSeguro;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Shared\Models\StoredFile;
+use App\Modules\Shared\Services\ImageOptimizer;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,7 @@ final class EventInscripcionService
         private readonly EventInscripcionHistorialService $historialService,
         private readonly ClubService $clubService,
         private readonly AsignacionCamaService $asignacionesCama,
+        private readonly ImageOptimizer $imageOptimizer,
     ) {}
 
     /** @param array<string, mixed> $data */
@@ -657,15 +659,14 @@ final class EventInscripcionService
             ]);
         }
 
-        $directory = "comprobantes/inscripcion-{$inscripcionId}";
-        $path = $archivo->store($directory, 'public');
+        $stored = $this->imageOptimizer->store($archivo, "comprobantes/inscripcion-{$inscripcionId}", 'comp');
 
         return StoredFile::query()->create([
             'name' => $archivo->getClientOriginalName(),
-            'path' => $path,
-            'size' => $archivo->getSize() ?: 0,
-            'mime_type' => $mime,
-            'hash' => hash_file('sha256', $archivo->getRealPath()) ?: null,
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
             'uploaded_by' => $actorId,
         ]);
     }

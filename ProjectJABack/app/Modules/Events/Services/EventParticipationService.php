@@ -12,6 +12,7 @@ use App\Modules\Events\Models\EventoInscripcion;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use App\Modules\Shared\Models\StoredFile;
+use App\Modules\Shared\Services\ImageOptimizer;
 use App\Modules\Users\Models\Role;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
@@ -38,6 +39,7 @@ final class EventParticipationService
     public function __construct(
         private readonly OrganizationAccessService $orgAccess,
         private readonly EventCalificacionAggregator $calificacionAggregator,
+        private readonly ImageOptimizer $imageOptimizer,
     ) {}
 
     /**
@@ -416,15 +418,14 @@ final class EventParticipationService
 
     private function storeEvidenciaArchivo(Event $subevento, UploadedFile $archivo, User $actor): StoredFile
     {
-        $directory = "evidencias/{$subevento->id}";
-        $storedPath = $archivo->store($directory, 'public');
+        $stored = $this->imageOptimizer->store($archivo, "evidencias/{$subevento->id}", 'evd');
 
         return StoredFile::query()->create([
             'name' => $archivo->getClientOriginalName(),
-            'path' => $storedPath,
-            'size' => $archivo->getSize() ?: 0,
-            'mime_type' => $archivo->getMimeType(),
-            'hash' => hash_file('sha256', $archivo->getRealPath()) ?: null,
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
             'uploaded_by' => $actor->id,
         ]);
     }

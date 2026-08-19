@@ -130,6 +130,14 @@ export const cabanasService = {
           alto: room.alto,
           genero: room.genero,
           capacidad: room.capacidad,
+          forma: room.forma ?? 'rect',
+          vertices: room.vertices ?? [],
+          puertas: (room.puertas ?? []).map((door) => ({
+            x: door.x,
+            y: door.y,
+            ancho: door.ancho ?? 56,
+            rotacion: door.rotacion ?? 0,
+          })),
           camas: room.camas.map((bed) => ({
             codigo: bed.codigo,
             nombre: bed.nombre,
@@ -139,6 +147,7 @@ export const cabanasService = {
             alto: bed.alto ?? 26,
             rotacion: bed.rotacion ?? 0,
             capacidad: bed.capacidad,
+            estado: bed.estado === 'mantenimiento' || bed.estado === 'no_disponible' ? bed.estado : 'disponible',
           })),
         })),
       })),

@@ -9,9 +9,8 @@ import ToggleSwitch from 'primevue/toggleswitch'
 import Select from 'primevue/select'
 import RadioButton from 'primevue/radiobutton'
 import DatePicker from 'primevue/datepicker'
-import FileUpload from 'primevue/fileupload'
-import type { FileUploadSelectEvent } from 'primevue/fileupload'
 import Message from 'primevue/message'
+import MediaProfileUpload from '@/components/media/MediaProfileUpload.vue'
 import Tag from 'primevue/tag'
 import PageLoader from '@/components/PageLoader.vue'
 import ClubBoardPanel from '@/components/clubs/ClubBoardPanel.vue'
@@ -189,12 +188,11 @@ function ensureCurrentIglesiaInOptions(club: Club): void {
   ]
 }
 
-function onLogoSelect(event: FileUploadSelectEvent): void {
-  const file = Array.isArray(event.files) ? event.files[0] : event.files
+function onLogoSelect(file: File): void {
   if (!file) return
-  pendingLogo.value = file as File
+  pendingLogo.value = file
   if (pendingPreview.value) URL.revokeObjectURL(pendingPreview.value)
-  pendingPreview.value = URL.createObjectURL(file as File)
+  pendingPreview.value = URL.createObjectURL(file)
 }
 
 async function refreshClub(): Promise<void> {
@@ -310,16 +308,12 @@ onMounted(async () => {
         <h2>{{ t('clubs.infoTitle') }}</h2>
         <div class="info-grid">
           <div class="logo-col">
-            <div class="logo-preview">
-              <img v-if="imagePreview" :src="imagePreview" :alt="form.nombre || t('clubs.logo')" />
-              <div v-else class="logo-preview__empty"><i class="pi pi-image" /></div>
-            </div>
-            <FileUpload
-              mode="basic"
-              accept="image/*"
-              :choose-label="t('clubs.changeLogo')"
-              :auto="true"
-              custom-upload
+            <MediaProfileUpload
+              compact
+              dense
+              :src="imagePreview"
+              :title="t('clubs.logo')"
+              :subtitle="t('media.clubProfileSubtitle')"
               @select="onLogoSelect"
             />
           </div>
@@ -457,17 +451,12 @@ onMounted(async () => {
           <template #info>
             <div class="hero-form">
               <div class="hero-form__logo">
-                <div class="logo-preview logo-preview--sm">
-                  <img v-if="imagePreview" :src="imagePreview" :alt="form.nombre || t('clubs.logo')" />
-                  <div v-else class="logo-preview__empty"><i class="pi pi-image" /></div>
-                </div>
-                <FileUpload
-                  mode="basic"
-                  accept="image/*"
-                  :choose-label="t('clubs.changeLogo')"
-                  :auto="true"
-                  custom-upload
-                  class="logo-upload-sm"
+                <MediaProfileUpload
+                  compact
+                  dense
+                  :src="imagePreview"
+                  :title="t('clubs.logo')"
+                  :subtitle="t('media.clubProfileSubtitle')"
                   @select="onLogoSelect"
                 />
               </div>
@@ -509,12 +498,16 @@ onMounted(async () => {
                 <small class="pj-muted location-hint">{{ t('clubs.locationFromIglesiaHint') }}</small>
                 <div class="field">
                   <label>{{ t('clubs.types') }}</label>
-                  <div class="types-row types-row--compact">
+                  <div class="types-row">
                     <label v-for="opt in ministryOptions" :key="opt.value" class="type-radio">
                       <RadioButton v-model="form.tipo" :input-id="`tipo-edit-${opt.value}`" :value="opt.value" />
                       <span>{{ opt.label }}</span>
                     </label>
                   </div>
+                </div>
+                <div class="hero-form__actions">
+                  <Button type="button" :label="t('common.cancel')" text @click="router.push({ name: 'clubs' })" />
+                  <Button type="submit" :label="t('common.save')" :loading="saving" />
                 </div>
               </div>
 
@@ -556,7 +549,7 @@ onMounted(async () => {
         />
       </template>
 
-      <div class="form-actions">
+      <div v-if="!isEdit || activeTab === 'members'" class="form-actions">
         <Button type="button" :label="t('common.cancel')" text @click="router.push({ name: 'clubs' })" />
         <Button type="submit" :label="t('common.save')" :loading="saving" />
       </div>
@@ -640,21 +633,22 @@ onMounted(async () => {
 
 .info-grid {
   display: grid;
-  grid-template-columns: 8rem minmax(0, 1fr) 12rem;
-  gap: 1rem;
+  grid-template-columns: minmax(16rem, 18rem) minmax(0, 1fr) 12rem;
+  gap: 1.1rem;
+  align-items: start;
 }
 
 .hero-form {
   display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr) 10.5rem;
-  gap: 0.65rem;
+  grid-template-columns: minmax(16rem, 17.5rem) minmax(0, 1fr) minmax(11rem, 13rem);
+  gap: 1rem 1.15rem;
   align-items: start;
 }
 
 .hero-form__logo {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  min-width: 0;
 }
 
 .logo-preview--sm {
@@ -705,9 +699,11 @@ onMounted(async () => {
   line-height: 1.2;
 }
 
-.types-row--compact {
-  gap: 0.55rem;
-  font-size: 0.82rem;
+.hero-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  padding-top: 0.35rem;
 }
 
 .hero-form__fields :deep(.p-inputtext) {
@@ -823,8 +819,10 @@ onMounted(async () => {
 .type-radio {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0.2rem 0;
 }
 
 .status-row {
@@ -850,7 +848,21 @@ onMounted(async () => {
   gap: 0.45rem;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 1100px) {
+  .info-grid,
+  .hero-form {
+    grid-template-columns: minmax(16rem, 1fr) minmax(0, 1.4fr);
+  }
+
+  .meta-col,
+  .hero-form__meta {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
   .info-grid,
   .hero-form {
     grid-template-columns: 1fr;
@@ -858,7 +870,7 @@ onMounted(async () => {
 
   .logo-col,
   .hero-form__logo {
-    max-width: 10rem;
+    max-width: 20rem;
   }
 }
 

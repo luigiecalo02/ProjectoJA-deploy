@@ -4,6 +4,7 @@ namespace App\Modules\Terrains\Services;
 
 use App\Models\User;
 use App\Modules\Shared\Models\StoredFile;
+use App\Modules\Shared\Services\ImageOptimizer;
 use App\Modules\Terrains\Models\ConfiguracionTerreno;
 use App\Modules\Terrains\Models\Terreno;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -13,7 +14,10 @@ use Illuminate\Validation\ValidationException;
 
 final class TerrenoService
 {
-    public function __construct(private readonly GeometriaService $geometria) {}
+    public function __construct(
+        private readonly GeometriaService $geometria,
+        private readonly ImageOptimizer $imageOptimizer,
+    ) {}
 
     public function list(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
@@ -122,16 +126,15 @@ final class TerrenoService
 
     public function storeImagen(Terreno $terreno, UploadedFile $file, User $actor): Terreno
     {
-        $directory = "terrenos/{$terreno->id}";
-        $storedPath = $file->store($directory, 'public');
-        $url = url('storage/'.$storedPath);
+        $stored = $this->imageOptimizer->store($file, "terrenos/{$terreno->id}", 'ter');
+        $url = url('storage/'.$stored->path);
 
         StoredFile::query()->create([
             'name' => $file->getClientOriginalName(),
-            'path' => $storedPath,
-            'size' => $file->getSize() ?: 0,
-            'mime_type' => $file->getMimeType(),
-            'hash' => hash_file('sha256', $file->getRealPath()) ?: null,
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
             'uploaded_by' => $actor->id,
         ]);
 

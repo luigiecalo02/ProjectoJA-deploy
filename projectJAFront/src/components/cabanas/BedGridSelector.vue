@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import Select from 'primevue/select'
 import type { CabanaBed, CabanaFloor, CabanaRoom, EventoCabana } from '@/modules/cabanas/types'
-import { bedState, cabanaCapacity, cabanaFloors, cabanaLabel, occupancyOf, roomState } from '@/modules/cabanas/layout'
+import { bedState, cabanaCapacity, cabanaFloors, cabanaLabel, occupancyOf, roomState, rotateTransform } from '@/modules/cabanas/layout'
 
 const props = defineProps<{
   cabanas: EventoCabana[]
@@ -107,7 +107,18 @@ function bedAriaLabel(bed: CabanaBed, room: CabanaRoom): string {
           class="room"
           :class="`state-${roomState(room, stateOptions)}`"
         >
-          <rect :x="room.x" :y="room.y" :width="room.ancho" :height="room.alto" rx="11" />
+          <ellipse
+            v-if="room.forma === 'circle'"
+            :cx="room.x + room.ancho / 2"
+            :cy="room.y + room.alto / 2"
+            :rx="room.ancho / 2"
+            :ry="room.alto / 2"
+          />
+          <path
+            v-else-if="room.forma === 'polygon' && room.vertices?.length"
+            :d="`M ${room.vertices.map((point) => `${point.x} ${point.y}`).join(' L ')} Z`"
+          />
+          <rect v-else :x="room.x" :y="room.y" :width="room.ancho" :height="room.alto" rx="11" />
           <text class="room-name" :x="room.x + 12" :y="room.y + 23">{{ room.nombre }}</text>
           <text class="room-counter" :x="room.x + 12" :y="room.y + 42">
             {{ occupancyOf(room) }}/{{ room.capacidad }}
@@ -117,6 +128,7 @@ function bedAriaLabel(bed: CabanaBed, room: CabanaRoom): string {
             :key="bed.id"
             class="bed"
             :class="`state-${bedState(bed, stateOptions)}`"
+            :transform="rotateTransform({ x: bed.x - 18, y: bed.y - 13, ancho: 36, alto: 26, rotacion: bed.rotacion })"
             role="button"
             tabindex="0"
             :aria-label="bedAriaLabel(bed, room)"
@@ -155,11 +167,11 @@ function bedAriaLabel(bed: CabanaBed, room: CabanaRoom): string {
 .global-counter progress { flex: 1 1 12rem; height: .55rem; accent-color: var(--p-primary-color); }
 .layout-scroll { overflow: auto; border: 1px solid var(--pj-border); border-radius: 14px; background: var(--pj-bg-elevated); }
 .bed-layout { display: block; width: 100%; min-width: 600px; min-height: 380px; aspect-ratio: 1000 / 650; }
-.room > rect { stroke-width: 2; }
-.room.state-disponible > rect { fill: #ecfdf5; stroke: #10b981; }
-.room.state-parcial > rect { fill: #fffbeb; stroke: #f59e0b; }
-.room.state-completa > rect { fill: #fef2f2; stroke: #ef4444; }
-.room.state-bloqueada > rect { fill: #f1f5f9; stroke: #64748b; }
+.room > rect, .room > ellipse, .room > path { stroke-width: 2; }
+.room.state-disponible > rect, .room.state-disponible > ellipse, .room.state-disponible > path { fill: #ecfdf5; stroke: #10b981; }
+.room.state-parcial > rect, .room.state-parcial > ellipse, .room.state-parcial > path { fill: #fffbeb; stroke: #f59e0b; }
+.room.state-completa > rect, .room.state-completa > ellipse, .room.state-completa > path { fill: #fef2f2; stroke: #ef4444; }
+.room.state-bloqueada > rect, .room.state-bloqueada > ellipse, .room.state-bloqueada > path { fill: #f1f5f9; stroke: #64748b; }
 .room-name, .room-counter { pointer-events: none; fill: #172033; font-weight: 700; font-size: 17px; }
 .room-counter { fill: #475569; font-size: 13px; font-weight: 500; }
 .bed { cursor: pointer; outline: none; }

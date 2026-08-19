@@ -1,4 +1,13 @@
-import type { CabanaBed, CabanaRoom, EstadoCama, EventoCabana, GeneroAlojamiento } from './types'
+import type {
+  CabanaBed,
+  CabanaDoor,
+  CabanaPoint,
+  CabanaRoom,
+  EstadoCama,
+  EventoCabana,
+  GeneroAlojamiento,
+  RoomShape,
+} from './types'
 
 export function occupancyOf(item: { ocupadas?: number; ocupacion?: number } | null | undefined): number {
   return Number(item?.ocupadas ?? item?.ocupacion ?? 0)
@@ -52,9 +61,242 @@ export function genderClass(gender: GeneroAlojamiento | string | null | undefine
   return 'gender-MIXTO'
 }
 
+export const PX_PER_METER = 100
+
+export function pxToMeters(px: number): number {
+  return Math.round((Number(px) / PX_PER_METER) * 100) / 100
+}
+
+export function metersToPx(meters: number): number {
+  return Math.max(1, Math.round(Number(meters) * PX_PER_METER))
+}
+
+export function genderLabel(gender: GeneroAlojamiento | string | null | undefined): string {
+  if (gender === 'M' || gender === 'masculino') return 'Hombres'
+  if (gender === 'F' || gender === 'femenino') return 'Mujeres'
+  return 'Mixta'
+}
+
+export function roomCaption(room: Pick<CabanaRoom, 'codigo' | 'nombre' | 'genero'>): string {
+  const code = room.codigo || room.nombre
+  return `${code} - ${genderLabel(room.genero)}`
+}
+
+export function bedDisplaySize(bed: Pick<CabanaBed, 'ancho' | 'alto'>): { width: number; height: number } {
+  return {
+    width: Number(bed.ancho || 120),
+    height: Number(bed.alto || 72),
+  }
+}
+
+export type ObjectOrientation = 'horizontal' | 'vertical'
+export type BedOrientation = ObjectOrientation
+
+export function doorOrientation(door: Pick<CabanaDoor, 'rotacion'>): ObjectOrientation {
+  const angle = ((Number(door.rotacion ?? 0) % 180) + 180) % 180
+  return angle >= 45 && angle < 135 ? 'vertical' : 'horizontal'
+}
+
+export function applyDoorOrientation(door: CabanaDoor, orientation: ObjectOrientation): void {
+  door.rotacion = orientation === 'vertical' ? 90 : 0
+}
+
+export function normalizeAngle(degrees: number): number {
+  return ((Number(degrees) % 360) + 360) % 360
+}
+
+export function objectCenter(item: { x: number; y: number; ancho?: number; alto?: number }): { x: number; y: number } {
+  if (item.alto != null) {
+    return { x: item.x + Number(item.ancho || 120) / 2, y: item.y + Number(item.alto) / 2 }
+  }
+  return { x: item.x, y: item.y }
+}
+
+export function rotateTransform(item: { x: number; y: number; ancho?: number; alto?: number; rotacion?: number }): string {
+  const angle = normalizeAngle(item.rotacion ?? 0)
+  const center = objectCenter(item)
+  return `rotate(${angle} ${center.x} ${center.y})`
+}
+
+export function rotateHandlePoint(item: { x: number; y: number; ancho?: number; alto?: number }): { x: number; y: number } {
+  if (item.alto != null) {
+    return { x: item.x + Number(item.ancho || 120) / 2, y: item.y - 24 }
+  }
+  return { x: item.x, y: item.y - 26 }
+}
+
+export function normalizeLegacyBedRotation(bed: CabanaBed): void {
+  const width = Number(bed.ancho || 120)
+  const height = Number(bed.alto || 72)
+  const angle = normalizeAngle(bed.rotacion ?? 0)
+  if (height > width && (bed.rotacion == null || angle === 0)) {
+    bed.ancho = height
+    bed.alto = width
+    bed.rotacion = 90
+  }
+}
+
+export function angleFromPoints(center: { x: number; y: number }, point: { x: number; y: number }): number {
+  return normalizeAngle((Math.atan2(point.y - center.y, point.x - center.x) * 180) / Math.PI)
+}
+
+export function doorRect(door: CabanaDoor): { x: number; y: number; width: number; height: number } {
+  const length = Number(door.ancho || 56)
+  const thickness = 16
+  return { x: door.x - length / 2, y: door.y - thickness / 2, width: length, height: thickness }
+}
+
+export function bedOrientation(bed: Pick<CabanaBed, 'ancho' | 'alto' | 'rotacion'>): BedOrientation {
+  const angle = ((Number(bed.rotacion ?? 0) % 180) + 180) % 180
+  if (angle >= 45 && angle < 135) return 'vertical'
+  const { width, height } = bedDisplaySize(bed)
+  return height > width ? 'vertical' : 'horizontal'
+}
+
+export function bedSizeForOrientation(orientation: ObjectOrientation): { ancho: number; alto: number; rotacion: number } {
+  return orientation === 'vertical'
+    ? { ancho: 72, alto: 120, rotacion: 90 }
+    : { ancho: 120, alto: 72, rotacion: 0 }
+}
+
+export function applyBedOrientation(
+  bed: CabanaBed,
+  _room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto'>,
+  orientation: BedOrientation,
+): void {
+  bed.rotacion = orientation === 'vertical' ? 90 : 0
+}
+
+export function catalogBedStatus(bed: CabanaBed): 'disponible' | 'ocupada' | 'mantenimiento' | 'bloqueada' {
+  if (bed.estado === 'mantenimiento') return 'mantenimiento'
+  if (bed.estado === 'no_disponible' || bed.bloqueada) return 'bloqueada'
+  if (occupancyOf(bed) > 0) return 'ocupada'
+  return 'disponible'
+}
+
 export function isBedInsideRoom(
   bed: Pick<CabanaBed, 'x' | 'y'>,
-  room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto'>,
+  room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto' | 'forma' | 'vertices'>,
 ): boolean {
-  return bed.x >= room.x && bed.y >= room.y && bed.x <= room.x + room.ancho && bed.y <= room.y + room.alto
+  return pointInRoom({ x: bed.x, y: bed.y }, room)
+}
+
+export function roomShape(room: Pick<CabanaRoom, 'forma'> | null | undefined): RoomShape {
+  return room?.forma === 'circle' || room?.forma === 'polygon' ? room.forma : 'rect'
+}
+
+export function roomCenter(room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto'>): CabanaPoint {
+  return { x: room.x + room.ancho / 2, y: room.y + room.alto / 2 }
+}
+
+export function roomRadius(room: Pick<CabanaRoom, 'ancho' | 'alto'>): number {
+  return Math.min(room.ancho, room.alto) / 2
+}
+
+export function rectVertices(room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto'>): CabanaPoint[] {
+  return [
+    { x: room.x, y: room.y },
+    { x: room.x + room.ancho, y: room.y },
+    { x: room.x + room.ancho, y: room.y + room.alto },
+    { x: room.x, y: room.y + room.alto },
+  ]
+}
+
+export function roomPolygon(room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto' | 'forma' | 'vertices'>): CabanaPoint[] {
+  if (roomShape(room) === 'polygon' && (room.vertices?.length ?? 0) >= 3) {
+    return room.vertices as CabanaPoint[]
+  }
+  return rectVertices(room)
+}
+
+export function boundsFromPoints(points: CabanaPoint[]): Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto'> {
+  const xs = points.map((point) => point.x)
+  const ys = points.map((point) => point.y)
+  const x = Math.min(...xs)
+  const y = Math.min(...ys)
+  return { x, y, ancho: Math.max(1, Math.max(...xs) - x), alto: Math.max(1, Math.max(...ys) - y) }
+}
+
+export function pointInPolygon(point: CabanaPoint, vertices: CabanaPoint[]): boolean {
+  let inside = false
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i, i += 1) {
+    const a = vertices[i]
+    const b = vertices[j]
+    const intersects = a.y > point.y !== b.y > point.y
+      && point.x < ((b.x - a.x) * (point.y - a.y)) / ((b.y - a.y) || Number.EPSILON) + a.x
+    if (intersects) inside = !inside
+  }
+  return inside
+}
+
+export function pointInRoom(
+  point: CabanaPoint,
+  room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto' | 'forma' | 'vertices'>,
+): boolean {
+  if (roomShape(room) === 'circle') {
+    const center = roomCenter(room)
+    const radius = roomRadius(room)
+    return (point.x - center.x) ** 2 + (point.y - center.y) ** 2 <= radius ** 2
+  }
+  return pointInPolygon(point, roomPolygon(room))
+}
+
+export function roomPath(room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto' | 'forma' | 'vertices'>): string {
+  const points = roomPolygon(room)
+  return `M ${points.map((point) => `${point.x} ${point.y}`).join(' L ')} Z`
+}
+
+export function snapToRoomPerimeter(
+  room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto' | 'forma' | 'vertices'>,
+  point: CabanaPoint,
+): CabanaPoint {
+  if (roomShape(room) === 'circle') {
+    const center = roomCenter(room)
+    const radius = roomRadius(room)
+    const dx = point.x - center.x
+    const dy = point.y - center.y
+    const length = Math.hypot(dx, dy) || 1
+    return { x: center.x + (dx / length) * radius, y: center.y + (dy / length) * radius }
+  }
+  const vertices = roomPolygon(room)
+  let best = vertices[0]
+  let bestDist = Number.POSITIVE_INFINITY
+  for (let i = 0; i < vertices.length; i += 1) {
+    const a = vertices[i]
+    const b = vertices[(i + 1) % vertices.length]
+    const snapped = closestPointOnSegment(point, a, b)
+    if (snapped.dist < bestDist) {
+      bestDist = snapped.dist
+      best = snapped.point
+    }
+  }
+  return best
+}
+
+export function defaultDoorForRoom(
+  room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto' | 'forma' | 'vertices'>,
+  id = -1,
+  orientation: ObjectOrientation = 'horizontal',
+): CabanaDoor {
+  const rotacion = orientation === 'vertical' ? 90 : 0
+  if (roomShape(room) === 'circle') {
+    const center = roomCenter(room)
+    return { id, x: center.x, y: room.y + room.alto, ancho: 56, rotacion }
+  }
+  const vertices = roomPolygon(room)
+  if (roomShape(room) === 'polygon' && vertices.length >= 2) {
+    const a = vertices[0]
+    const b = vertices[1]
+    return { id, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, ancho: 56, rotacion }
+  }
+  return { id, x: room.x + room.ancho / 2, y: room.y + room.alto, ancho: 56, rotacion }
+}
+
+function closestPointOnSegment(point: CabanaPoint, a: CabanaPoint, b: CabanaPoint): { point: CabanaPoint; dist: number } {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const length = dx * dx + dy * dy || 1
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length))
+  const snapped = { x: a.x + dx * t, y: a.y + dy * t }
+  return { point: snapped, dist: Math.hypot(point.x - snapped.x, point.y - snapped.y) }
 }
