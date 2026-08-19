@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -8,12 +8,12 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
-import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import Dialog from 'primevue/dialog'
 import AppSearchField from '@/components/AppSearchField.vue'
 import AppStackDrawer from '@/components/drawers/AppStackDrawer.vue'
 import PageLoader from '@/components/PageLoader.vue'
+import { MediaCoverUpload } from '@/components/media'
 import { cabanasService } from '@/services/cabanasService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
@@ -32,18 +32,34 @@ const deleting = ref(false)
 const drawerVisible = ref(false)
 const editTarget = ref<Cabana | null>(null)
 const deleteTarget = ref<Cabana | null>(null)
+const pendingImage = ref<File | null>(null)
+const pendingPreview = ref<string | null>(null)
 const filters = reactive({ search: '', page: 1, per_page: 10 })
-const form = reactive({ nombre: '', descripcion: '', estado: 'activa' as CabanaEstado })
-const estadoOptions = computed(() => [
-  { label: t('cabanas.active'), value: 'activa' },
-  { label: t('cabanas.inactive'), value: 'inactiva' },
-])
+const form = reactive({
+  nombre: '',
+  descripcion: '',
+  image_url: '' as string | null,
+  estado: 'activa' as CabanaEstado,
+})
+const coverSrc = computed(() => pendingPreview.value || form.image_url || null)
+const previewName = computed(() => form.nombre.trim() || t('cabanas.create'))
 const deleteVisible = computed({
   get: () => deleteTarget.value !== null,
   set: (value: boolean) => {
     if (!value) deleteTarget.value = null
   },
 })
+
+function revokePreview(): void {
+  if (pendingPreview.value) URL.revokeObjectURL(pendingPreview.value)
+  pendingPreview.value = null
+}
+
+function resetForm(): void {
+  revokePreview()
+  pendingImage.value = null
+  Object.assign(form, { nombre: '', descripcion: '', image_url: null, estado: 'activa' })
+}
 
 async function load(): Promise<void> {
   loading.value = true
@@ -64,18 +80,35 @@ async function load(): Promise<void> {
 
 function openCreate(): void {
   editTarget.value = null
-  Object.assign(form, { nombre: '', descripcion: '', estado: 'activa' })
+  resetForm()
   drawerVisible.value = true
 }
 
 function openEdit(item: Cabana): void {
   editTarget.value = item
+  revokePreview()
+  pendingImage.value = null
   Object.assign(form, {
     nombre: item.nombre,
     descripcion: item.descripcion ?? '',
+    image_url: item.image_url ?? null,
     estado: item.estado,
   })
   drawerVisible.value = true
+}
+
+function onPickImage(file: File): void {
+  pendingImage.value = file
+  revokePreview()
+  pendingPreview.value = URL.createObjectURL(file)
+}
+
+async function uploadPendingImage(id: number): Promise<void> {
+  if (!pendingImage.value) return
+  const updated = await cabanasService.uploadImage(id, pendingImage.value)
+  form.image_url = updated.image_url ?? null
+  pendingImage.value = null
+  revokePreview()
 }
 
 async function save(): Promise<void> {
@@ -87,9 +120,12 @@ async function save(): Promise<void> {
       descripcion: form.descripcion.trim() || null,
       estado: form.estado,
     }
-    if (editTarget.value) await cabanasService.update(editTarget.value.id, payload)
-    else await cabanasService.create(payload)
+    const saved = editTarget.value
+      ? await cabanasService.update(editTarget.value.id, payload)
+      : await cabanasService.create(payload)
+    if (pendingImage.value) await uploadPendingImage(saved.id)
     drawerVisible.value = false
+    resetForm()
     toast.add({ severity: 'success', summary: t('common.success'), detail: t('cabanas.saveSuccess'), life: 2500 })
     await load()
   } catch (error) {
@@ -120,6 +156,11 @@ function onPage(event: { page: number; rows: number }): void {
   void load()
 }
 
+function goToLayout(id: number): void {
+  drawerVisible.value = false
+  void router.push({ name: 'cabanas.layout', params: { id } })
+}
+
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 watch(() => filters.search, () => {
   clearTimeout(searchTimer)
@@ -130,6 +171,10 @@ watch(() => filters.search, () => {
 })
 
 onMounted(() => void load())
+onBeforeUnmount(() => {
+  clearTimeout(searchTimer)
+  revokePreview()
+})
 </script>
 
 <template>
@@ -158,6 +203,14 @@ onMounted(() => void load())
       data-key="id"
       @page="onPage"
     >
+      <Column :header="t('cabanas.formSectionPhoto')" style="width: 5.2rem">
+        <template #body="{ data }">
+          <span class="thumb" :class="{ 'has-photo': !!data.image_url }">
+            <img v-if="data.image_url" :src="data.image_url" :alt="data.nombre" />
+            <i v-else class="pi pi-home" />
+          </span>
+        </template>
+      </Column>
       <Column field="nombre" :header="t('cabanas.name')">
         <template #body="{ data }">
           <strong>{{ data.nombre }}</strong>
@@ -209,12 +262,136 @@ onMounted(() => void load())
       :subtitle="t('cabanas.formHint')"
       :level="1"
     >
-      <label>{{ t('cabanas.name') }} *<InputText v-model="form.nombre" autofocus /></label>
-      <label>{{ t('cabanas.description') }}<Textarea v-model="form.descripcion" rows="4" /></label>
-      <label>
-        {{ t('cabanas.status') }}
-        <Select v-model="form.estado" :options="estadoOptions" option-label="label" option-value="value" />
-      </label>
+      <div class="cabana-form">
+        <aside class="preview-card">
+          <span class="preview-card__photo" :class="{ 'has-photo': !!coverSrc }">
+            <img v-if="coverSrc" :src="coverSrc" alt="" />
+            <i v-else class="pi pi-home" />
+          </span>
+          <div>
+            <em>{{ editTarget ? t('cabanas.edit') : t('cabanas.create') }}</em>
+            <strong>{{ previewName }}</strong>
+            <small>{{ form.descripcion.trim() || t('cabanas.formPhotoHint') }}</small>
+          </div>
+          <Tag
+            :value="form.estado === 'activa' ? t('cabanas.active') : t('cabanas.inactive')"
+            :severity="form.estado === 'activa' ? 'success' : 'secondary'"
+          />
+        </aside>
+
+        <div class="form-grid">
+          <section class="panel">
+            <header>
+              <i class="pi pi-image" />
+              <div>
+                <strong>{{ t('cabanas.formSectionPhoto') }}</strong>
+                <p>{{ t('cabanas.formPhotoHint') }}</p>
+              </div>
+            </header>
+            <MediaCoverUpload
+              :src="coverSrc"
+              :title="t('cabanas.formSectionPhoto')"
+              :subtitle="t('media.cabanaCoverSubtitle')"
+              :busy="saving"
+              @select="onPickImage"
+            />
+          </section>
+
+          <div class="form-stack">
+            <section class="panel">
+              <header>
+                <i class="pi pi-home" />
+                <div>
+                  <strong>{{ t('cabanas.formSectionInfo') }}</strong>
+                  <p>{{ t('cabanas.formHint') }}</p>
+                </div>
+              </header>
+              <label>
+                {{ t('cabanas.name') }} *
+                <InputText
+                  v-model="form.nombre"
+                  autofocus
+                  :placeholder="t('cabanas.formNamePlaceholder')"
+                />
+              </label>
+              <label>
+                {{ t('cabanas.description') }}
+                <Textarea
+                  v-model="form.descripcion"
+                  rows="5"
+                  :placeholder="t('cabanas.formDescriptionPlaceholder')"
+                />
+              </label>
+            </section>
+
+            <section class="panel">
+              <header>
+                <i class="pi pi-flag" />
+                <div>
+                  <strong>{{ t('cabanas.formSectionStatus') }}</strong>
+                </div>
+              </header>
+              <div class="status-cards">
+                <button
+                  type="button"
+                  class="status-card"
+                  :class="{ active: form.estado === 'activa' }"
+                  @click="form.estado = 'activa'"
+                >
+                  <i class="pi pi-check-circle" />
+                  <span>
+                    <strong>{{ t('cabanas.active') }}</strong>
+                    <small>{{ t('cabanas.formStatusActiveHint') }}</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  class="status-card"
+                  :class="{ active: form.estado === 'inactiva' }"
+                  @click="form.estado = 'inactiva'"
+                >
+                  <i class="pi pi-ban" />
+                  <span>
+                    <strong>{{ t('cabanas.inactive') }}</strong>
+                    <small>{{ t('cabanas.formStatusInactiveHint') }}</small>
+                  </span>
+                </button>
+              </div>
+            </section>
+
+            <section v-if="editTarget" class="panel stats-panel">
+              <div class="stat">
+                <strong>{{ editTarget.pisos_count ?? editTarget.pisos?.length ?? 0 }}</strong>
+                <small>{{ t('cabanas.floors') }}</small>
+              </div>
+              <div class="stat">
+                <strong>{{ editTarget.cuartos_count ?? 0 }}</strong>
+                <small>{{ t('cabanas.rooms') }}</small>
+              </div>
+              <div class="stat">
+                <strong>{{ editTarget.capacidad_total ?? 0 }}</strong>
+                <small>{{ t('cabanas.capacity') }}</small>
+              </div>
+              <Button
+                v-if="can('cabanas.view')"
+                :label="t('cabanas.formOpenLayout')"
+                icon="pi pi-map"
+                outlined
+                @click="goToLayout(editTarget.id)"
+              />
+            </section>
+
+            <section v-else class="next-card">
+              <i class="pi pi-map" />
+              <div>
+                <strong>{{ t('cabanas.formNextTitle') }}</strong>
+                <p>{{ t('cabanas.formNextHint') }}</p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
       <template #footer>
         <Button :label="t('common.cancel')" text @click="drawerVisible = false" />
         <Button :label="t('common.save')" icon="pi pi-save" :loading="saving" :disabled="!form.nombre.trim()" @click="save" />
@@ -234,6 +411,125 @@ onMounted(() => void load())
 <style scoped>
 .description { display: block; max-width: 30rem; margin-top: .2rem; color: var(--pj-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-actions { display: flex; gap: .2rem; }
-:deep(.stack-drawer__body label) { display: grid; gap: .35rem; font-size: .86rem; font-weight: 600; }
-:deep(.stack-drawer__body .p-inputtext), :deep(.stack-drawer__body .p-select), :deep(.stack-drawer__body .p-textarea) { width: 100%; }
+.thumb {
+  display: grid;
+  place-items: center;
+  width: 3.4rem;
+  height: 2.4rem;
+  overflow: hidden;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--p-primary-color) 12%, white);
+  color: var(--p-primary-color);
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.thumb.has-photo { background: #e2e8f0; }
+
+.cabana-form { display: grid; gap: 1.1rem; }
+.preview-card {
+  display: grid;
+  grid-template-columns: 5.6rem 1fr auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1.1rem;
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--p-primary-color) 16%, white), #fff 62%),
+    var(--pj-bg-elevated, #fff);
+  border: 1px solid color-mix(in srgb, var(--pj-border, #e2e8f0) 80%, transparent);
+}
+.preview-card__photo {
+  display: grid;
+  place-items: center;
+  width: 5.6rem;
+  height: 4rem;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 1.3rem;
+}
+.preview-card__photo img { width: 100%; height: 100%; object-fit: cover; }
+.preview-card em, .preview-card strong, .preview-card small { display: block; }
+.preview-card em { font-style: normal; font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--pj-text-muted); }
+.preview-card strong { margin-top: .15rem; font-size: 1.15rem; }
+.preview-card small { margin-top: .28rem; color: var(--pj-text-muted); line-height: 1.35; }
+
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.95fr) minmax(22rem, 1.15fr);
+  gap: 1rem;
+  align-items: start;
+}
+.form-stack { display: grid; gap: 1rem; }
+.panel, .next-card {
+  display: grid;
+  gap: .85rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--pj-border, #e2e8f0);
+  border-radius: 16px;
+  background: var(--pj-bg-elevated, #fff);
+}
+.panel > header { display: flex; gap: .7rem; align-items: flex-start; }
+.panel > header i {
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--p-primary-color) 12%, white);
+  color: var(--p-primary-color);
+}
+.panel > header p, .next-card p { margin: .2rem 0 0; color: var(--pj-text-muted); font-size: .84rem; line-height: 1.4; }
+.panel label { display: grid; gap: .35rem; font-size: .86rem; font-weight: 600; }
+.panel :deep(.p-inputtext), .panel :deep(.p-textarea) { width: 100%; }
+
+.status-cards { display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; }
+.status-card {
+  display: flex;
+  gap: .65rem;
+  align-items: flex-start;
+  padding: .8rem .85rem;
+  border: 1px solid var(--pj-border, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+.status-card i { margin-top: .1rem; color: var(--pj-text-muted); }
+.status-card strong, .status-card small { display: block; }
+.status-card small { margin-top: .2rem; color: var(--pj-text-muted); font-size: .75rem; line-height: 1.35; }
+.status-card.active {
+  border-color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 8%, white);
+}
+.status-card.active i { color: var(--p-primary-color); }
+
+.stats-panel {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: center;
+  gap: .75rem;
+}
+.stat { display: grid; gap: .15rem; }
+.stat strong { font-size: 1.25rem; }
+.stat small { color: var(--pj-text-muted); font-size: .78rem; }
+
+.next-card {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  background: color-mix(in srgb, var(--p-primary-color) 7%, white);
+}
+.next-card i {
+  display: grid;
+  place-items: center;
+  width: 2.3rem;
+  height: 2.3rem;
+  border-radius: 10px;
+  background: var(--p-primary-color);
+  color: #fff;
+}
+
+@media (max-width: 920px) {
+  .form-grid, .stats-panel, .status-cards { grid-template-columns: 1fr; }
+  .preview-card { grid-template-columns: 4.4rem 1fr; }
+}
 </style>

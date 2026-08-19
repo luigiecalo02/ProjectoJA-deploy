@@ -7,12 +7,17 @@ use App\Modules\Cabanas\Models\Cabana;
 use App\Modules\Cabanas\Models\CabanaCama;
 use App\Modules\Cabanas\Models\CabanaCuarto;
 use App\Modules\Cabanas\Models\CabanaPiso;
+use App\Modules\Shared\Models\StoredFile;
+use App\Modules\Shared\Services\ImageOptimizer;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 final class CabanaService
 {
+    public function __construct(private readonly ImageOptimizer $imageOptimizer) {}
+
     public function list(array $filters, int $perPage = 15): LengthAwarePaginator
     {
         $paginator = Cabana::query()
@@ -52,6 +57,25 @@ final class CabanaService
     public function update(Cabana $cabana, array $data): Cabana
     {
         $cabana->update($data);
+
+        return $this->find($cabana->id);
+    }
+
+    public function storeImage(Cabana $cabana, UploadedFile $file, User $actor): Cabana
+    {
+        $stored = $this->imageOptimizer->store($file, "cabanas/{$cabana->id}", 'cab');
+        $url = url('storage/'.$stored->path);
+
+        StoredFile::query()->create([
+            'name' => $file->getClientOriginalName(),
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
+            'uploaded_by' => $actor->id,
+        ]);
+
+        $cabana->update(['image_url' => $url]);
 
         return $this->find($cabana->id);
     }

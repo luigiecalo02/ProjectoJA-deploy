@@ -36,8 +36,8 @@ final class EventoCabanaService
             }
             $snapshot = EventoCabana::query()->create([
                 'evento_id' => $event->id, 'cabana_id' => $cabana->id, 'nombre' => $cabana->nombre,
-                'descripcion' => $cabana->descripcion, 'ancho' => $cabana->ancho,
-                'alto' => $cabana->alto, 'estado' => $cabana->estado,
+                'descripcion' => $cabana->descripcion, 'image_url' => $cabana->image_url,
+                'ancho' => $cabana->ancho, 'alto' => $cabana->alto, 'estado' => $cabana->estado,
                 'orden' => (int) EventoCabana::query()->where('evento_id', $event->id)->max('orden') + 1,
             ]);
             foreach ($cabana->pisos as $piso) {

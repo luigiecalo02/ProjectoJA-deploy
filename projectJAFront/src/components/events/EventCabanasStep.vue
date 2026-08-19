@@ -117,7 +117,10 @@ onMounted(() => void load())
           :class="{ selected: selectedIds.includes(item.id) }"
           @click="toggle(item.id)"
         >
-          <div class="cabana-icon"><i class="pi pi-building" /></div>
+          <div class="cabana-icon" :class="{ 'has-photo': !!item.image_url }">
+            <img v-if="item.image_url" :src="item.image_url" :alt="item.nombre" />
+            <i v-else class="pi pi-building" />
+          </div>
           <div>
             <strong>{{ item.nombre }}</strong>
             <small>{{ item.pisos_count ?? item.pisos?.length ?? 0 }} {{ t('cabanas.floors').toLowerCase() }}</small>
@@ -155,7 +158,9 @@ onMounted(() => void load())
 .cabana-card.selected { border-color: var(--p-primary-color); background: var(--pj-primary-soft); }
 .cabana-card strong, .cabana-card small { display: block; }
 .cabana-card small { margin-top: .18rem; color: var(--pj-text-muted); }
-.cabana-icon { display: grid; place-items: center; width: 2.3rem; height: 2.3rem; border-radius: 9px; background: color-mix(in srgb, var(--p-primary-color) 12%, white); color: var(--p-primary-color); }
+.cabana-icon { display: grid; place-items: center; width: 2.6rem; height: 2.6rem; overflow: hidden; border-radius: 9px; background: color-mix(in srgb, var(--p-primary-color) 12%, white); color: var(--p-primary-color); }
+.cabana-icon img { width: 100%; height: 100%; object-fit: cover; }
+.cabana-icon.has-photo { background: #e2e8f0; }
 .capacity { white-space: nowrap; font-weight: 700; }
 .priority-list { display: grid; gap: .35rem; padding: .75rem; border: 1px solid var(--pj-border); border-radius: 10px; }
 .priority-list > div { display: flex; justify-content: space-between; align-items: center; min-height: 2.2rem; border-top: 1px solid color-mix(in srgb, var(--pj-border) 55%, transparent); }

@@ -16,6 +16,8 @@ use App\Modules\Events\Models\ProductoServicio;
 use App\Modules\Users\Models\Role;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -84,6 +86,27 @@ class CabanasApiTest extends TestCase
             'evento_id' => $event->id,
             'cabana_id' => $first['cabana_id'],
         ]);
+    }
+
+    public function test_guarda_imagen_de_cabana(): void
+    {
+        Storage::fake('public');
+        Sanctum::actingAs($this->admin());
+
+        $cabanaId = $this->postJson('/api/v1/cabanas', ['nombre' => 'Con foto'])
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->post("/api/v1/cabanas/{$cabanaId}/image", [
+            'image' => UploadedFile::fake()->image('cabana.jpg', 640, 480),
+        ], [
+            'Accept' => 'application/json',
+        ])->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertNotEmpty(
+            $this->getJson("/api/v1/cabanas/{$cabanaId}")->json('data.image_url')
+        );
     }
 
     public function test_invitado_no_puede_administrar_cabanas(): void

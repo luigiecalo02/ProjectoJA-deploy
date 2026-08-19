@@ -59,6 +59,9 @@ watch(cabanaId, () => void load(), { immediate: true })
     <header class="pj-page__header">
       <div class="heading">
         <Button icon="pi pi-arrow-left" text rounded @click="router.push({ name: 'cabanas' })" />
+        <span v-if="cabana?.image_url" class="layout-thumb">
+          <img :src="cabana.image_url" :alt="cabana.nombre" />
+        </span>
         <div>
           <h1 class="pj-display">{{ cabana?.nombre || t('cabanas.layout') }}</h1>
           <p>{{ t('cabanas.layoutSubtitle') }}</p>
@@ -82,5 +85,14 @@ watch(cabanaId, () => void load(), { immediate: true })
 <style scoped>
 .heading { display: flex; align-items: center; gap: .45rem; }
 .heading h1, .heading p { margin: 0; }
+.layout-thumb {
+  display: block;
+  width: 3.2rem;
+  height: 2.3rem;
+  overflow: hidden;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.layout-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .editor-panel { padding: 1rem; min-width: 0; }
 </style>

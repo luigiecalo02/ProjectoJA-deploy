@@ -6,6 +6,7 @@ use App\Modules\Cabanas\Http\Requests\SaveCroquisRequest;
 use App\Modules\Cabanas\Http\Requests\StoreCabanaRequest;
 use App\Modules\Cabanas\Http\Requests\SyncEventoCabanasRequest;
 use App\Modules\Cabanas\Http\Requests\UpdateCabanaRequest;
+use App\Modules\Cabanas\Http\Requests\UploadCabanaImageRequest;
 use App\Modules\Cabanas\Models\AsignacionCama;
 use App\Modules\Cabanas\Models\Cabana;
 use App\Modules\Cabanas\Models\EventoCabana;
@@ -68,6 +69,13 @@ final class CabanaController
     public function saveCroquis(SaveCroquisRequest $request, Cabana $cabana): JsonResponse
     {
         return ApiResponse::success($this->cabanas->saveCroquis($cabana, $request->validated('pisos')), 'Croquis guardado');
+    }
+
+    public function image(UploadCabanaImageRequest $request, Cabana $cabana): JsonResponse
+    {
+        $cabana = $this->cabanas->storeImage($cabana, $request->file('image'), $request->user());
+
+        return ApiResponse::success($cabana, 'Imagen actualizada');
     }
 
     public function eventIndex(Request $request, Event $event): JsonResponse
@@ -235,6 +243,7 @@ final class CabanaController
             'orden' => $cabana->orden,
             'nombre' => $cabana->nombre,
             'descripcion' => $cabana->descripcion,
+            'image_url' => $cabana->image_url,
             'ancho' => $cabana->ancho,
             'alto' => $cabana->alto,
             'estado' => $cabana->estado,

@@ -71,6 +71,7 @@ export interface Cabana {
   id: number
   nombre: string
   descripcion?: string | null
+  image_url?: string | null
   estado: CabanaEstado
   pisos_count?: number
   cuartos_count?: number
@@ -131,13 +132,14 @@ export interface EventoCabana {
   orden: number
   nombre: string
   descripcion?: string | null
+  image_url?: string | null
   estado: string
   pisos: CabanaFloor[]
   ocupacion?: number
   ocupadas?: number
   capacidad?: number
   capacidad_total?: number
-  cabana: Pick<Cabana, 'id' | 'nombre' | 'pisos' | 'capacidad_total'>
+  cabana: Pick<Cabana, 'id' | 'nombre' | 'image_url' | 'pisos' | 'capacidad_total'>
 }
 
 export interface EventoCabanaPayload {

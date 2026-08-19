@@ -11,6 +11,7 @@ import type {
   EventoCabanaPayload,
 } from '@/modules/cabanas/types'
 import { occupancyOf } from '@/modules/cabanas/layout'
+import { prepareUploadFile } from '@/utils/optimizeImage'
 
 export interface CabanasPage {
   items: Cabana[]
@@ -54,6 +55,7 @@ function normalizeEventCabana(item: Partial<EventoCabana> & { id: number }): Eve
     orden: item.orden ?? 0,
     nombre,
     descripcion: item.descripcion,
+    image_url: item.image_url ?? item.cabana?.image_url ?? null,
     estado: item.estado ?? 'activa',
     pisos,
     ocupadas,
@@ -63,6 +65,7 @@ function normalizeEventCabana(item: Partial<EventoCabana> & { id: number }): Eve
     cabana: {
       id: cabanaId,
       nombre,
+      image_url: item.image_url ?? item.cabana?.image_url ?? null,
       pisos,
       capacidad_total: capacidad,
     },
@@ -112,6 +115,16 @@ export const cabanasService = {
 
   async remove(id: number): Promise<void> {
     await api.delete(`/api/v1/cabanas/${id}`)
+  },
+
+  async uploadImage(id: number, file: File): Promise<Cabana> {
+    const image = await prepareUploadFile(file)
+    const body = new FormData()
+    body.append('image', image)
+    const { data } = await api.post<ApiEnvelope<Cabana>>(`/api/v1/cabanas/${id}/image`, body, {
+      timeout: 120000,
+    })
+    return data.data
   },
 
   async saveLayout(cabanaId: number, payload: CabanaLayoutPayload): Promise<Cabana> {

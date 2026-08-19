@@ -11,6 +11,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('cabanas/{cabana}', [CabanaController::class, 'update']);
     Route::delete('cabanas/{cabana}', [CabanaController::class, 'destroy']);
     Route::put('cabanas/{cabana}/croquis', [CabanaController::class, 'saveCroquis']);
+    Route::post('cabanas/{cabana}/image', [CabanaController::class, 'image']);
 
     Route::get('events/{event}/cabanas', [CabanaController::class, 'eventIndex']);
     Route::post('events/{event}/cabanas', [CabanaController::class, 'attach']);

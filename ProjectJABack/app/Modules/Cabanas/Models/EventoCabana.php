@@ -12,7 +12,7 @@ class EventoCabana extends Model
     protected $table = 'evento_cabanas';
 
     protected $fillable = [
-        'evento_id', 'cabana_id', 'nombre', 'descripcion', 'ancho', 'alto',
+        'evento_id', 'cabana_id', 'nombre', 'descripcion', 'image_url', 'ancho', 'alto',
         'estado', 'orden',
     ];
 

@@ -11,7 +11,7 @@ class Cabana extends Model
 {
     protected $table = 'cabanas';
 
-    protected $fillable = ['nombre', 'descripcion', 'ancho', 'alto', 'estado', 'created_by'];
+    protected $fillable = ['nombre', 'descripcion', 'image_url', 'ancho', 'alto', 'estado', 'created_by'];
 
     public function pisos(): HasMany
     {

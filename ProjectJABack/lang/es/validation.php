@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'uploaded' => 'No se pudo subir el archivo. Puede ser demasiado grande o la subida falló. Máximo permitido: 100 MB.',
+    'uploaded' => 'No se pudo subir el archivo. Puede ser demasiado grande o la subida falló.',
     'max' => [
         'file' => 'El archivo no debe ser mayor a :max kilobytes.',
     ],

@@ -40,6 +40,8 @@ final class EventParticipationController
 
     public function storeEvidencia(Request $request, Event $event): JsonResponse
     {
+        $this->rejectIfRequestExceedsPhpLimit($request);
+
         $archivo = $request->file('archivo');
         if ($archivo && ! $archivo->isValid()) {
             throw ValidationException::withMessages([
@@ -47,20 +49,24 @@ final class EventParticipationController
             ]);
         }
 
+        $maxBytes = $this->iniBytes('upload_max_filesize');
+        $maxKb = $maxBytes > 0 ? (int) floor($maxBytes / 1024) : 102400;
+        $limitLabel = $this->uploadLimitLabel();
+
         $data = $request->validate([
             'tipo' => ['required', 'string', Rule::in(['link', 'pdf', 'imagen', 'audio', 'video'])],
             'titulo' => ['nullable', 'string', 'max:255'],
             'descripcion' => ['nullable', 'string'],
             'url' => ['nullable', 'string', 'max:2048'],
             'file_id' => ['nullable', 'integer', 'exists:files,id'],
-            'archivo' => ['nullable', 'file', 'max:102400'],
+            'archivo' => ['nullable', 'file', 'max:'.$maxKb],
             'estado' => ['sometimes', 'string', Rule::in([
                 EventoEvidencia::ESTADO_BORRADOR,
                 EventoEvidencia::ESTADO_ENVIADA,
             ])],
         ], [
-            'archivo.uploaded' => 'No se pudo subir el archivo. Si es audio/video, prueba con uno de hasta 100 MB o reinicia Apache tras subir el límite de PHP.',
-            'archivo.max' => 'El archivo no puede superar 100 MB.',
+            'archivo.uploaded' => "No se pudo subir el archivo. El servidor acepta hasta {$limitLabel}.",
+            'archivo.max' => "El archivo no puede superar {$limitLabel}.",
             'archivo.file' => 'Debes adjuntar un archivo válido.',
         ]);
 
@@ -78,15 +84,56 @@ final class EventParticipationController
         );
     }
 
+    private function rejectIfRequestExceedsPhpLimit(Request $request): void
+    {
+        $contentLength = (int) $request->server('CONTENT_LENGTH', 0);
+        $postMax = $this->iniBytes('post_max_size');
+        if ($contentLength > 0 && $postMax > 0 && $contentLength > $postMax) {
+            throw ValidationException::withMessages([
+                'archivo' => [$this->sizeLimitMessage()],
+            ]);
+        }
+    }
+
     private function uploadErrorMessage(UploadedFile $archivo): string
     {
         return match ($archivo->getError()) {
-            \UPLOAD_ERR_INI_SIZE, \UPLOAD_ERR_FORM_SIZE => 'El archivo supera el tamaño máximo del servidor (100 MB). Usa un archivo más pequeño.',
+            \UPLOAD_ERR_INI_SIZE, \UPLOAD_ERR_FORM_SIZE => $this->sizeLimitMessage(),
             \UPLOAD_ERR_PARTIAL => 'El archivo se subió incompleto. Intenta de nuevo.',
             \UPLOAD_ERR_NO_FILE => 'No se recibió el archivo.',
             \UPLOAD_ERR_NO_TMP_DIR => 'El servidor no tiene carpeta temporal para subir archivos.',
             \UPLOAD_ERR_CANT_WRITE => 'El servidor no pudo guardar el archivo.',
             default => 'No se pudo subir el archivo. Prueba con un archivo más pequeño o en otro formato (MP3/WAV).',
+        };
+    }
+
+    private function sizeLimitMessage(): string
+    {
+        return "El archivo supera el tamaño máximo del servidor ({$this->uploadLimitLabel()}). Usa un archivo más pequeño.";
+    }
+
+    private function uploadLimitLabel(): string
+    {
+        $raw = trim((string) ini_get('upload_max_filesize'));
+
+        return $raw !== '' ? $raw : '100M';
+    }
+
+    private function iniBytes(string $directive): int
+    {
+        $value = trim((string) ini_get($directive));
+        if ($value === '' || $value === '0') {
+            return 0;
+        }
+
+        $unit = strtolower(substr($value, -1));
+        $number = (float) $value;
+
+        return (int) match ($unit) {
+            'g' => $number * 1024 * 1024 * 1024,
+            'm' => $number * 1024 * 1024,
+            'k' => $number * 1024,
+            default => $number,
         };
     }
 
