@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Restablecer contraseña</title>
+    <title>{{ $title ?? 'ProjectJA' }}</title>
 </head>
 <body style="margin:0;padding:0;background:#dce6f4;font-family:Georgia,'Times New Roman',serif;">
 @php
@@ -54,23 +54,18 @@
                             </tr>
                             <tr>
                                 <td style="background:#ffffff;border:1px solid #eadfc4;border-radius:14px;padding:26px 24px;font-family:Arial,Helvetica,sans-serif;color:#1f2a3d;">
-                                    <p style="margin:0 0 14px;font-size:20px;color:#0b2f6b;font-weight:700;">¡Hola{{ $userName ? ', '.$userName : '' }}!</p>
-                                    <p style="margin:0 0 22px;font-size:15px;line-height:1.65;">
-                                        Recibes este correo electrónico porque hemos recibido una solicitud de restablecimiento de contraseña para tu cuenta.
-                                    </p>
+                                    <p style="margin:0 0 14px;font-size:20px;color:#0b2f6b;font-weight:700;">¡Hola{{ ! empty($userName) ? ', '.$userName : '' }}!</p>
+                                    <p style="margin:0 0 22px;font-size:15px;line-height:1.65;">{!! $intro !!}</p>
                                     <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto 22px;">
                                         <tr>
                                             <td align="center" bgcolor="#0b2f6b" style="border-radius:999px;background:#0b2f6b;">
                                                 <a href="{{ $url }}" style="display:inline-block;padding:14px 28px;color:#ffcc00;font-size:15px;font-weight:700;text-decoration:none;letter-spacing:0.3px;">
-                                                    Restablecer contraseña
+                                                    {{ $buttonLabel }}
                                                 </a>
                                             </td>
                                         </tr>
                                     </table>
-                                    <p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:#4b5b76;">
-                                        Este enlace para restablecer la contraseña caducará en {{ $expire }} minutos.
-                                        Si no solicitó un restablecimiento de contraseña, no es necesario realizar ninguna otra acción.
-                                    </p>
+                                    <p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:#4b5b76;">{{ $after }}</p>
                                     <p style="margin:0;font-size:15px;line-height:1.6;color:#0b2f6b;">
                                         Saludos,<br>
                                         <strong>ProjectJA</strong>
@@ -79,7 +74,7 @@
                             </tr>
                             <tr>
                                 <td style="padding-top:20px;font-family:Arial,Helvetica,sans-serif;color:#5b6b82;font-size:12px;line-height:1.6;">
-                                    Si tiene problemas para hacer clic en el botón "Restablecer contraseña", copie y pegue la siguiente URL en su navegador web:
+                                    Si tiene problemas para hacer clic en el botón "{{ $buttonLabel }}", copie y pegue la siguiente URL en su navegador web:
                                     <br>
                                     <a href="{{ $url }}" style="color:#0b2f6b;word-break:break-all;">{{ $url }}</a>
                                 </td>

@@ -523,7 +523,13 @@ async function submit(): Promise<void> {
         },
       },
     })
-    await router.push({ name: 'auth.verify', query: { email: form.usuario.email.trim() } })
+    await router.push({
+      name: 'auth.verify',
+      query: {
+        email: form.usuario.email.trim(),
+        identificacion: form.usuario.persona.identificacion.trim(),
+      },
+    })
   } catch (error) {
     errorMessage.value = getApiErrorMessage(error)
   } finally {

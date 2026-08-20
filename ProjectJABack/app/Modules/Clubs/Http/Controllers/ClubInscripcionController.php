@@ -85,6 +85,6 @@ final class ClubInscripcionController
             $this->accountMail->trySendVerification($user);
         }
 
-        return ApiResponse::success($result, 'Solicitud enviada. Revisa tu correo y confirma el código.', Response::HTTP_CREATED);
+        return ApiResponse::success($result, 'Solicitud enviada. Revisa tu correo y confirma la cuenta. Si no lo encuentras, revisa la bandeja de spam.', Response::HTTP_CREATED);
     }
 }

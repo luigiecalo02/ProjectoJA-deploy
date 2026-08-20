@@ -13,6 +13,7 @@ Route::prefix('auth')->group(function () {
     Route::post('email/verify-code', [AccountMailController::class, 'verifyCode'])->middleware('throttle:10,1');
     Route::post('email/resend', [AccountMailController::class, 'resend'])->middleware('throttle:5,1');
     Route::post('email/recover', [AccountMailController::class, 'recover'])->middleware('throttle:5,1');
+    Route::post('email/update-pending', [AccountMailController::class, 'updatePendingEmail'])->middleware('throttle:5,1');
     Route::prefix('participant-registration')->group(function () {
         Route::post('start', [ParticipantRegistrationController::class, 'start'])
             ->middleware('throttle:5,1');

@@ -72,7 +72,24 @@ final class AccountMailController
 
         $this->accountMail->resend($data['email']);
 
-        return ApiResponse::success(null, 'Si el correo existe y no está confirmado, enviamos un código.');
+        return ApiResponse::success(null, 'Si el correo existe y no está confirmado, enviamos el enlace. Si no lo encuentras, revisa la bandeja de spam.');
+    }
+
+    public function updatePendingEmail(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'identificacion' => ['required', 'string', 'max:80'],
+            'new_email' => ['required', 'email', 'max:255', 'different:email'],
+        ]);
+
+        $result = $this->accountMail->updatePendingEmail(
+            $data['email'],
+            $data['identificacion'],
+            $data['new_email'],
+        );
+
+        return ApiResponse::success($result, 'Correo actualizado. Enviamos el enlace de confirmación a '.$result['email'].'. Si no lo encuentras, revisa la bandeja de spam.');
     }
 
     public function recover(Request $request): JsonResponse

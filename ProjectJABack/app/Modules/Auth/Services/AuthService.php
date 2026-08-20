@@ -25,15 +25,15 @@ final class AuthService
             ]);
         }
 
-        if (! $user->is_active) {
+        if (! $user->email_verified_at) {
             throw ValidationException::withMessages([
-                'email' => ['La cuenta está desactivada.'],
+                'email' => ['Confirma tu correo con el enlace que te enviamos antes de entrar. Si no lo ves, revisa la bandeja de spam.'],
             ]);
         }
 
-        if (! $user->email_verified_at) {
+        if (! $user->is_active) {
             throw ValidationException::withMessages([
-                'email' => ['Confirma tu correo con el código de 6 dígitos antes de entrar.'],
+                'email' => ['La cuenta está desactivada.'],
             ]);
         }
 

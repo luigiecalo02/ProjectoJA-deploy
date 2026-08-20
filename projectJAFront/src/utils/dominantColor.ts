@@ -40,7 +40,10 @@ function lightness(r: number, g: number, b: number): number {
  * Color que más ocupa (y más se ve) en la imagen, priorizando el lado
  * derecho porque es el que conecta con el panel de login.
  */
-export function extractProminentColor(image: HTMLImageElement): string | null {
+export function extractProminentColor(
+  image: HTMLImageElement,
+  options?: { uniform?: boolean },
+): string | null {
   const canvas = document.createElement('canvas')
   const size = 48
   canvas.width = size
@@ -72,7 +75,7 @@ export function extractProminentColor(image: HTMLImageElement): string | null {
       const lit = lightness(r, g, b)
       if (lit < 0.04 || lit > 0.96) continue
 
-      const edgeWeight = 0.55 + (x / (size - 1)) * 0.9
+      const edgeWeight = options?.uniform ? 1 : 0.55 + (x / (size - 1)) * 0.9
       const chromaWeight = 0.45 + sat * 0.55
       const midTone = 1 - Math.abs(lit - 0.42) * 0.55
       const score = edgeWeight * chromaWeight * midTone

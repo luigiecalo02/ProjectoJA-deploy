@@ -12,7 +12,10 @@ use Illuminate\Validation\ValidationException;
 
 final class AccountMailService
 {
-    public function __construct(private readonly MailSettingsService $mailSettings) {}
+    public function __construct(
+        private readonly MailSettingsService $mailSettings,
+        private readonly BrandedMailView $brandedMail,
+    ) {}
 
     public function sendPasswordReset(string $email): void
     {
@@ -77,16 +80,18 @@ final class AccountMailService
         }
 
         $this->mailSettings->apply();
-        $code = $this->issueVerificationCode($user);
         $url = $this->verificationUrl($user);
-        Mail::raw(
-            "Tu código de verificación de ProjectJA es: {$code}\n\n".
-            "Escríbelo en la pantalla de confirmar cuenta. Vence en 15 minutos.\n\n".
-            "También puedes abrir este enlace:\n{$url}",
-            function ($message) use ($user) {
-                $message->to($user->email)->subject('ProjectJA · Código de verificación');
-            }
-        );
+        Mail::send('emails.branded-panel', [
+            ...$this->brandedMail->layout(),
+            'title' => 'Confirma tu cuenta',
+            'userName' => $user->name ?: 'amigo',
+            'intro' => 'Recibes este correo para confirmar tu cuenta de ProjectJA. Pulsa el botón para activarla. Si no lo haces, la cuenta permanecerá inactiva.',
+            'buttonLabel' => 'Confirmar cuenta',
+            'url' => $url,
+            'after' => 'Si no creaste esta cuenta, no es necesario realizar ninguna otra acción. Si no encuentras este correo, revisa la bandeja de spam.',
+        ], function ($message) use ($user) {
+            $message->to($user->email)->subject('ProjectJA · Confirma tu cuenta');
+        });
     }
 
     public function trySendVerification(User $user): void
@@ -114,15 +119,20 @@ final class AccountMailService
 
         $this->mailSettings->apply();
         $login = rtrim((string) config('app.frontend_url'), '/').'/login';
-        if ($user->email_verified_at) {
-            $body = "Tu solicitud fue aprobada. Ya puedes entrar en {$login}";
-        } else {
-            $code = $this->issueVerificationCode($user);
-            $body = "Tu solicitud fue aprobada. Confirma tu correo con este código: {$code}\n\n".
-                "O abre este enlace:\n".$this->verificationUrl($user);
-        }
-
-        Mail::raw($body, function ($message) use ($user) {
+        $verified = (bool) $user->email_verified_at;
+        Mail::send('emails.branded-panel', [
+            ...$this->brandedMail->layout(),
+            'title' => 'Solicitud aprobada',
+            'userName' => $user->name ?: 'amigo',
+            'intro' => $verified
+                ? 'Tu solicitud fue aprobada. Ya puedes iniciar sesión en ProjectJA.'
+                : 'Tu solicitud fue aprobada. Confirma tu correo para activar la cuenta.',
+            'buttonLabel' => $verified ? 'Iniciar sesión' : 'Confirmar cuenta',
+            'url' => $verified ? $login : $this->verificationUrl($user),
+            'after' => $verified
+                ? 'Si no solicitaste esta cuenta, no es necesario realizar ninguna otra acción.'
+                : 'Si no encuentras este correo, revisa la bandeja de spam.',
+        ], function ($message) use ($user) {
             $message->to($user->email)->subject('ProjectJA · Solicitud aprobada');
         });
     }
@@ -137,11 +147,7 @@ final class AccountMailService
         }
 
         if (! $user->email_verified_at) {
-            $user->forceFill([
-                'email_verified_at' => now(),
-                'email_verification_code_hash' => null,
-                'email_verification_expires_at' => null,
-            ])->save();
+            $this->markVerified($user);
         }
 
         return $user;
@@ -162,13 +168,45 @@ final class AccountMailService
             ]);
         }
 
-        $user->forceFill([
-            'email_verified_at' => now(),
-            'email_verification_code_hash' => null,
-            'email_verification_expires_at' => null,
-        ])->save();
+        $this->markVerified($user);
 
         return $user;
+    }
+
+    /**
+     * @return array{email: string, email_masked: string, sent: bool}
+     */
+    public function updatePendingEmail(string $currentEmail, string $identificacion, string $newEmail): array
+    {
+        $user = User::query()
+            ->where('email', trim($currentEmail))
+            ->whereNull('email_verified_at')
+            ->first();
+        $persona = $user?->persona;
+        if (! $user || ! $persona || trim((string) $persona->identificacion) !== trim($identificacion)) {
+            throw ValidationException::withMessages([
+                'email' => ['No pudimos actualizar el correo. Revisa el correo actual y la identificación.'],
+            ]);
+        }
+
+        $newEmail = strtolower(trim($newEmail));
+        if (User::query()->where('email', $newEmail)->where('id', '!=', $user->id)->exists()) {
+            throw ValidationException::withMessages([
+                'new_email' => ['Ya existe una cuenta con este correo.'],
+            ]);
+        }
+
+        $user->forceFill(['email' => $newEmail])->save();
+        $persona->forceFill(['correo' => $newEmail])->save();
+
+        $this->ensureConfigured();
+        $this->sendVerification($user->fresh() ?? $user);
+
+        return [
+            'email' => $newEmail,
+            'email_masked' => $this->maskEmail($newEmail),
+            'sent' => true,
+        ];
     }
 
     public function resend(string $email): void
@@ -258,15 +296,19 @@ final class AccountMailService
         return $localMasked.'@'.substr($name, 0, $nameKeep).str_repeat('*', max(1, strlen($name) - $nameKeep)).$tld;
     }
 
-    private function issueVerificationCode(User $user): string
+    private function markVerified(User $user): void
     {
-        $code = (string) random_int(100000, 999999);
-        $user->forceFill([
-            'email_verification_code_hash' => Hash::make($code),
-            'email_verification_expires_at' => now()->addMinutes(15),
-        ])->save();
+        $activate = $user->clubs()->where('clubes.is_active', true)->exists();
 
-        return $code;
+        $user->forceFill([
+            'email_verified_at' => now(),
+            'email_verification_code_hash' => null,
+            'email_verification_expires_at' => null,
+        ]);
+        if ($activate) {
+            $user->is_active = true;
+        }
+        $user->save();
     }
 
     private function verificationUrl(User $user): string

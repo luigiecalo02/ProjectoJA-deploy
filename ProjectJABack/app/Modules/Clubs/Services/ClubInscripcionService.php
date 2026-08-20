@@ -4,6 +4,7 @@ namespace App\Modules\Clubs\Services;
 
 use App\Models\User;
 use App\Modules\Clubs\Models\Club;
+use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Services\OrganizacionService;
 use App\Modules\Organizations\Services\UbicacionService;
@@ -177,6 +178,7 @@ final class ClubInscripcionService
     public function register(array $data): array
     {
         $this->assertPublicFlags($data);
+        $this->assertUniqueAccount($data);
 
         return DB::transaction(function () use ($data) {
             $iglesiaId = $this->resolveIglesiaId($data);
@@ -218,7 +220,7 @@ final class ClubInscripcionService
 
             $user = User::query()->where('email', $data['usuario']['email'])->firstOrFail();
             $user->forceFill([
-                'is_active' => $joiningExisting,
+                'is_active' => false,
                 'email_verified_at' => null,
             ])->save();
 
@@ -231,6 +233,27 @@ final class ClubInscripcionService
                 'club_id' => (int) $club->id,
             ];
         });
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function assertUniqueAccount(array $data): void
+    {
+        $email = strtolower(trim((string) ($data['usuario']['email'] ?? '')));
+        $identificacion = trim((string) ($data['usuario']['persona']['identificacion'] ?? ''));
+
+        if ($email !== '' && User::query()->whereRaw('LOWER(email) = ?', [$email])->exists()) {
+            throw ValidationException::withMessages([
+                'usuario.email' => ['Ya existe una cuenta con este correo.'],
+            ]);
+        }
+
+        if ($identificacion !== '' && Persona::query()->where('identificacion', $identificacion)->exists()) {
+            throw ValidationException::withMessages([
+                'usuario.persona.identificacion' => ['Ya existe una cuenta con esta identificación.'],
+            ]);
+        }
     }
 
     /**

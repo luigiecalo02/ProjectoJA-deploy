@@ -33,4 +33,13 @@ export const accountMailService = {
     const { data } = await api.post('/api/v1/auth/email/recover', payload)
     return data.data
   },
+
+  async updatePendingEmail(payload: {
+    email: string
+    identificacion: string
+    new_email: string
+  }): Promise<{ email: string; email_masked: string; sent: boolean }> {
+    const { data } = await api.post('/api/v1/auth/email/update-pending', payload)
+    return data.data
+  },
 }

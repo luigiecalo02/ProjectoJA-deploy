@@ -9,15 +9,12 @@ import { toCssImageUrl } from '@/modules/settings/assetUrl'
 import { loginHeroFitVars } from '@/modules/settings/loginHeroFit'
 import { useBrandStore } from '@/stores/brand'
 import PwaInstallButton from '@/components/pwa/PwaInstallButton.vue'
-import { extractProminentColor, toCanvasSafeUrl } from '@/utils/dominantColor'
 
 const { t } = useI18n()
 const route = useRoute()
 const theme = useThemeStore()
 const brand = useBrandStore()
 const heroBroken = ref(false)
-const heroImg = ref<HTMLImageElement | null>(null)
-const panelBg = ref<string | null>(null)
 const isDesktop = ref(window.matchMedia('(min-width: 960px)').matches)
 let media: MediaQueryList | null = null
 
@@ -29,9 +26,6 @@ onMounted(() => {
   media = window.matchMedia('(min-width: 960px)')
   syncViewport()
   media.addEventListener('change', syncViewport)
-  if (heroImg.value?.complete) {
-    syncPanelColor()
-  }
 })
 
 onBeforeUnmount(() => {
@@ -40,32 +34,20 @@ onBeforeUnmount(() => {
 
 watch(() => brand.loginHero, () => {
   heroBroken.value = false
-  panelBg.value = null
 })
 
 const heroUrl = computed(() => (heroBroken.value ? brandConfig.loginHero : brand.loginHero))
-const heroSafeUrl = computed(() => toCanvasSafeUrl(heroUrl.value))
-const heroCss = computed(() => toCssImageUrl(heroSafeUrl.value))
+const heroCss = computed(() => toCssImageUrl(heroUrl.value))
 const heroCopy = computed(() =>
   isDesktop.value ? brand.loginHeroCopy.desktop : brand.loginHeroCopy.mobile,
 )
 const heroStyle = computed(() => ({
   backgroundImage: heroCss.value,
-  backgroundColor: panelBg.value || undefined,
   ...loginHeroFitVars(heroCopy.value.fit),
 }))
 const shellStyle = computed(() => ({
-  '--login-panel-bg': panelBg.value || 'var(--pj-bg)',
-}))
-const panelStyle = computed(() => ({
   '--pj-pattern': brand.patternCss,
 }))
-
-function syncPanelColor(): void {
-  const image = heroImg.value
-  if (!image || !image.naturalWidth) return
-  panelBg.value = extractProminentColor(image)
-}
 </script>
 
 <template>
@@ -74,19 +56,39 @@ function syncPanelColor(): void {
     :class="{ 'login-shell--wide': route.meta.wide }"
     :style="shellStyle"
   >
+    <svg class="login-hero__clip-defs" aria-hidden="true" focusable="false">
+      <defs>
+        <clipPath id="pj-login-hero-clip-bottom" clipPathUnits="objectBoundingBox">
+          <path
+            d="M0,0 H1 V0.92
+               C0.88,0.95 0.78,0.89 0.70,0.92
+               C0.55,0.95 0.45,0.89 0.35,0.92
+               C0.22,0.95 0.10,0.89 0,0.92 Z"
+          />
+        </clipPath>
+        <clipPath id="pj-login-hero-clip-side" clipPathUnits="objectBoundingBox">
+          <path
+            d="M0,0 H0.925
+               C0.95,0.12 0.90,0.20 0.925,0.28
+               C0.95,0.40 0.90,0.48 0.925,0.56
+               C0.95,0.68 0.90,0.76 0.925,0.84
+               C0.95,0.92 0.91,0.97 0.925,1
+               H0 Z"
+          />
+        </clipPath>
+      </defs>
+    </svg>
     <section
       class="login-hero"
       aria-label="ProjectJA"
       :style="heroStyle"
     >
       <img
-        ref="heroImg"
         class="login-hero__image"
-        :key="heroSafeUrl"
-        :src="heroSafeUrl"
+        :key="heroUrl"
+        :src="heroUrl"
         alt=""
         decoding="async"
-        @load="syncPanelColor"
         @error="heroBroken = true"
       />
       <div class="login-hero__overlay" />
@@ -112,47 +114,9 @@ function syncPanelColor(): void {
           </li>
         </ul>
       </div>
-
-      <!-- Curva vertical (desktop) -->
-      <svg
-        class="login-hero__wave login-hero__wave--side"
-        viewBox="0 0 120 1000"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        <path
-          d="M70 0
-             C95 80 35 160 55 250
-             C80 360 25 450 50 560
-             C78 680 30 780 58 880
-             C72 940 55 980 62 1000
-             L120 1000 L120 0 Z"
-          fill="currentColor"
-        />
-      </svg>
-
-      <!-- Curva inferior (móvil) -->
-      <svg
-        class="login-hero__wave login-hero__wave--bottom"
-        viewBox="0 0 1440 120"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        <path
-          d="M0 40
-             C180 110 360 0 540 45
-             C720 95 900 10 1080 55
-             C1260 100 1380 30 1440 50
-             L1440 120 L0 120 Z"
-          fill="currentColor"
-        />
-      </svg>
     </section>
 
-    <section
-      class="login-panel"
-      :style="panelStyle"
-    >
+    <section class="login-panel">
       <Button
         class="login-panel__theme"
         text
@@ -171,10 +135,15 @@ function syncPanelColor(): void {
 
 <style scoped>
 .login-shell {
+  position: relative;
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1fr;
-  background: var(--login-panel-bg, var(--pj-bg));
+  background-color: var(--pj-bg);
+  background-image: var(--pj-pattern);
+  background-repeat: repeat;
+  background-size: 420px auto;
+  background-position: center top;
 }
 
 .login-hero {
@@ -187,6 +156,18 @@ function syncPanelColor(): void {
   background-size: cover;
   background-position: var(--hero-x, 50%) var(--hero-y, 50%);
   background-repeat: no-repeat;
+  -webkit-clip-path: url(#pj-login-hero-clip-bottom);
+  clip-path: url(#pj-login-hero-clip-bottom);
+}
+
+.login-hero__clip-defs {
+  position: absolute;
+  grid-column: 1;
+  grid-row: 1;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 .login-hero__image {
@@ -218,7 +199,7 @@ function syncPanelColor(): void {
   flex-direction: column;
   justify-content: flex-end;
   gap: 1.5rem;
-  padding: 1.5rem 1.25rem 2.75rem;
+  padding: 1.5rem 1.25rem 4.5rem;
   max-width: 760px;
 }
 
@@ -290,13 +271,6 @@ function syncPanelColor(): void {
   line-height: 1.4;
 }
 
-.login-hero__wave {
-  position: absolute;
-  z-index: 3;
-  color: var(--login-panel-bg, var(--pj-bg));
-  pointer-events: none;
-}
-
 @media (max-width: 959px) {
   .login-hero {
     min-height: 58vh;
@@ -316,18 +290,6 @@ function syncPanelColor(): void {
   }
 }
 
-.login-hero__wave--side {
-  display: none;
-}
-
-.login-hero__wave--bottom {
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  width: 100%;
-  height: 72px;
-}
-
 .login-panel {
   position: relative;
   display: grid;
@@ -336,11 +298,7 @@ function syncPanelColor(): void {
   gap: 0.85rem;
   padding: 1.25rem max(1.25rem, env(safe-area-inset-right, 0px))
     max(1.25rem, env(safe-area-inset-bottom, 0px)) max(1.25rem, env(safe-area-inset-left, 0px));
-  background-color: var(--login-panel-bg, var(--pj-bg));
-  background-image: var(--pj-pattern);
-  background-repeat: repeat;
-  background-size: 420px auto;
-  background-position: center top;
+  background: transparent;
 }
 
 .login-panel__theme {
@@ -382,6 +340,8 @@ function syncPanelColor(): void {
 
   .login-hero {
     min-height: 100vh;
+    -webkit-clip-path: url(#pj-login-hero-clip-side);
+    clip-path: url(#pj-login-hero-clip-side);
   }
 
   .login-hero__content {
@@ -398,18 +358,6 @@ function syncPanelColor(): void {
   .login-hero__features {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .login-hero__wave--bottom {
-    display: none;
-  }
-
-  .login-hero__wave--side {
-    display: block;
-    top: 0;
-    right: -1px;
-    width: clamp(72px, 8vw, 120px);
-    height: 100%;
   }
 
   .login-panel__pwa {

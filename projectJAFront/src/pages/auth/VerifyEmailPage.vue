@@ -13,10 +13,14 @@ const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const sending = ref(false)
+const savingEmail = ref(false)
 const errorMessage = ref('')
 const infoMessage = ref('')
 const ok = ref(false)
+const fixingEmail = ref(false)
 const email = ref(typeof route.query.email === 'string' ? route.query.email : '')
+const identificacion = ref(typeof route.query.identificacion === 'string' ? route.query.identificacion : '')
+const newEmail = ref('')
 const code = ref('')
 
 onMounted(async () => {
@@ -68,17 +72,49 @@ async function resend(): Promise<void> {
     sending.value = false
   }
 }
+
+async function updateEmail(): Promise<void> {
+  savingEmail.value = true
+  errorMessage.value = ''
+  try {
+    const result = await accountMailService.updatePendingEmail({
+      email: email.value.trim(),
+      identificacion: identificacion.value.trim(),
+      new_email: newEmail.value.trim(),
+    })
+    email.value = result.email
+    fixingEmail.value = false
+    newEmail.value = ''
+    infoMessage.value = t('auth.verifyFixed', { email: result.email })
+    await router.replace({ query: { ...route.query, email: result.email, identificacion: identificacion.value } })
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error)
+  } finally {
+    savingEmail.value = false
+  }
+}
 </script>
 
 <template>
-  <form class="auth-simple" @submit.prevent="submitCode">
+  <form class="auth-simple" @submit.prevent="fixingEmail ? updateEmail() : submitCode()">
     <h1>{{ t('auth.verifyTitle') }}</h1>
     <p v-if="loading && !email">{{ t('auth.verifyWorking') }}</p>
     <p v-else-if="!ok">{{ t('auth.verifyCodeOnlySubtitle') }}</p>
     <Message v-if="ok" severity="success" :closable="false">{{ t('auth.verifySuccess') }}</Message>
     <Message v-else-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
     <Message v-if="infoMessage && !ok" severity="info" :closable="false">{{ infoMessage }}</Message>
-    <template v-if="!ok">
+    <template v-if="!ok && fixingEmail">
+      <p>{{ t('auth.verifyFixEmailHint') }}</p>
+      <label>{{ t('auth.registrationIdNumber') }}</label>
+      <InputText v-model="identificacion" fluid required />
+      <label>{{ t('auth.email') }}</label>
+      <InputText :model-value="email" type="email" fluid disabled />
+      <label>{{ t('auth.verifyNewEmail') }}</label>
+      <InputText v-model="newEmail" type="email" fluid required />
+      <Button type="submit" :label="t('auth.verifyFixSubmit')" :loading="savingEmail" />
+      <Button type="button" text :label="t('auth.verifyCancelFix')" @click="fixingEmail = false" />
+    </template>
+    <template v-else-if="!ok">
       <label>{{ t('auth.email') }}</label>
       <InputText v-model="email" type="email" fluid required />
       <label>{{ t('auth.verifyCode') }}</label>
@@ -88,12 +124,12 @@ async function resend(): Promise<void> {
         autocomplete="one-time-code"
         maxlength="6"
         fluid
-        required
         :placeholder="t('auth.verifyCodePlaceholder')"
         @update:model-value="code = String($event ?? '').replace(/\D/g, '').slice(0, 6)"
       />
-      <Button type="submit" :label="t('auth.verifySubmit')" :loading="loading" />
+      <Button type="submit" :label="t('auth.verifySubmit')" :loading="loading" :disabled="code.length !== 6" />
       <Button type="button" text :label="t('auth.verifyResend')" :loading="sending" @click="resend" />
+      <Button type="button" text :label="t('auth.verifyWrongEmail')" @click="fixingEmail = true" />
     </template>
     <Button type="button" text :label="t('clubInscripcion.backLogin')" @click="router.push({ name: 'login' })" />
   </form>
