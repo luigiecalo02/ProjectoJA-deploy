@@ -9,7 +9,6 @@ import Password from 'primevue/password'
 import MultiSelect from 'primevue/multiselect'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Checkbox from 'primevue/checkbox'
-import Message from 'primevue/message'
 import MediaProfileUpload from '@/components/media/MediaProfileUpload.vue'
 import Drawer from 'primevue/drawer'
 import RadioButton from 'primevue/radiobutton'
@@ -21,6 +20,7 @@ import { clubsService, personasService } from '@/services/clubsService'
 import { organizacionesService } from '@/services/organizacionesService'
 import { storageService } from '@/services/storageService'
 import { getApiErrorMessage } from '@/services/api'
+import { evaluatePasswordStrength, PASSWORD_MAX_LENGTH } from '@/utils/passwordStrength'
 import { usePermission } from '@/composables/usePermission'
 import type { RoleOption } from '@/modules/users/types'
 import type { Club, ClubMinistry, ClubPersona, Persona } from '@/modules/clubs/types'
@@ -39,7 +39,6 @@ const userId = computed(() => Number(route.params.id))
 const loading = ref(false)
 const saving = ref(false)
 const uploading = ref(false)
-const errorMessage = ref('')
 const roles = ref<RoleOption[]>([])
 const clubs = ref<Club[]>([])
 const personasSinUsuario = ref<Persona[]>([])
@@ -194,6 +193,27 @@ const shouldValidatePassword = computed(
   () => !isEdit.value || form.changePassword,
 )
 
+const passwordStrength = computed(() => evaluatePasswordStrength(form.password))
+
+const passwordLevelLabel = computed(() => {
+  const labels = {
+    mala: t('validation.passwordLevelMala'),
+    facil: t('validation.passwordLevelFacil'),
+    media: t('validation.passwordLevelMedia'),
+    dificil: t('validation.passwordLevelDificil'),
+  }
+  return labels[passwordStrength.value.level]
+})
+
+function showError(detail: string): void {
+  toast.add({
+    severity: 'error',
+    summary: t('common.error'),
+    detail,
+    life: 4500,
+  })
+}
+
 function validate(): string | null {
   if (!form.name.trim() || !form.email.trim()) {
     return t('validation.required')
@@ -202,17 +222,10 @@ function validate(): string | null {
     if (!form.password) {
       return t('validation.required')
     }
-    const password = form.password
-    const strong =
-      password.length >= 8 &&
-      /[a-z]/.test(password) &&
-      /[A-Z]/.test(password) &&
-      /\d/.test(password) &&
-      /[^A-Za-z0-9]/.test(password)
-    if (!strong) {
-      return t('validation.passwordStrong')
+    if (!passwordStrength.value.canSave) {
+      return t('validation.passwordIncomplete')
     }
-    if (password !== form.password_confirmation) {
+    if (form.password !== form.password_confirmation) {
       return t('validation.passwordMatch')
     }
   }
@@ -284,7 +297,7 @@ async function loadUser(): Promise<void> {
       form.organizaciones = [{ organizacion_id: null, rol_ids: [] }]
     }
   } catch (error) {
-    errorMessage.value = getApiErrorMessage(error)
+    showError(getApiErrorMessage(error))
   } finally {
     loading.value = false
   }
@@ -401,10 +414,9 @@ async function openMembersDrawer(club: Club): Promise<void> {
 }
 
 async function submit(): Promise<void> {
-  errorMessage.value = ''
   const validationError = validate()
   if (validationError) {
-    errorMessage.value = validationError
+    showError(validationError)
     return
   }
 
@@ -472,7 +484,7 @@ async function submit(): Promise<void> {
 
     await router.push({ name: 'users' })
   } catch (error) {
-    errorMessage.value = getApiErrorMessage(error)
+    showError(getApiErrorMessage(error))
   } finally {
     saving.value = false
   }
@@ -483,7 +495,7 @@ onMounted(async () => {
     await Promise.all([loadRoles(), loadClubs(), loadPersonasSinUsuario(), loadOrganizaciones()])
     await loadUser()
   } catch (error) {
-    errorMessage.value = getApiErrorMessage(error)
+    showError(getApiErrorMessage(error))
   }
 })
 </script>
@@ -498,35 +510,111 @@ onMounted(async () => {
       <Button :label="t('common.back')" text @click="router.push({ name: 'users' })" />
     </header>
 
-    <form class="pj-panel" @submit.prevent="submit">
-      <Message v-if="errorMessage" severity="error" :closable="false" class="pj-span-2">
-        {{ errorMessage }}
-      </Message>
-
+    <form class="pj-panel user-form" @submit.prevent="submit">
       <PageLoader v-if="loading" :label="t('common.loading')" />
 
-      <div v-else class="pj-form-grid">
-        <div class="pj-field pj-span-2">
+      <div v-else class="user-form-layout">
+        <aside class="user-form-layout__photo">
           <MediaProfileUpload
+            compact
+            dense
             :src="form.avatar_url"
             :busy="uploading"
             :disabled="!isEdit"
             :hint="isEdit ? undefined : `${t('users.uploadAvatar')} — ${t('common.save')}`"
             @select="onAvatarSelect"
           />
+          <small v-if="!isEdit" class="pj-muted photo-hint">
+            {{ t('users.uploadAvatar') }} — {{ t('common.save') }}
+          </small>
+        </aside>
+
+        <div class="user-form-layout__account">
+          <div class="account-fields">
+            <div class="pj-field">
+              <label for="name">{{ t('users.name') }}</label>
+              <InputText id="name" v-model="form.name" required fluid />
+            </div>
+
+            <div class="pj-field">
+              <label for="email">{{ t('users.email') }}</label>
+              <InputText id="email" v-model="form.email" type="email" required fluid />
+            </div>
+
+            <div v-if="shouldValidatePassword" class="pj-field password-field">
+              <label for="password">{{ t('users.password') }}</label>
+              <Password
+                id="password"
+                v-model="form.password"
+                :feedback="false"
+                toggle-mask
+                fluid
+                autocomplete="new-password"
+                :maxlength="PASSWORD_MAX_LENGTH"
+              />
+            </div>
+
+            <div v-if="shouldValidatePassword" class="pj-field password-field">
+              <label for="password_confirmation">{{ t('users.passwordConfirm') }}</label>
+              <Password
+                id="password_confirmation"
+                v-model="form.password_confirmation"
+                :feedback="false"
+                toggle-mask
+                fluid
+                autocomplete="new-password"
+                :maxlength="PASSWORD_MAX_LENGTH"
+              />
+              <small
+                v-if="form.password_confirmation"
+                class="password-match"
+                :class="{ ok: form.password === form.password_confirmation }"
+              >
+                {{
+                  form.password === form.password_confirmation
+                    ? t('validation.passwordRuleMatch')
+                    : t('validation.passwordMatch')
+                }}
+              </small>
+            </div>
+
+            <div class="pj-field">
+              <label>{{ t('users.status') }}</label>
+              <div class="status-row">
+                <ToggleSwitch v-model="form.is_active" />
+                <span>{{ form.is_active ? t('common.active') : t('common.inactive') }}</span>
+              </div>
+            </div>
+
+            <div v-if="isEdit" class="pj-field">
+              <div class="password-toggle">
+                <Checkbox
+                  v-model="form.changePassword"
+                  input-id="change_password"
+                  binary
+                  @update:model-value="onChangePasswordToggle"
+                />
+                <label for="change_password">{{ t('users.changePassword') }}</label>
+              </div>
+              <small class="pj-muted">{{ t('users.changePasswordHint') }}</small>
+            </div>
+
+            <div v-if="shouldValidatePassword" class="password-strength account-fields__full" aria-live="polite">
+              <div class="password-strength__track">
+                <span
+                  class="password-strength__fill"
+                  :class="`is-${passwordStrength.level}`"
+                />
+              </div>
+              <div class="password-strength__meta">
+                <strong :class="`is-${passwordStrength.level}`">{{ passwordLevelLabel }}</strong>
+                <small>{{ t('validation.passwordStrong') }}</small>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="pj-field">
-          <label for="name">{{ t('users.name') }}</label>
-          <InputText id="name" v-model="form.name" required fluid />
-        </div>
-
-        <div class="pj-field">
-          <label for="email">{{ t('users.email') }}</label>
-          <InputText id="email" v-model="form.email" type="email" required fluid />
-        </div>
-
-        <div class="pj-field pj-span-2 persona-block">
+        <div class="user-form-layout__persona persona-block">
           <h3 class="persona-block__title">{{ t('users.personaSection') }}</h3>
           <p class="pj-muted persona-block__hint">{{ t('users.personaHint') }}</p>
 
@@ -603,7 +691,7 @@ onMounted(async () => {
           </template>
         </div>
 
-        <div class="pj-field pj-span-2 persona-block">
+        <div class="user-form-layout__orgs persona-block">
           <div class="org-block__header">
             <div>
               <h3 class="persona-block__title">{{ t('users.organizacionSection') }}</h3>
@@ -667,42 +755,7 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-if="isEdit" class="pj-field pj-span-2">
-          <div class="password-toggle">
-            <Checkbox
-              v-model="form.changePassword"
-              input-id="change_password"
-              binary
-              @update:model-value="onChangePasswordToggle"
-            />
-            <label for="change_password">{{ t('users.changePassword') }}</label>
-          </div>
-          <small class="pj-muted">{{ t('users.changePasswordHint') }}</small>
-        </div>
-
-        <div v-if="shouldValidatePassword" class="pj-field">
-          <label for="password">{{ t('users.password') }}</label>
-          <Password
-            id="password"
-            v-model="form.password"
-            :feedback="false"
-            toggle-mask
-            fluid
-          />
-        </div>
-
-        <div v-if="shouldValidatePassword" class="pj-field">
-          <label for="password_confirmation">{{ t('users.passwordConfirm') }}</label>
-          <Password
-            id="password_confirmation"
-            v-model="form.password_confirmation"
-            :feedback="false"
-            toggle-mask
-            fluid
-          />
-        </div>
-
-        <div v-if="hasPastorRole" class="pj-field pj-span-2 clubs-block">
+        <div v-if="hasPastorRole" class="user-form-layout__clubs clubs-block">
           <div class="clubs-block__head">
             <label for="clubs">{{ t('users.associatedClubs') }}</label>
             <Button
@@ -752,15 +805,7 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div class="pj-field">
-          <label>{{ t('users.status') }}</label>
-          <div class="status-row">
-            <ToggleSwitch v-model="form.is_active" />
-            <span>{{ form.is_active ? t('common.active') : t('common.inactive') }}</span>
-          </div>
-        </div>
-
-        <div class="pj-span-2 form-actions">
+        <div class="user-form-layout__actions form-actions">
           <Button type="button" :label="t('common.cancel')" text @click="router.push({ name: 'users' })" />
           <Button type="submit" :label="t('common.save')" :loading="saving || uploading" />
         </div>
@@ -858,6 +903,174 @@ onMounted(async () => {
   align-items: center;
   gap: 0.65rem;
   min-height: 2.5rem;
+}
+
+.user-form {
+  overflow-x: clip;
+}
+
+.user-form-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.user-form-layout__photo,
+.user-form-layout__account,
+.user-form-layout .pj-field {
+  min-width: 0;
+}
+
+.photo-hint {
+  display: block;
+  margin-top: 0.45rem;
+  text-align: center;
+}
+
+.account-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.user-form-layout__photo :deep(.media-card) {
+  padding: 0.7rem;
+  border-radius: 12px;
+}
+
+.user-form-layout__photo :deep(.media-card__head),
+.user-form-layout__photo :deep(.media-card__meta),
+.user-form-layout__photo :deep(.media-card__hint) {
+  display: none;
+}
+
+.user-form-layout__photo :deep(.p-button) {
+  width: 100%;
+}
+
+@media (min-width: 900px) {
+  .user-form-layout {
+    grid-template-columns: 13.5rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .user-form-layout__photo {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .user-form-layout__account {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .user-form-layout__persona,
+  .user-form-layout__orgs,
+  .user-form-layout__clubs,
+  .user-form-layout__actions {
+    grid-column: 1 / -1;
+  }
+
+  .account-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .account-fields__full {
+    grid-column: 1 / -1;
+  }
+}
+
+.password-field :deep(.p-password) {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+}
+
+.password-field :deep(.p-password-input) {
+  flex: 1 1 auto;
+}
+
+.password-field :deep(.p-password-input),
+.user-form :deep(.p-select),
+.user-form :deep(.p-multiselect),
+.user-form :deep(.p-inputtext) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.user-form :deep(.p-select-label),
+.user-form :deep(.p-multiselect-label-container),
+.user-form :deep(.p-multiselect-label) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.password-match {
+  font-size: 0.78rem;
+  color: var(--pj-danger);
+}
+
+.password-match.ok {
+  color: #15803d;
+}
+
+.password-strength {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.password-strength__track {
+  height: 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pj-border) 70%, transparent);
+  overflow: hidden;
+}
+
+.password-strength__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.password-strength__fill.is-mala {
+  width: 25%;
+  background: #dc2626;
+}
+
+.password-strength__fill.is-facil {
+  width: 50%;
+  background: #ea580c;
+}
+
+.password-strength__fill.is-media {
+  width: 75%;
+  background: #ca8a04;
+}
+
+.password-strength__fill.is-dificil {
+  width: 100%;
+  background: #15803d;
+}
+
+.password-strength__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+}
+
+.password-strength__meta strong {
+  font-size: 0.82rem;
+}
+
+.password-strength__meta strong.is-mala { color: #dc2626; }
+.password-strength__meta strong.is-facil { color: #ea580c; }
+.password-strength__meta strong.is-media { color: #ca8a04; }
+.password-strength__meta strong.is-dificil { color: #15803d; }
+
+.password-strength__meta small {
+  color: var(--pj-text-muted);
 }
 
 .password-toggle {
@@ -999,13 +1212,28 @@ onMounted(async () => {
   margin-bottom: 0.75rem;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 900px) {
   .org-row {
     grid-template-columns: 1fr;
   }
 
   .org-block__header {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .org-block__header .p-button {
+    width: 100%;
+  }
+
+  .form-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .clubs-block__head {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
@@ -1025,6 +1253,10 @@ onMounted(async () => {
 @media (max-width: 720px) {
   .persona-new-grid {
     grid-template-columns: 1fr;
+  }
+
+  .persona-block {
+    padding: 0.7rem 0.75rem;
   }
 }
 </style>

@@ -10,6 +10,7 @@ import Message from 'primevue/message'
 import { useAuthStore } from '@/stores/auth'
 import { authService } from '@/services/authService'
 import { getApiErrorMessage } from '@/services/api'
+import { evaluatePasswordStrength } from '@/utils/passwordStrength'
 import { brandConfig } from '@/config/brand'
 import type { ParticipantRegistrationField } from '@/modules/auth/types'
 
@@ -120,6 +121,10 @@ async function completeRegistration(): Promise<void> {
   errorMessage.value = ''
   if (registration.password !== registration.password_confirmation) {
     errorMessage.value = t('validation.passwordMatch')
+    return
+  }
+  if (!evaluatePasswordStrength(registration.password).canSave) {
+    errorMessage.value = t('validation.passwordIncomplete')
     return
   }
   loading.value = true

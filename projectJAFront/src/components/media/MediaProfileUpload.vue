@@ -87,6 +87,7 @@ async function onInput(event: Event): Promise<void> {
         <Button
           :label="t('media.selectImage')"
           icon="pi pi-upload"
+          :size="compact || dense ? 'small' : undefined"
           :loading="busy"
           :disabled="disabled"
           @click="openPicker()"

@@ -24,4 +24,12 @@ final class CompleteParticipantRegistrationRequest extends FormRequest
             'password' => ['required', 'confirmed', Password::defaults()],
         ];
     }
+
+    public function messages(): array
+    {
+        return [
+            'password.regex' => 'La contraseña debe incluir al menos una letra mayúscula.',
+            'password.max' => 'La contraseña no puede superar 64 caracteres.',
+        ];
+    }
 }

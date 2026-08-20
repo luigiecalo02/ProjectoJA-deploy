@@ -67,4 +67,22 @@ export function getApiErrorMessage(error: unknown, fallback = 'Error inesperado'
   return fallback
 }
 
+export function resolveFileUrl(url: string | null | undefined): string | null {
+  if (!url?.trim()) {
+    return null
+  }
+
+  const trimmed = url.trim()
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('data:')) {
+    return trimmed
+  }
+
+  const base = String(api.defaults.baseURL || '').replace(/\/$/, '')
+  if (trimmed.startsWith('/')) {
+    return `${base}${trimmed}`
+  }
+
+  return `${base}/storage/${trimmed}`
+}
+
 export { TOKEN_KEY }

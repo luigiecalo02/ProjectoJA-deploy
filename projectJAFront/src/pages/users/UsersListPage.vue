@@ -14,7 +14,7 @@ import ToggleSwitch from 'primevue/toggleswitch'
 import AppSearchField from '@/components/AppSearchField.vue'
 import PageLoader from '@/components/PageLoader.vue'
 import { usersService } from '@/services/usersService'
-import { getApiErrorMessage } from '@/services/api'
+import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import type { User } from '@/modules/auth/types'
 import type { PaginationMeta } from '@/types/api'
@@ -27,6 +27,7 @@ const { can } = usePermission()
 const query = ref('')
 const statusFilter = ref<boolean | null>(null)
 const users = ref<User[]>([])
+const failedPhotos = ref(new Set<number>())
 const totalUsers = ref(0)
 const loading = ref(false)
 const loadingTotal = ref(true)
@@ -63,6 +64,19 @@ const rangeLabel = computed(() => {
 
 function roleLabel(role: User['roles'][number]): string {
   return role.label || role.display_name || role.name
+}
+
+function photoOf(user: User): string | null {
+  if (failedPhotos.value.has(user.id)) {
+    return null
+  }
+  return resolveFileUrl(user.avatar_url)
+}
+
+function onPhotoError(userId: number): void {
+  const next = new Set(failedPhotos.value)
+  next.add(userId)
+  failedPhotos.value = next
 }
 
 function identityOf(user: User): string {
@@ -245,6 +259,7 @@ onBeforeUnmount(() => {
             option-value="value"
             :placeholder="t('users.filterStatus')"
             class="users-filter"
+            fluid
           />
         </div>
         <small class="search-panel__hint">
@@ -276,12 +291,21 @@ onBeforeUnmount(() => {
         :class="{ 'is-active': user.is_active, 'is-inactive': !user.is_active }"
       >
         <div class="user-card__header">
-          <Avatar
-            :image="user.avatar_url || undefined"
-            :label="user.name?.charAt(0)?.toUpperCase()"
-            shape="circle"
-            size="large"
-          />
+          <div class="user-card__photo-wrap">
+            <img
+              v-if="photoOf(user)"
+              :src="photoOf(user)!"
+              :alt="user.name"
+              class="user-card__photo"
+              @error="onPhotoError(user.id)"
+            />
+            <Avatar
+              v-else
+              :label="user.name?.charAt(0)?.toUpperCase()"
+              shape="circle"
+              size="large"
+            />
+          </div>
           <div class="user-card__info">
             <h2>{{ user.name }}</h2>
             <span>{{ identityOf(user) }}</span>
@@ -437,7 +461,7 @@ onBeforeUnmount(() => {
 
 .users-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
   gap: 1rem;
   margin-top: 1rem;
 }
@@ -461,6 +485,19 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.user-card__photo-wrap {
+  flex: 0 0 auto;
+}
+
+.user-card__photo {
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  background: color-mix(in srgb, var(--pj-navy) 8%, transparent);
 }
 
 .user-card__info {
@@ -533,12 +570,30 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 640px) {
+  .search-panel__icon {
+    display: none;
+  }
+
   .search-panel {
-    align-items: flex-start;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .search-panel__controls {
     flex-direction: column;
+  }
+
+  .users-filter {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .user-card__header {
+    flex-wrap: wrap;
+  }
+
+  .user-card__actions {
+    flex-wrap: wrap;
   }
 
   .results-footer {

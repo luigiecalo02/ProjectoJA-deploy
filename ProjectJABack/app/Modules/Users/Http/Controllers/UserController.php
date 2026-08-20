@@ -146,7 +146,7 @@ final class UserController
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
-            'avatar_url' => $user->avatar_url,
+            'avatar_url' => $this->publicAvatarUrl($user->avatar_url),
             'is_active' => $user->is_active,
             'is_super' => $user->isSuperAdmin(),
             'is_admin' => (bool) $user->is_admin,
@@ -201,5 +201,23 @@ final class UserController
             'created_at' => $user->created_at,
             'updated_at' => $user->updated_at,
         ];
+    }
+
+    private function publicAvatarUrl(?string $value): ?string
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
+            return $value;
+        }
+
+        $path = ltrim($value, '/');
+        if (str_starts_with($path, 'storage/')) {
+            return url($path);
+        }
+
+        return url('storage/'.$path);
     }
 }

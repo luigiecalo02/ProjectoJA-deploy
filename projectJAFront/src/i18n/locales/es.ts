@@ -1378,10 +1378,18 @@ export default {
   validation: {
     required: 'Campo obligatorio',
     email: 'Correo no válido',
-    passwordMin: 'Mínimo 8 caracteres',
-    passwordStrong:
-      'La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula, número y un símbolo (ej: Password1!)',
+    passwordMin: 'Máximo 64 caracteres',
+    passwordStrong: 'Máximo 64 caracteres, una mayúscula y un símbolo.',
     passwordMatch: 'Las contraseñas no coinciden',
+    passwordIncomplete: 'La contraseña es demasiado débil. Debe tener máximo 64 caracteres, una mayúscula y un símbolo.',
+    passwordRuleMax: 'Máximo 64 caracteres',
+    passwordRuleUpper: 'Una letra mayúscula (A-Z)',
+    passwordRuleSymbol: 'Un símbolo (! * # ¿ ? …)',
+    passwordRuleMatch: 'Las dos contraseñas coinciden',
+    passwordLevelMala: 'Mala',
+    passwordLevelFacil: 'Fácil',
+    passwordLevelMedia: 'Media',
+    passwordLevelDificil: 'Difícil',
     emailUnique: 'Ya existe un usuario registrado con este correo.',
   },
   errors: {

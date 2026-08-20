@@ -100,6 +100,8 @@ class StoreUserRequest extends FormRequest
             'organizaciones.*.organizacion_id.distinct' => 'No puedes repetir la misma organización.',
             'organizaciones.*.rol_ids.required' => 'Cada organización debe tener al menos un rol.',
             'organizaciones.*.rol_ids.min' => 'Cada organización debe tener al menos un rol.',
+            'password.regex' => 'La contraseña debe incluir al menos una letra mayúscula.',
+            'password.max' => 'La contraseña no puede superar 64 caracteres.',
         ];
     }
 }

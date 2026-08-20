@@ -50,11 +50,10 @@ class AppServiceProvider extends ServiceProvider
         });
 
         Password::defaults(function () {
-            return Password::min(8)
-                ->letters()
-                ->mixedCase()
-                ->numbers()
-                ->symbols();
+            return Password::min(6)
+                ->max(64)
+                ->symbols()
+                ->rules(['regex:/[A-Z]/']);
         });
     }
 }
