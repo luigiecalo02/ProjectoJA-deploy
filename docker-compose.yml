@@ -42,8 +42,6 @@ services:
 
   queue:
     image: projectja-app
-    build:
-      context: ./ProjectJABack
     restart: unless-stopped
     env_file:
       - .env
@@ -66,8 +64,6 @@ services:
 
   scheduler:
     image: projectja-app
-    build:
-      context: ./ProjectJABack
     restart: unless-stopped
     env_file:
       - .env
@@ -88,8 +84,6 @@ services:
 
   reverb:
     image: projectja-app
-    build:
-      context: ./ProjectJABack
     restart: unless-stopped
     env_file:
       - .env
