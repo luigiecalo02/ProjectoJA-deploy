@@ -40,7 +40,7 @@ final class UbicacionController
             'pais_id' => $dep->pais_id,
             'codigo' => $dep->codigo,
             'nombre' => $dep->nombre,
-            'label' => $this->ubicacionLabel($dep->codigo, $dep->nombre),
+            'label' => $dep->nombre,
             'pais_nombre' => $dep->pais?->nombre,
         ]);
 
@@ -52,12 +52,16 @@ final class UbicacionController
         abort_unless($request->user()->can('viewAny', Organizacion::class), Response::HTTP_FORBIDDEN);
 
         $departamentoId = $request->integer('departamento_id') ?: null;
-        $items = collect($this->ubicacionService->ciudades($departamentoId ?: null))->map(fn (Ciudad $ciudad) => [
+        $departamentoIds = $request->input('departamento_ids');
+        $departamentoIds = is_array($departamentoIds)
+            ? array_map('intval', $departamentoIds)
+            : (is_string($departamentoIds) ? array_filter(array_map('intval', explode(',', $departamentoIds))) : null);
+        $items = collect($this->ubicacionService->ciudades($departamentoId ?: null, $departamentoIds))->map(fn (Ciudad $ciudad) => [
             'id' => $ciudad->id,
             'departamento_id' => $ciudad->departamento_id,
             'codigo' => $ciudad->codigo,
             'nombre' => $ciudad->nombre,
-            'label' => $this->ubicacionLabel($ciudad->codigo, $ciudad->nombre),
+            'label' => $ciudad->nombre,
             'departamento_nombre' => $ciudad->departamento?->nombre,
         ]);
 

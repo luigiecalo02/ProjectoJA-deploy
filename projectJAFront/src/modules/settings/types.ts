@@ -1,4 +1,4 @@
-export type BrandAssetKey = 'login_hero' | 'pattern_light' | 'pattern_dark'
+export type BrandAssetKey = 'login_hero' | 'login_logos' | 'pattern_light' | 'pattern_dark'
 
 export type ClubLoaderKey = 'conquistadores' | 'aventureros' | 'guias_mayores' | 'neutral'
 
@@ -28,6 +28,7 @@ export type { LoginHeroCopy, LoginHeroDevice, LoginHeroVariant } from '@/modules
 
 export interface BrandSettings {
   login_hero_url: string | null
+  login_logos_url: string | null
   login_hero_fit: LoginHeroFit
   login_hero_copy: LoginHeroCopy
   pattern_light_url: string | null

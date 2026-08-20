@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Storage;
 
 /**
  * Punto único para guardar fotos. Reutilizar en cualquier módulo nuevo.
- * Recorta el lado mayor a 1600 px y guarda JPEG al 82 %. GIF, SVG y no-imágenes se guardan tal cual.
+ * Recorta el lado mayor a 1600 px y guarda JPEG al 82 %. PNG, WebP, GIF, SVG y no-imágenes se guardan tal cual.
  */
 final class ImageOptimizer
 {
@@ -55,7 +55,7 @@ final class ImageOptimizer
         $mime = (string) $file->getMimeType();
 
         return str_starts_with($mime, 'image/')
-            && ! in_array($mime, ['image/gif', 'image/svg+xml'], true);
+            && ! in_array($mime, ['image/gif', 'image/svg+xml', 'image/png', 'image/webp'], true);
     }
 
     private function storeOriginal(UploadedFile $file, string $directory): OptimizedStoredFile

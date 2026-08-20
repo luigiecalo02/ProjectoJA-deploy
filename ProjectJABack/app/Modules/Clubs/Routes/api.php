@@ -1,13 +1,25 @@
 <?php
 
 use App\Modules\Clubs\Http\Controllers\ClubController;
+use App\Modules\Clubs\Http\Controllers\ClubInscripcionController;
 use App\Modules\Clubs\Http\Controllers\PersonaController;
 use Illuminate\Support\Facades\Route;
+
+Route::prefix('public/club-inscripcion')->group(function () {
+    Route::get('catalogo', [ClubInscripcionController::class, 'catalog'])->middleware('throttle:30,1');
+    Route::get('clubes', [ClubInscripcionController::class, 'clubes'])->middleware('throttle:30,1');
+    Route::get('opciones', [ClubInscripcionController::class, 'options'])->middleware('throttle:30,1');
+    Route::get('paises', [ClubInscripcionController::class, 'paises'])->middleware('throttle:30,1');
+    Route::get('departamentos', [ClubInscripcionController::class, 'departamentos'])->middleware('throttle:30,1');
+    Route::get('ciudades', [ClubInscripcionController::class, 'ciudades'])->middleware('throttle:30,1');
+    Route::post('/', [ClubInscripcionController::class, 'store'])->middleware('throttle:5,1');
+});
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('clubs/directors-catalog', [ClubController::class, 'directorsCatalog']);
     Route::get('clubs/available-for-account', [ClubController::class, 'availableForAccount']);
     Route::get('clubs/iglesia-options', [ClubController::class, 'iglesiaOptions']);
+    Route::get('clubs/current', [ClubController::class, 'current']);
     Route::get('clubs', [ClubController::class, 'index']);
     Route::post('clubs', [ClubController::class, 'store']);
     Route::get('clubs/{club}', [ClubController::class, 'show']);

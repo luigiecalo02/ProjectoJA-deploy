@@ -31,6 +31,12 @@ final class AuthService
             ]);
         }
 
+        if (! $user->email_verified_at) {
+            throw ValidationException::withMessages([
+                'email' => ['Confirma tu correo con el código de 6 dígitos antes de entrar.'],
+            ]);
+        }
+
         $user->tokens()->delete();
         $token = $user->createToken('api')->plainTextToken;
 

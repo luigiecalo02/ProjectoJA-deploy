@@ -34,6 +34,12 @@ class Organizacion extends Model
 
     public const TIPO_GUIAS_MAYORES = 8;
 
+    public const APROBACION_PENDIENTE = 'pendiente';
+
+    public const APROBACION_APROBADA = 'aprobada';
+
+    public const APROBACION_RECHAZADA = 'rechazada';
+
     protected $fillable = [
         'organizacion_padre_id',
         'tipo_organizacion_id',
@@ -46,15 +52,58 @@ class Organizacion extends Model
         'telefono',
         'correo',
         'estado',
+        'estado_aprobacion',
+        'revision_observacion',
+        'revisado_por',
+        'revisado_en',
     ];
 
     protected function casts(): array
     {
         return [
             'estado' => 'boolean',
+            'revisado_en' => 'datetime',
             'fecha_creacion' => 'datetime',
             'fecha_actualizacion' => 'datetime',
         ];
+    }
+
+    public function isAprobada(): bool
+    {
+        return $this->estado_aprobacion === self::APROBACION_APROBADA;
+    }
+
+    public function isPendiente(): bool
+    {
+        return $this->estado_aprobacion === self::APROBACION_PENDIENTE;
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function coberturaDepartamentoIds(): array
+    {
+        $this->loadMissing('departamentos:id');
+        $ids = $this->departamentos->pluck('id')->map(fn ($id) => (int) $id)->all();
+        if ($ids === [] && $this->departamento_id) {
+            $ids = [(int) $this->departamento_id];
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function coberturaCiudadIds(): array
+    {
+        $this->loadMissing('ciudades:id');
+        $ids = $this->ciudades->pluck('id')->map(fn ($id) => (int) $id)->all();
+        if ($ids === [] && $this->ciudad_id) {
+            $ids = [(int) $this->ciudad_id];
+        }
+
+        return array_values(array_unique($ids));
     }
 
     public function tipo(): BelongsTo
@@ -97,6 +146,16 @@ class Organizacion extends Model
             'organizacion_departamento',
             'organizacion_id',
             'departamento_id',
+        )->withTimestamps('created_at', 'updated_at');
+    }
+
+    public function ciudades(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Ciudad::class,
+            'organizacion_ciudad',
+            'organizacion_id',
+            'ciudad_id',
         )->withTimestamps('created_at', 'updated_at');
     }
 

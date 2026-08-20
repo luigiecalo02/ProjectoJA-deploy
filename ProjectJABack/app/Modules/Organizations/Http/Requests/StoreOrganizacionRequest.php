@@ -26,6 +26,8 @@ class StoreOrganizacionRequest extends FormRequest
             'departamento_nombres' => ['nullable', 'array'],
             'departamento_nombres.*' => ['string', 'max:255'],
             'ciudad_id' => ['nullable', 'integer', 'exists:ciudad,id'],
+            'ciudad_ids' => ['nullable', 'array'],
+            'ciudad_ids.*' => ['integer', 'exists:ciudad,id'],
             'ciudad_nombre' => ['nullable', 'string', 'max:255'],
             'nombre' => ['required', 'string', 'max:255'],
             'direccion' => ['nullable', 'string', 'max:500'],

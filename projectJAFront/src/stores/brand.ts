@@ -25,6 +25,7 @@ function emptyLoaders(): Record<ClubLoaderKey, LoaderPreset> {
 
 const emptySettings = (): BrandSettings => ({
   login_hero_url: null,
+  login_logos_url: null,
   login_hero_fit: { ...DEFAULT_LOGIN_HERO_FIT },
   login_hero_copy: defaultLoginHeroCopy(),
   pattern_light_url: null,
@@ -62,6 +63,7 @@ function normalizeSettings(next: BrandSettings): BrandSettings {
 }
 
 export const useBrandStore = defineStore('brand', () => {
+  const theme = useThemeStore()
   const settings = ref<BrandSettings>(emptySettings())
   const loaded = ref(false)
 
@@ -69,6 +71,12 @@ export const useBrandStore = defineStore('brand', () => {
     settings.value.login_hero_url
       ? withCacheBust(settings.value.login_hero_url, settings.value.updated_at)
       : brandConfig.loginHero,
+  )
+
+  const loginLogos = computed(() =>
+    settings.value.login_logos_url
+      ? withCacheBust(settings.value.login_logos_url, settings.value.updated_at)
+      : brandConfig.logos,
   )
 
   const patternLight = computed(() =>
@@ -83,15 +91,14 @@ export const useBrandStore = defineStore('brand', () => {
       : brandConfig.patternDark,
   )
 
-  const pattern = computed(() => {
-    const theme = useThemeStore()
-    return theme.isDark ? patternDark.value : patternLight.value
-  })
+  const pattern = computed(() => (theme.isDark ? patternDark.value : patternLight.value))
 
   const loginHeroCss = computed(() => toCssImageUrl(loginHero.value))
   const loginHeroFit = computed(() => normalizeLoginHeroFit(settings.value.login_hero_fit))
   const loginHeroCopy = computed(() => normalizeLoginHeroCopy(settings.value.login_hero_copy))
-  const patternCss = computed(() => toCssImageUrl(pattern.value))
+  const patternCss = computed(() =>
+    toCssImageUrl(theme.isDark ? patternDark.value : patternLight.value),
+  )
 
   function loaderPreset(key: ClubLoaderKey): LoaderPreset {
     return settings.value.loaders[key] ?? mergeLoaderPreset(key)
@@ -114,6 +121,7 @@ export const useBrandStore = defineStore('brand', () => {
     settings,
     loaded,
     loginHero,
+    loginLogos,
     loginHeroCss,
     loginHeroFit,
     loginHeroCopy,

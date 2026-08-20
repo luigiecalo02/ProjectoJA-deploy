@@ -29,6 +29,7 @@ export const organizacionesService = {
     search?: string
     estado?: boolean | null
     tipo_organizacion_id?: number | null
+    estado_aprobacion?: string | null
   } = {}): Promise<OrganizacionesPage> {
     const { data } = await api.get<ApiEnvelope<Organizacion[]>>('/api/v1/organizaciones', {
       params: {
@@ -37,6 +38,7 @@ export const organizacionesService = {
         q: params.search || undefined,
         estado: params.estado === null || params.estado === undefined ? undefined : params.estado,
         tipo_organizacion_id: params.tipo_organizacion_id || undefined,
+        estado_aprobacion: params.estado_aprobacion || undefined,
       },
     })
     return { items: data.data ?? [], pagination: data.pagination }
@@ -96,6 +98,7 @@ export const organizacionesService = {
       search?: string
       estado?: boolean | null
       tipo_organizacion_id?: number | null
+      estado_aprobacion?: string | null
     } = {},
   ): Promise<OrganizacionTreeNode[]> {
     const { data } = await api.get<ApiEnvelope<OrganizacionTreeNode[]>>('/api/v1/organizaciones/tree', {
@@ -105,9 +108,52 @@ export const organizacionesService = {
         estado:
           filters.estado === null || filters.estado === undefined ? undefined : filters.estado,
         tipo_organizacion_id: filters.tipo_organizacion_id || undefined,
+        estado_aprobacion: filters.estado_aprobacion || undefined,
       },
     })
     return data.data ?? []
+  },
+
+  async approvedOptions(tipoId: number, padreId?: number | null): Promise<OrganizacionParentOption[]> {
+    const { data } = await api.get<ApiEnvelope<OrganizacionParentOption[]>>(
+      '/api/v1/organizaciones/approved-options',
+      {
+        params: {
+          tipo_organizacion_id: tipoId,
+          organizacion_padre_id: padreId || undefined,
+        },
+      },
+    )
+    return data.data ?? []
+  },
+
+  async approvedClubs(iglesiaId: number): Promise<Array<{ id: number; nombre: string; organizacion_id: number }>> {
+    const { data } = await api.get<ApiEnvelope<Array<{ id: number; nombre: string; organizacion_id: number }>>>(
+      `/api/v1/organizaciones/${iglesiaId}/approved-clubs`,
+    )
+    return data.data ?? []
+  },
+
+  async aprobar(id: number, observacion?: string): Promise<Organizacion> {
+    const { data } = await api.post<ApiEnvelope<Organizacion>>(`/api/v1/organizaciones/${id}/aprobar`, {
+      observacion,
+    })
+    return data.data
+  },
+
+  async rechazar(id: number, observacion?: string): Promise<Organizacion> {
+    const { data } = await api.post<ApiEnvelope<Organizacion>>(`/api/v1/organizaciones/${id}/rechazar`, {
+      observacion,
+    })
+    return data.data
+  },
+
+  async reubicar(
+    id: number,
+    payload: { asociacion_id: number; distrito_id: number; iglesia_id: number; club_id?: number | null; observacion?: string },
+  ): Promise<Organizacion> {
+    const { data } = await api.post<ApiEnvelope<Organizacion>>(`/api/v1/organizaciones/${id}/reubicar`, payload)
+    return data.data
   },
 
   async paises(): Promise<PaisOption[]> {
@@ -133,9 +179,12 @@ export const organizacionesService = {
     return data.data ?? []
   },
 
-  async ciudades(departamentoId?: number | null): Promise<CiudadOption[]> {
+  async ciudades(departamentoId?: number | null, departamentoIds?: number[]): Promise<CiudadOption[]> {
     const { data } = await api.get<ApiEnvelope<CiudadOption[]>>('/api/v1/ubicacion/ciudades', {
-      params: departamentoId ? { departamento_id: departamentoId } : undefined,
+      params: {
+        departamento_id: departamentoId || undefined,
+        departamento_ids: departamentoIds?.length ? departamentoIds : undefined,
+      },
     })
     return data.data ?? []
   },

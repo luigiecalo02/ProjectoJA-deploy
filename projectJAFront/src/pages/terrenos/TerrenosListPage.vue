@@ -14,6 +14,7 @@ import AppSearchField from '@/components/AppSearchField.vue'
 import { terrenosService } from '@/services/terrenosService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
 import type { Terreno } from '@/modules/terrenos/types'
 import type { PaginationMeta } from '@/types/api'
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '@/modules/terrenos/geometria'
@@ -30,6 +31,23 @@ const deleteTarget = ref<Terreno | null>(null)
 const deleting = ref(false)
 const creating = ref(false)
 const createVisible = ref(false)
+
+usePageChrome(() => ({
+  title: t('terrenos.title'),
+  subtitle: t('terrenos.subtitle'),
+  actions: can('terrenos.create')
+    ? [
+        {
+          key: 'new',
+          label: t('terrenos.create'),
+          icon: 'pi pi-plus',
+          onClick: () => {
+            createVisible.value = true
+          },
+        },
+      ]
+    : [],
+}))
 const newNombre = ref('')
 
 const deleteDialogVisible = computed({

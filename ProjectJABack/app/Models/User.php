@@ -43,12 +43,14 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'email_verification_code_hash',
     ];
 
     protected function casts(): array
     {
         return [
             'email_verified_at' => 'datetime',
+            'email_verification_expires_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
             'is_super' => 'boolean',

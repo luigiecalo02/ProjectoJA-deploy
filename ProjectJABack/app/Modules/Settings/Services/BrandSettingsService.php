@@ -27,6 +27,7 @@ final class BrandSettingsService
     /**
      * @return array{
      *     login_hero_url: ?string,
+     *     login_logos_url: ?string,
      *     login_hero_fit: array{x: float, y: float, zoom: float},
      *     pattern_light_url: ?string,
      *     pattern_dark_url: ?string,
@@ -40,6 +41,7 @@ final class BrandSettingsService
 
         return [
             'login_hero_url' => $this->publicUrl($settings->login_hero_path),
+            'login_logos_url' => $this->publicUrl($settings->login_logos_path),
             'login_hero_fit' => $this->heroFitFrom($settings),
             'login_hero_copy' => $this->heroCopyFrom($settings),
             'pattern_light_url' => $this->publicUrl($settings->pattern_light_path),

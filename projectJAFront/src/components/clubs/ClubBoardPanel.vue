@@ -46,6 +46,7 @@ interface CreateForm {
 
 const props = defineProps<{
   clubId: number
+  lockDirector?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -353,7 +354,12 @@ async function savePersonaEditAndAssign(): Promise<void> {
   }
 }
 
+function canClearPosition(position: BoardPosition): boolean {
+  return !(props.lockDirector && position === 'director')
+}
+
 function clearPosition(position: BoardPosition): void {
+  if (!canClearPosition(position)) return
   assignments[position] = null
   delete pendingCreates[position]
 }
@@ -461,6 +467,8 @@ async function save(): Promise<void> {
             ? { user: { email: assigned.email, name: assigned.persona.full_name } }
             : {}),
         }
+      } else if (props.lockDirector && p.key === 'director') {
+        continue
       } else {
         directors[p.key] = { clear: true }
       }
@@ -616,7 +624,7 @@ onMounted(() => {
 
             <p class="role-card__desc">{{ t(p.descKey) }}</p>
             <Button type="button"
-              v-if="assignments[p.key]"
+              v-if="assignments[p.key] && canClearPosition(p.key)"
               :label="t('clubs.boardClear')"
               severity="secondary"
               text
@@ -624,6 +632,9 @@ onMounted(() => {
               class="role-card__clear"
               @click="clearPosition(p.key)"
             />
+            <small v-else-if="assignments[p.key] && !canClearPosition(p.key)" class="pj-muted">
+              {{ t('miClub.directorLocked') }}
+            </small>
           </article>
         </div>
       </section>

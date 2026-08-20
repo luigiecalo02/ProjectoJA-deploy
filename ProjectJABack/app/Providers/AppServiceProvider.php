@@ -19,10 +19,14 @@ use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Policies\OrganizacionPolicy;
 use App\Modules\Terrains\Models\Terreno;
 use App\Modules\Terrains\Policies\TerrenoPolicy;
+use App\Modules\Auth\Services\PasswordResetMailFactory;
+use App\Modules\Settings\Services\MailSettingsService;
 use App\Modules\Users\Models\Role;
 use App\Modules\Users\Policies\RolePolicy;
 use App\Modules\Users\Policies\UserPolicy;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -55,5 +59,23 @@ class AppServiceProvider extends ServiceProvider
                 ->symbols()
                 ->rules(['regex:/[A-Z]/']);
         });
+
+        ResetPassword::createUrlUsing(function (User $user, string $token) {
+            $front = rtrim((string) config('app.frontend_url'), '/');
+
+            return $front.'/restablecer-contrasena?token='.$token.'&email='.urlencode($user->email);
+        });
+
+        ResetPassword::toMailUsing(function (User $user, string $token) {
+            return app(PasswordResetMailFactory::class)->mail($user, $token);
+        });
+
+        try {
+            if (Schema::hasTable('app_settings')) {
+                $this->app->make(MailSettingsService::class)->apply();
+            }
+        } catch (\Throwable) {
+            // Sin tabla o config aún: se usa el mailer de .env / log.
+        }
     }
 }

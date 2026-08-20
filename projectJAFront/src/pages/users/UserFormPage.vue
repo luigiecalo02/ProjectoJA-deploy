@@ -21,7 +21,9 @@ import { organizacionesService } from '@/services/organizacionesService'
 import { storageService } from '@/services/storageService'
 import { getApiErrorMessage } from '@/services/api'
 import { evaluatePasswordStrength, PASSWORD_MAX_LENGTH } from '@/utils/passwordStrength'
+import { useAuthStore } from '@/stores/auth'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
 import type { RoleOption } from '@/modules/users/types'
 import type { Club, ClubMinistry, ClubPersona, Persona } from '@/modules/clubs/types'
 import type { Organizacion } from '@/modules/organizaciones/types'
@@ -31,6 +33,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const auth = useAuthStore()
 const { can } = usePermission()
 
 const isEdit = computed(() => route.name === 'users.edit')
@@ -155,6 +158,21 @@ function ministryLabel(tipo: string): string {
 }
 
 const pageTitle = computed(() => (isEdit.value ? t('users.edit') : t('users.new')))
+
+usePageChrome(() => ({
+  title: pageTitle.value,
+  subtitle: t('users.subtitle'),
+  backTo: { name: 'users' },
+  actions: [
+    {
+      key: 'save',
+      label: t('common.save'),
+      icon: 'pi pi-save',
+      loading: saving.value || uploading.value,
+      onClick: () => void submit(),
+    },
+  ],
+}))
 
 watch(hasPastorRole, (enabled) => {
   if (!enabled) {
@@ -310,6 +328,9 @@ async function onAvatarSelect(file: File): Promise<void> {
   try {
     const url = await storageService.uploadUserAvatar(userId.value, file)
     form.avatar_url = url
+    if (auth.user && auth.user.id === userId.value) {
+      auth.persistUser({ ...auth.user, avatar_url: url })
+    }
     toast.add({
       severity: 'success',
       summary: t('common.success'),

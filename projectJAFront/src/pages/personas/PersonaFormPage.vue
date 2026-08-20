@@ -13,6 +13,7 @@ import Tag from 'primevue/tag'
 import PageLoader from '@/components/PageLoader.vue'
 import { personasService } from '@/services/clubsService'
 import { getApiErrorMessage } from '@/services/api'
+import { usePageChrome } from '@/composables/usePageChrome'
 import type { PersonaOrganizacionOption, PersonaOrganizacionOptions } from '@/modules/clubs/types'
 
 const { t } = useI18n()
@@ -237,6 +238,21 @@ async function submit(): Promise<void> {
     saving.value = false
   }
 }
+
+usePageChrome(() => ({
+  title: pageTitle.value,
+  subtitle: pageSubtitle.value,
+  backTo: { name: listRouteName.value },
+  actions: [
+    {
+      key: 'save',
+      label: t('common.save'),
+      icon: 'pi pi-save',
+      loading: saving.value,
+      onClick: () => void submit(),
+    },
+  ],
+}))
 
 onMounted(async () => {
   loading.value = true

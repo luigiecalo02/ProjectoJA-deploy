@@ -6,7 +6,13 @@ const JPEG_QUALITY = 0.82
  * Usar `prepareUploadFile` en cualquier servicio o pantalla nueva.
  */
 export async function optimizeImageFile(file: File): Promise<File> {
-  if (!file.type.startsWith('image/') || file.type === 'image/gif' || file.type === 'image/svg+xml') {
+  if (
+    !file.type.startsWith('image/')
+    || file.type === 'image/gif'
+    || file.type === 'image/svg+xml'
+    || file.type === 'image/png'
+    || file.type === 'image/webp'
+  ) {
     return file
   }
 

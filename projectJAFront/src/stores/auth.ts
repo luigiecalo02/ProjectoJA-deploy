@@ -141,5 +141,6 @@ export const useAuthStore = defineStore('auth', () => {
     hasPermission,
     clearSession,
     persistSession,
+    persistUser,
   }
 })

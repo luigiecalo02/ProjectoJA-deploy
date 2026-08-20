@@ -17,6 +17,7 @@ import { MediaCoverUpload } from '@/components/media'
 import { cabanasService } from '@/services/cabanasService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
 import type { Cabana, CabanaEstado } from '@/modules/cabanas/types'
 import type { PaginationMeta } from '@/types/api'
 
@@ -83,6 +84,21 @@ function openCreate(): void {
   resetForm()
   drawerVisible.value = true
 }
+
+usePageChrome(() => ({
+  title: t('cabanas.title'),
+  subtitle: t('cabanas.subtitle'),
+  actions: can('cabanas.create')
+    ? [
+        {
+          key: 'new',
+          label: t('cabanas.create'),
+          icon: 'pi pi-plus',
+          onClick: openCreate,
+        },
+      ]
+    : [],
+}))
 
 function openEdit(item: Cabana): void {
   editTarget.value = item

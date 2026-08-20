@@ -9,6 +9,7 @@ use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacionRol;
 use App\Modules\Organizations\Services\OrganizacionRealtimeNotifier;
+use App\Modules\Organizations\Services\OrganizacionService;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
@@ -27,6 +28,7 @@ final class ClubService
         private readonly AuditLogger $auditLogger,
         private readonly PersonaService $personaService,
         private readonly OrganizationAccessService $orgAccess,
+        private readonly OrganizacionService $organizacionService,
         private readonly OrganizacionRealtimeNotifier $orgRealtime,
         private readonly ImageOptimizer $imageOptimizer,
     ) {}
@@ -103,6 +105,21 @@ final class ClubService
             ->all();
     }
 
+    public function currentForActor(User $actor): ?Club
+    {
+        $orgId = $actor->active_organizacion_id ? (int) $actor->active_organizacion_id : null;
+        if (! $orgId) {
+            return null;
+        }
+
+        $club = Club::query()->where('organizacion_id', $orgId)->first();
+        if (! $club || ! $this->orgAccess->canAccessClub($actor, $club)) {
+            return null;
+        }
+
+        return $club;
+    }
+
     public function find(int $id): Club
     {
         return Club::query()
@@ -161,6 +178,39 @@ final class ClubService
     }
 
     /**
+     * Crea un club bajo una iglesia sin validar el alcance del actor (inscripción pública).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function createFromIglesia(int $iglesiaId, array $data, ?int $createdBy = null): Club
+    {
+        return DB::transaction(function () use ($iglesiaId, $data, $createdBy) {
+            unset($data['persona_ids'], $data['iglesia_organizacion_id']);
+
+            $aprobacion = (string) ($data['estado_aprobacion'] ?? Organizacion::APROBACION_APROBADA);
+            unset($data['estado_aprobacion']);
+
+            $data['organizacion_id'] = $this->resolveClubOrganizacionId(
+                $iglesiaId,
+                (string) ($data['nombre'] ?? 'Club'),
+                $aprobacion,
+            );
+
+            $location = $this->locationLabelsFromIglesia($iglesiaId);
+            $data['distrito'] = $location['distrito'];
+            $data['ciudad'] = $location['ciudad'];
+            $data['created_by'] = $createdBy;
+            $data['is_active'] = $data['is_active'] ?? ($aprobacion === Organizacion::APROBACION_APROBADA);
+
+            $club = Club::query()->create($data);
+            $club = $this->find($club->id);
+            $this->auditLogger->log('clubs', 'create_public', null, $club->toArray(), $club);
+
+            return $club;
+        });
+    }
+
+    /**
      * Opciones de iglesia para crear/editar club.
      *
      * @return list<array<string, mixed>>
@@ -176,6 +226,7 @@ final class ClubService
             ])
             ->where('tipo_organizacion_id', Organizacion::TIPO_IGLESIA)
             ->where('estado', true)
+            ->where('estado_aprobacion', Organizacion::APROBACION_APROBADA)
             ->orderBy('nombre');
 
         if ($this->orgAccess->shouldScopeByOrganization($actor)) {
@@ -282,7 +333,7 @@ final class ClubService
     /**
      * Resuelve/crea la organización tipo Club bajo la iglesia seleccionada.
      */
-    private function resolveClubOrganizacionId(int $iglesiaId, string $clubNombre): int
+    private function resolveClubOrganizacionId(int $iglesiaId, string $clubNombre, string $aprobacion = Organizacion::APROBACION_APROBADA): int
     {
         $iglesia = Organizacion::query()->find($iglesiaId);
         if (! $iglesia || (int) $iglesia->tipo_organizacion_id !== Organizacion::TIPO_IGLESIA) {
@@ -291,54 +342,38 @@ final class ClubService
             ]);
         }
 
-        $existingClubOrgIds = Organizacion::query()
-            ->where('organizacion_padre_id', $iglesiaId)
-            ->where('tipo_organizacion_id', Organizacion::TIPO_CLUB)
-            ->pluck('id');
+        if ($aprobacion === Organizacion::APROBACION_APROBADA) {
+            $existingClubOrgIds = Organizacion::query()
+                ->where('organizacion_padre_id', $iglesiaId)
+                ->where('tipo_organizacion_id', Organizacion::TIPO_CLUB)
+                ->pluck('id');
 
-        $freeOrgId = $existingClubOrgIds === []
-            ? null
-            : Club::query()
-                ->whereIn('organizacion_id', $existingClubOrgIds)
-                ->pluck('organizacion_id')
-                ->pipe(function ($used) use ($existingClubOrgIds) {
-                    return $existingClubOrgIds->diff($used)->first();
-                });
+            $freeOrgId = $existingClubOrgIds === []
+                ? null
+                : Club::query()
+                    ->whereIn('organizacion_id', $existingClubOrgIds)
+                    ->pluck('organizacion_id')
+                    ->pipe(function ($used) use ($existingClubOrgIds) {
+                        return $existingClubOrgIds->diff($used)->first();
+                    });
 
-        if ($freeOrgId) {
-            Organizacion::query()->where('id', $freeOrgId)->update([
-                'nombre' => $clubNombre,
-            ]);
-            $this->orgRealtime->notify('updated', (int) $freeOrgId);
+            if ($freeOrgId) {
+                Organizacion::query()->where('id', $freeOrgId)->update([
+                    'nombre' => $clubNombre,
+                ]);
+                $this->orgRealtime->notify('updated', (int) $freeOrgId);
 
-            return (int) $freeOrgId;
+                return (int) $freeOrgId;
+            }
         }
 
-        if (! $iglesia->pais_id || ! $iglesia->departamento_id || ! $iglesia->ciudad_id) {
-            throw ValidationException::withMessages([
-                'organizacion_id' => ['La iglesia seleccionada debe tener país, departamento y ciudad definidos.'],
-            ]);
-        }
-
-        $prefix = 'CLB';
-        $seq = Organizacion::query()
-            ->where('tipo_organizacion_id', Organizacion::TIPO_CLUB)
-            ->count() + 1;
-        $codigo = sprintf('%s-%04d', $prefix, $seq);
-
-        $org = Organizacion::query()->create([
-            'organizacion_padre_id' => $iglesiaId,
+        $org = $this->organizacionService->create([
             'tipo_organizacion_id' => Organizacion::TIPO_CLUB,
+            'organizacion_padre_id' => $iglesiaId,
             'nombre' => $clubNombre,
-            'codigo' => $codigo,
-            'pais_id' => $iglesia->pais_id,
-            'departamento_id' => $iglesia->departamento_id,
-            'ciudad_id' => $iglesia->ciudad_id,
-            'direccion' => $iglesia->direccion,
             'estado' => true,
+            'estado_aprobacion' => $aprobacion,
         ]);
-
-        $this->orgRealtime->notify('created', (int) $org->id);
 
         return (int) $org->id;
     }

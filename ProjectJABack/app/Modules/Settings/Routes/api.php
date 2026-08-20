@@ -1,6 +1,8 @@
 <?php
 
 use App\Modules\Settings\Http\Controllers\BrandSettingsController;
+use App\Modules\Settings\Http\Controllers\MailSettingsController;
+use App\Modules\Settings\Http\Controllers\PublicFormSettingsController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('settings/brand', [BrandSettingsController::class, 'show']);
@@ -8,6 +10,11 @@ Route::get('settings/brand/file/{path}', [BrandSettingsController::class, 'file'
     ->where('path', '.*');
 
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('settings/mail', [MailSettingsController::class, 'show']);
+    Route::put('settings/mail', [MailSettingsController::class, 'update']);
+    Route::post('settings/mail/test', [MailSettingsController::class, 'test']);
+    Route::get('settings/public-form', [PublicFormSettingsController::class, 'show']);
+    Route::put('settings/public-form', [PublicFormSettingsController::class, 'update']);
     Route::put('settings/brand/hero-fit', [BrandSettingsController::class, 'updateHeroFit']);
     Route::put('settings/brand/hero-copy', [BrandSettingsController::class, 'updateHeroCopy']);
     Route::put('settings/brand/loaders/{key}', [BrandSettingsController::class, 'updateLoader']);

@@ -6,6 +6,7 @@ use App\Modules\Organizations\Http\Requests\StoreOrganizacionRequest;
 use App\Modules\Organizations\Http\Requests\UpdateOrganizacionRequest;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\TipoOrganizacion;
+use App\Modules\Organizations\Services\OrganizacionAprobacionService;
 use App\Modules\Organizations\Services\OrganizacionService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -14,14 +15,17 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class OrganizacionController
 {
-    public function __construct(private readonly OrganizacionService $organizacionService) {}
+    public function __construct(
+        private readonly OrganizacionService $organizacionService,
+        private readonly OrganizacionAprobacionService $aprobacion,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
         abort_unless($request->user()->can('viewAny', Organizacion::class), Response::HTTP_FORBIDDEN);
 
         $paginator = $this->organizacionService->list(
-            $request->only(['q', 'estado', 'tipo_organizacion_id', 'organizacion_padre_id']),
+            $request->only(['q', 'estado', 'tipo_organizacion_id', 'organizacion_padre_id', 'estado_aprobacion']),
             (int) $request->integer('per_page', 15),
             $request->user(),
         );
@@ -73,8 +77,17 @@ final class OrganizacionController
                         'id' => $dep->id,
                         'codigo' => $dep->codigo,
                         'nombre' => $dep->nombre,
-                        'label' => $dep->codigo ? "{$dep->codigo} — {$dep->nombre}" : $dep->nombre,
+                        'label' => $dep->nombre,
                         'pais_id' => $dep->pais_id,
+                    ])->values()->all()
+                    : [],
+                'ciudades' => $org->relationLoaded('ciudades')
+                    ? $org->ciudades->map(fn ($ciudad) => [
+                        'id' => $ciudad->id,
+                        'codigo' => $ciudad->codigo,
+                        'nombre' => $ciudad->nombre,
+                        'label' => $ciudad->nombre,
+                        'departamento_id' => $ciudad->departamento_id,
                     ])->values()->all()
                     : [],
             ]);
@@ -90,7 +103,7 @@ final class OrganizacionController
 
         return ApiResponse::success($this->organizacionService->tree(
             $excludeId ?: null,
-            $request->only(['q', 'estado', 'tipo_organizacion_id']),
+            $request->only(['q', 'estado', 'tipo_organizacion_id', 'estado_aprobacion']),
             $request->user(),
         ));
     }
@@ -124,6 +137,68 @@ final class OrganizacionController
         return ApiResponse::success(null, 'Organización eliminada');
     }
 
+    public function approvedOptions(Request $request): JsonResponse
+    {
+        abort_unless($request->user()->can('viewAny', Organizacion::class), Response::HTTP_FORBIDDEN);
+
+        $tipo = (int) $request->integer('tipo_organizacion_id');
+        $padreId = $request->filled('organizacion_padre_id')
+            ? (int) $request->integer('organizacion_padre_id')
+            : null;
+
+        return ApiResponse::success($this->aprobacion->approvedOfTipo($tipo, $padreId));
+    }
+
+    public function approvedClubs(Request $request, Organizacion $organizacion): JsonResponse
+    {
+        abort_unless($request->user()->can('view', $organizacion), Response::HTTP_FORBIDDEN);
+
+        return ApiResponse::success($this->aprobacion->approvedClubsForIglesia((int) $organizacion->id));
+    }
+
+    public function aprobar(Request $request, Organizacion $organizacion): JsonResponse
+    {
+        abort_unless($request->user()->can('update', $organizacion), Response::HTTP_FORBIDDEN);
+
+        $org = $this->aprobacion->approve(
+            $organizacion,
+            $request->user(),
+            $request->input('observacion'),
+        );
+
+        return ApiResponse::success($this->payload($org, true), 'Organización aprobada');
+    }
+
+    public function rechazar(Request $request, Organizacion $organizacion): JsonResponse
+    {
+        abort_unless($request->user()->can('update', $organizacion), Response::HTTP_FORBIDDEN);
+
+        $org = $this->aprobacion->reject(
+            $organizacion,
+            $request->user(),
+            $request->input('observacion'),
+        );
+
+        return ApiResponse::success($this->payload($org, true), 'Solicitud rechazada');
+    }
+
+    public function reubicar(Request $request, Organizacion $organizacion): JsonResponse
+    {
+        abort_unless($request->user()->can('update', $organizacion), Response::HTTP_FORBIDDEN);
+
+        $data = $request->validate([
+            'asociacion_id' => ['required', 'integer', 'exists:organizacion,id'],
+            'distrito_id' => ['required', 'integer', 'exists:organizacion,id'],
+            'iglesia_id' => ['required', 'integer', 'exists:organizacion,id'],
+            'club_id' => ['nullable', 'integer', 'exists:clubes,id'],
+            'observacion' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $org = $this->aprobacion->relocate($organizacion, $request->user(), $data, $data['observacion'] ?? null);
+
+        return ApiResponse::success($this->payload($org, true), 'Organización reubicada');
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -142,6 +217,10 @@ final class OrganizacionController
             'telefono' => $org->telefono,
             'correo' => $org->correo,
             'estado' => (bool) $org->estado,
+            'estado_aprobacion' => $org->estado_aprobacion ?: Organizacion::APROBACION_APROBADA,
+            'revision_observacion' => $org->revision_observacion,
+            'revisado_por' => $org->revisado_por,
+            'revisado_en' => optional($org->revisado_en)?->toIso8601String(),
             'fecha_creacion' => optional($org->fecha_creacion)?->toIso8601String(),
             'fecha_actualizacion' => optional($org->fecha_actualizacion)?->toIso8601String(),
             'tipo' => $org->relationLoaded('tipo') && $org->tipo
@@ -164,8 +243,17 @@ final class OrganizacionController
                     'id' => $dep->id,
                     'codigo' => $dep->codigo,
                     'nombre' => $dep->nombre,
-                    'label' => $dep->codigo ? "{$dep->codigo} — {$dep->nombre}" : $dep->nombre,
+                    'label' => $dep->nombre,
                     'pais_id' => $dep->pais_id,
+                ])->values()->all()
+                : [],
+            'ciudades' => $org->relationLoaded('ciudades')
+                ? $org->ciudades->map(fn ($ciudad) => [
+                    'id' => $ciudad->id,
+                    'codigo' => $ciudad->codigo,
+                    'nombre' => $ciudad->nombre,
+                    'label' => $ciudad->nombre,
+                    'departamento_id' => $ciudad->departamento_id,
                 ])->values()->all()
                 : [],
         ];

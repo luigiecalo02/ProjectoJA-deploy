@@ -3,11 +3,13 @@
 namespace App\Modules\Users\Services;
 
 use App\Models\User;
+use App\Modules\Auth\Services\AccountMailService;
 use App\Modules\Clubs\Models\Club;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacionRol;
+use App\Modules\Settings\Services\MailSettingsService;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
 use App\Modules\Shared\Services\ImageOptimizer;
@@ -24,6 +26,8 @@ final class UserService
         private readonly UserRepository $users,
         private readonly AuditLogger $auditLogger,
         private readonly ImageOptimizer $imageOptimizer,
+        private readonly AccountMailService $accountMail,
+        private readonly MailSettingsService $mailSettings,
     ) {}
 
     public function list(array $filters = [], int $perPage = 15): LengthAwarePaginator
@@ -38,7 +42,7 @@ final class UserService
 
     public function create(array $data): User
     {
-        return DB::transaction(function () use ($data) {
+        $user = DB::transaction(function () use ($data) {
             $roleIds = $data['role_ids'] ?? [];
             $clubIds = $data['club_ids'] ?? null;
             $personaId = isset($data['persona_id']) ? (int) $data['persona_id'] : null;
@@ -72,6 +76,25 @@ final class UserService
 
             return $user;
         });
+
+        $this->sendWelcomeVerification($user);
+
+        return $user->fresh(['clubs', 'persona.organizaciones.organizacion', 'persona.organizaciones.rolesAsignados.rol']) ?? $user;
+    }
+
+    private function sendWelcomeVerification(User $user): void
+    {
+        if ($user->email_verified_at) {
+            return;
+        }
+
+        if (! $this->mailSettings->isConfigured()) {
+            $user->forceFill(['email_verified_at' => now()])->save();
+
+            return;
+        }
+
+        $this->accountMail->trySendVerification($user);
     }
 
     public function update(User $user, array $data): User

@@ -123,7 +123,7 @@ final class AuthController
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
-            'avatar_url' => $user->avatar_url,
+            'avatar_url' => $this->publicFileUrl($user->avatar_url),
             'is_active' => $user->is_active,
             'is_super' => $user->isSuperAdmin(),
             'persona_id' => $user->persona_id,
@@ -135,5 +135,23 @@ final class AuthController
             'requires_context' => $this->sessionContext->requiresSelection($user),
             'context_options' => $this->sessionContext->options($user),
         ];
+    }
+
+    private function publicFileUrl(?string $value): ?string
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
+            return $value;
+        }
+
+        $path = ltrim($value, '/');
+        if (str_starts_with($path, 'storage/')) {
+            return url($path);
+        }
+
+        return url('storage/'.$path);
     }
 }

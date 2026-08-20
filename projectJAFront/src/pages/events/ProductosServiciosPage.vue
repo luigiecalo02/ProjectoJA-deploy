@@ -17,6 +17,7 @@ import AppSearchField from '@/components/AppSearchField.vue'
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
 import type { ProductoServicio, ProductoServicioPayload } from '@/modules/events/types'
 
 const { t } = useI18n()
@@ -78,6 +79,21 @@ function openCreate(): void {
   resetForm()
   dialogVisible.value = true
 }
+
+usePageChrome(() => ({
+  title: t('productosServicios.title'),
+  subtitle: t('productosServicios.subtitle'),
+  actions: canManage.value
+    ? [
+        {
+          key: 'new',
+          label: t('productosServicios.new'),
+          icon: 'pi pi-plus',
+          onClick: openCreate,
+        },
+      ]
+    : [],
+}))
 
 function openEdit(item: ProductoServicio): void {
   editing.value = item

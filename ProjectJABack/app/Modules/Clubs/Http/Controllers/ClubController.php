@@ -57,11 +57,23 @@ final class ClubController
         abort_unless(
             $user->can('create', Club::class)
                 || $user->can('viewAny', Club::class)
-                || $user->hasPermission('clubs.update'),
+                || $user->hasPermission('clubs.update')
+                || $user->hasPermission('mi_club.update'),
             Response::HTTP_FORBIDDEN
         );
 
         return ApiResponse::success($this->clubService->iglesiaOptions($user));
+    }
+
+    public function current(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user->can('viewAny', Club::class), Response::HTTP_FORBIDDEN);
+
+        $club = $this->clubService->currentForActor($user);
+        abort_unless($club && $user->can('view', $club), Response::HTTP_NOT_FOUND);
+
+        return ApiResponse::success($this->payload($this->clubService->find($club->id), true));
     }
 
     public function store(StoreClubRequest $request): JsonResponse
@@ -128,7 +140,11 @@ final class ClubController
     public function directorsCatalog(Request $request): JsonResponse
     {
         abort_unless(
-            $request->user()->hasPermission('clubs.view') || $request->user()->hasPermission('clubs.manage_directors'),
+            $request->user()->hasPermission('clubs.view')
+                || $request->user()->hasPermission('clubs.manage_directors')
+                || $request->user()->hasPermission('mi_club.view')
+                || $request->user()->hasPermission('mi_club.manage_directors')
+                || $request->user()->hasPermission('mi_club.update'),
             Response::HTTP_FORBIDDEN
         );
 

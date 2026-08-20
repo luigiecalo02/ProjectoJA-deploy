@@ -31,7 +31,7 @@ const brand = useBrandStore()
 <style scoped>
 .context-shell {
   min-height: 100vh;
-  background-color: #f4f6f9;
+  background-color: var(--pj-bg);
   background-image: var(--pj-pattern);
   background-repeat: repeat;
   background-size: 420px auto;
@@ -43,14 +43,15 @@ const brand = useBrandStore()
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
-  color: var(--pj-navy) !important;
+  color: var(--pj-text) !important;
   z-index: 2;
 }
 
 .context-shell__main {
   width: min(1120px, 100%);
   margin: 0 auto;
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--pj-bg-elevated) 92%, transparent);
+  color: var(--pj-text);
   border-radius: 1.25rem;
   box-shadow: 0 18px 50px rgba(11, 31, 74, 0.1);
   padding: 1.5rem 1.25rem 1.75rem;

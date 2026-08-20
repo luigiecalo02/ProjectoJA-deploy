@@ -12,12 +12,15 @@ class AppSetting extends Model
 
     public const ASSET_LOGIN_HERO = 'login_hero';
 
+    public const ASSET_LOGIN_LOGOS = 'login_logos';
+
     public const ASSET_PATTERN_LIGHT = 'pattern_light';
 
     public const ASSET_PATTERN_DARK = 'pattern_dark';
 
     public const ASSET_COLUMNS = [
         self::ASSET_LOGIN_HERO => 'login_hero_path',
+        self::ASSET_LOGIN_LOGOS => 'login_logos_path',
         self::ASSET_PATTERN_LIGHT => 'pattern_light_path',
         self::ASSET_PATTERN_DARK => 'pattern_dark_path',
     ];
@@ -64,9 +67,12 @@ class AppSetting extends Model
 
     protected $fillable = [
         'login_hero_path',
+        'login_logos_path',
         'pattern_light_path',
         'pattern_dark_path',
         'loader_presets',
+        'mail',
+        'public_form',
         'updated_by',
     ];
 
@@ -74,6 +80,8 @@ class AppSetting extends Model
     {
         return [
             'loader_presets' => 'array',
+            'mail' => 'array',
+            'public_form' => 'array',
         ];
     }
 

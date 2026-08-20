@@ -99,8 +99,9 @@ final class SessionContextService
                     'icon' => $rol->icon ?: $this->iconForTipo($tipoId),
                     'is_platform' => false,
                     'is_club' => $isClub,
+                    'club_id' => $isClub ? ($club?->id ? (int) $club->id : null) : null,
                     'club_tipos' => $isClub ? $this->clubTipos($club) : [],
-                    'club_logo_url' => $club?->logo,
+                    'club_logo_url' => $this->publicFileUrl($club?->logo),
                     'color_principal' => $club?->color_principal,
                     'color_secundario' => $club?->color_secundario,
                 ];
@@ -234,6 +235,7 @@ final class SessionContextService
             'icon' => $role->icon ?: 'pi pi-shield',
             'is_platform' => true,
             'is_club' => false,
+            'club_id' => null,
             'club_tipos' => [],
             'club_logo_url' => null,
             'color_principal' => null,
@@ -310,5 +312,23 @@ final class SessionContextService
         };
 
         return "Ingresar como {$roleName} para gestionar {$scope}.";
+    }
+
+    private function publicFileUrl(?string $value): ?string
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
+            return $value;
+        }
+
+        $path = ltrim($value, '/');
+        if (str_starts_with($path, 'storage/')) {
+            return url($path);
+        }
+
+        return url('storage/'.$path);
     }
 }

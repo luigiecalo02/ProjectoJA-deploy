@@ -17,6 +17,9 @@ const emit = defineEmits<{
   edit: [id: number]
   add: [node: OrganizacionTreeNode]
   remove: [node: OrganizacionTreeNode]
+  approve: [node: OrganizacionTreeNode]
+  reject: [node: OrganizacionTreeNode]
+  relocate: [node: OrganizacionTreeNode]
 }>()
 
 const { t } = useI18n()
@@ -133,6 +136,9 @@ const hasExpandable = computed(() => collectExpandableIds(props.nodes).length > 
         @edit="emit('edit', $event)"
         @add="emit('add', $event)"
         @remove="emit('remove', $event)"
+        @approve="emit('approve', $event)"
+        @reject="emit('reject', $event)"
+        @relocate="emit('relocate', $event)"
       />
     </ul>
   </div>

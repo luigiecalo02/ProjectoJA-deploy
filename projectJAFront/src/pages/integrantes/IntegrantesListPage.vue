@@ -13,6 +13,7 @@ import AppSearchField from '@/components/AppSearchField.vue'
 import { personasService } from '@/services/clubsService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
 import { useAuthStore } from '@/stores/auth'
 import type { Persona } from '@/modules/clubs/types'
 import type { PaginationMeta } from '@/types/api'
@@ -22,6 +23,21 @@ const router = useRouter()
 const toast = useToast()
 const { can } = usePermission()
 const auth = useAuthStore()
+
+usePageChrome(() => ({
+  title: t('integrantes.title'),
+  subtitle: t('integrantes.subtitle'),
+  actions: can('integrantes.create')
+    ? [
+        {
+          key: 'new',
+          label: t('integrantes.new'),
+          icon: 'pi pi-plus',
+          onClick: () => void router.push({ name: 'integrantes.create' }),
+        },
+      ]
+    : [],
+}))
 
 const personas = ref<Persona[]>([])
 const loading = ref(false)

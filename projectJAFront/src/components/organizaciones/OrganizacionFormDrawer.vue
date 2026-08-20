@@ -25,7 +25,6 @@ import {
   TIPO_DISTRITO,
   TIPO_IGLESIA,
   TIPO_UNION,
-  TIPOS_HEREDAN_UBICACION,
   TIPOS_HEREDAN_UBICACION_COMPLETA,
 } from '@/modules/organizaciones/types'
 
@@ -67,6 +66,7 @@ const form = reactive({
   departamento_id: null as number | null,
   departamento_nombre: '',
   departamento_ids: [] as number[],
+  ciudad_ids: [] as number[],
   ciudad_id: null as number | null,
   ciudad_nombre: '',
   nombre: '',
@@ -111,9 +111,11 @@ const selectedParent = computed(() =>
 )
 
 const showPaisField = computed(() => form.tipo_organizacion_id === TIPO_UNION)
-const showDepartamentosMultiField = computed(() => form.tipo_organizacion_id === TIPO_ASOCIACION)
-const showDistritoDepartamentoField = computed(() => form.tipo_organizacion_id === TIPO_DISTRITO)
-const showCiudadField = computed(() => form.tipo_organizacion_id === TIPO_DISTRITO)
+const showDepartamentosMultiField = computed(
+  () => form.tipo_organizacion_id === TIPO_ASOCIACION || form.tipo_organizacion_id === TIPO_DISTRITO,
+)
+const showCiudadesMultiField = computed(() => form.tipo_organizacion_id === TIPO_DISTRITO)
+const showIglesiaUbicacionField = computed(() => form.tipo_organizacion_id === TIPO_IGLESIA)
 const showDireccionField = computed(() => form.tipo_organizacion_id === TIPO_IGLESIA)
 
 function isHijoDeClub(tipoId: number | null): boolean {
@@ -126,7 +128,7 @@ const showInheritedLocation = computed(() => {
   const tipoId = form.tipo_organizacion_id
   if (!tipoId) return false
   return (
-    TIPOS_HEREDAN_UBICACION.includes(tipoId as (typeof TIPOS_HEREDAN_UBICACION)[number]) ||
+    TIPOS_HEREDAN_UBICACION_COMPLETA.includes(tipoId as (typeof TIPOS_HEREDAN_UBICACION_COMPLETA)[number]) ||
     isHijoDeClub(tipoId)
   )
 })
@@ -152,7 +154,7 @@ const parentDepartamentos = computed<DepartamentoOption[]>(() => {
   if (deps.length) {
     return deps.map((d) => ({
       ...d,
-      label: d.label || (d.codigo ? `${d.codigo} — ${d.nombre}` : d.nombre),
+      label: d.nombre,
     }))
   }
   if (selectedParent.value?.departamento_id && selectedParent.value.departamento_nombre) {
@@ -168,6 +170,50 @@ const parentDepartamentos = computed<DepartamentoOption[]>(() => {
   return []
 })
 
+const parentCiudades = computed<CiudadOption[]>(() => {
+  const items = selectedParent.value?.ciudades ?? []
+  if (items.length) {
+    return items.map((ciudad) => ({
+      ...ciudad,
+      label: ciudad.nombre,
+    }))
+  }
+  if (selectedParent.value?.ciudad_id && selectedParent.value.ciudad_nombre) {
+    return [
+      {
+        id: selectedParent.value.ciudad_id,
+        departamento_id: selectedParent.value.departamento_id ?? 0,
+        nombre: selectedParent.value.ciudad_nombre,
+        label: selectedParent.value.ciudad_nombre,
+      },
+    ]
+  }
+  return []
+})
+
+const ciudadesIglesia = computed(() => {
+  const allowed = parentCiudades.value.map((item) => item.id)
+  if (!allowed.length) return ciudades.value
+  return ciudades.value.filter((item) => allowed.includes(item.id))
+})
+
+const showIglesiaDepartamentoField = computed(
+  () => showIglesiaUbicacionField.value && parentDepartamentos.value.length > 1,
+)
+const showIglesiaCiudadField = computed(
+  () => showIglesiaUbicacionField.value && parentCiudades.value.length > 1,
+)
+
+function applyIglesiaInheritedLocation(): void {
+  if (form.tipo_organizacion_id !== TIPO_IGLESIA) return
+  if (parentDepartamentos.value.length === 1) {
+    form.departamento_id = parentDepartamentos.value[0].id
+  }
+  if (parentCiudades.value.length === 1) {
+    form.ciudad_id = parentCiudades.value[0].id
+  }
+}
+
 function resetForm(): void {
   form.organizacion_padre_id = null
   form.tipo_organizacion_id = null
@@ -176,6 +222,7 @@ function resetForm(): void {
   form.departamento_id = null
   form.departamento_nombre = ''
   form.departamento_ids = []
+  form.ciudad_ids = []
   form.ciudad_id = null
   form.ciudad_nombre = ''
   form.nombre = ''
@@ -200,6 +247,14 @@ async function loadCiudades(departamentoId: number | null | undefined): Promise<
     return
   }
   ciudades.value = await organizacionesService.ciudades(departamentoId)
+}
+
+async function loadCiudadesByDepartamentos(departamentoIds: number[]): Promise<void> {
+  if (!departamentoIds.length) {
+    ciudades.value = []
+    return
+  }
+  ciudades.value = await organizacionesService.ciudades(null, departamentoIds)
 }
 
 async function refreshParentOptions(): Promise<void> {
@@ -228,9 +283,17 @@ async function onParentChange(parentId: number | null): Promise<void> {
     await loadDepartamentos(padre.pais_id)
   }
   if (form.tipo_organizacion_id === TIPO_DISTRITO) {
+    form.departamento_ids = []
+    form.ciudad_ids = []
     form.departamento_id = null
     form.ciudad_id = null
-    if (padre?.pais_id) await loadDepartamentos(padre.pais_id)
+    ciudades.value = []
+  }
+  if (form.tipo_organizacion_id === TIPO_IGLESIA) {
+    form.departamento_id = null
+    form.ciudad_id = null
+    applyIglesiaInheritedLocation()
+    if (form.departamento_id) await loadCiudades(form.departamento_id)
   }
 }
 
@@ -257,6 +320,10 @@ async function openCreate(): Promise<void> {
       const padre = parentOptions.value.find((o) => o.id === form.organizacion_padre_id)
       if (padre?.pais_id) await loadDepartamentos(padre.pais_id)
     }
+    applyIglesiaInheritedLocation()
+    if (form.tipo_organizacion_id === TIPO_IGLESIA && form.departamento_id) {
+      await loadCiudades(form.departamento_id)
+    }
   } catch (error) {
     errorMessage.value = getApiErrorMessage(error)
   } finally {
@@ -282,6 +349,13 @@ async function openEdit(): Promise<void> {
     form.departamento_id = org.departamento_id
     form.ciudad_id = org.ciudad_id
     form.departamento_ids = (org.departamentos ?? []).map((d) => d.id)
+    if (!form.departamento_ids.length && org.departamento_id) {
+      form.departamento_ids = [org.departamento_id]
+    }
+    form.ciudad_ids = (org.ciudades ?? []).map((ciudad) => ciudad.id)
+    if (!form.ciudad_ids.length && org.ciudad_id) {
+      form.ciudad_ids = [org.ciudad_id]
+    }
     form.nombre = org.nombre
     form.direccion = org.direccion ?? ''
     form.telefono = org.telefono ?? ''
@@ -291,8 +365,13 @@ async function openEdit(): Promise<void> {
     await Promise.all([
       refreshParentOptions(),
       org.pais_id ? loadDepartamentos(org.pais_id) : Promise.resolve(),
-      org.departamento_id ? loadCiudades(org.departamento_id) : Promise.resolve(),
+      org.tipo_organizacion_id === TIPO_DISTRITO
+        ? loadCiudadesByDepartamentos(form.departamento_ids)
+        : org.departamento_id
+          ? loadCiudades(org.departamento_id)
+          : Promise.resolve(),
     ])
+    applyIglesiaInheritedLocation()
   } catch (error) {
     errorMessage.value = getApiErrorMessage(error)
   } finally {
@@ -310,11 +389,24 @@ watch(
 )
 
 watch(
+  () => [...form.departamento_ids],
+  async (ids) => {
+    if (form.tipo_organizacion_id !== TIPO_DISTRITO || loading.value) return
+    await loadCiudadesByDepartamentos(ids)
+    const valid = new Set(ciudades.value.map((item) => item.id))
+    form.ciudad_ids = form.ciudad_ids.filter((id) => valid.has(id))
+  },
+)
+
+watch(
   () => form.departamento_id,
   async (departamentoId) => {
-    if (form.tipo_organizacion_id !== TIPO_DISTRITO) return
-    form.ciudad_id = null
+    if (form.tipo_organizacion_id !== TIPO_IGLESIA || loading.value) return
+    if (parentCiudades.value.length !== 1) {
+      form.ciudad_id = null
+    }
     await loadCiudades(departamentoId)
+    applyIglesiaInheritedLocation()
   },
 )
 
@@ -335,6 +427,23 @@ async function save(): Promise<void> {
     errorMessage.value = t('organizaciones.paisRequired')
     return
   }
+  if (showDepartamentosMultiField.value && form.departamento_ids.length === 0) {
+    errorMessage.value = t('organizaciones.departamentoRequired')
+    return
+  }
+  if (showCiudadesMultiField.value && form.ciudad_ids.length === 0) {
+    errorMessage.value = t('organizaciones.ciudadesRequired')
+    return
+  }
+  applyIglesiaInheritedLocation()
+  if (showIglesiaDepartamentoField.value && !form.departamento_id) {
+    errorMessage.value = t('organizaciones.iglesiaUbicacionRequired')
+    return
+  }
+  if (showIglesiaCiudadField.value && !form.ciudad_id) {
+    errorMessage.value = t('organizaciones.iglesiaUbicacionRequired')
+    return
+  }
   if (showDireccionField.value && !form.direccion.trim()) {
     errorMessage.value = t('organizaciones.addressRequired')
     return
@@ -351,6 +460,7 @@ async function save(): Promise<void> {
       departamento_id: form.departamento_id,
       departamento_nombre: form.departamento_nombre.trim() || null,
       departamento_ids: form.departamento_ids,
+      ciudad_ids: form.ciudad_ids,
       ciudad_id: form.ciudad_id,
       ciudad_nombre: form.ciudad_nombre.trim() || null,
       nombre: form.nombre.trim(),
@@ -461,7 +571,7 @@ async function save(): Promise<void> {
           <label>{{ t('organizaciones.departamentos') }}</label>
           <MultiSelect
             v-model="form.departamento_ids"
-            :options="departamentos.length ? departamentos : parentDepartamentos"
+            :options="form.tipo_organizacion_id === TIPO_DISTRITO && parentDepartamentos.length ? parentDepartamentos : (departamentos.length ? departamentos : parentDepartamentos)"
             option-label="label"
             option-value="id"
             display="chip"
@@ -469,9 +579,28 @@ async function save(): Promise<void> {
             fluid
             :placeholder="t('organizaciones.departamentosPlaceholder')"
           />
+          <small v-if="form.tipo_organizacion_id === TIPO_DISTRITO" class="hint">
+            {{ t('organizaciones.departamentosDistritoHint') }}
+          </small>
         </div>
 
-        <div v-if="showDistritoDepartamentoField" class="field">
+        <div v-if="showCiudadesMultiField" class="field">
+          <label>{{ t('organizaciones.ciudades') }}</label>
+          <MultiSelect
+            v-model="form.ciudad_ids"
+            :options="ciudades"
+            option-label="label"
+            option-value="id"
+            display="chip"
+            filter
+            fluid
+            :disabled="!form.departamento_ids.length"
+            :placeholder="t('organizaciones.ciudadesPlaceholder')"
+          />
+          <small class="hint">{{ t('organizaciones.ciudadesHint') }}</small>
+        </div>
+
+        <div v-if="showIglesiaDepartamentoField" class="field">
           <label>{{ t('organizaciones.departamento') }}</label>
           <Select
             v-model="form.departamento_id"
@@ -484,18 +613,23 @@ async function save(): Promise<void> {
           />
         </div>
 
-        <div v-if="showCiudadField" class="field">
+        <div v-if="showIglesiaCiudadField" class="field">
           <label>{{ t('organizaciones.ciudad') }}</label>
           <Select
             v-model="form.ciudad_id"
-            :options="ciudades"
+            :options="ciudadesIglesia"
             option-label="label"
             option-value="id"
             fluid
             filter
+            :disabled="!form.departamento_id && showIglesiaDepartamentoField"
             :placeholder="t('organizaciones.ciudadPlaceholder')"
           />
         </div>
+
+        <p v-if="showIglesiaUbicacionField && (!showIglesiaDepartamentoField || !showIglesiaCiudadField)" class="hint">
+          {{ t('organizaciones.locationHintIglesia') }}
+        </p>
 
         <div v-if="showDireccionField" class="field">
           <label>{{ t('organizaciones.address') }} <span class="req">*</span></label>

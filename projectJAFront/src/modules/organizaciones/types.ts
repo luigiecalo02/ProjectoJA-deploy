@@ -54,6 +54,8 @@ export interface Organizacion {
   telefono: string | null
   correo: string | null
   estado: boolean
+  estado_aprobacion?: 'pendiente' | 'aprobada' | 'rechazada'
+  revision_observacion?: string | null
   fecha_creacion?: string | null
   fecha_actualizacion?: string | null
   tipo?: { id: number; nombre: string } | null
@@ -62,6 +64,7 @@ export interface Organizacion {
   departamento?: UbicacionRef | null
   ciudad?: UbicacionRef | null
   departamentos?: DepartamentoOption[]
+  ciudades?: CiudadOption[]
   hijas?: OrganizacionParentRef[]
 }
 
@@ -73,6 +76,7 @@ export interface OrganizacionTreeNode {
   tipo_nombre?: string | null
   organizacion_padre_id: number | null
   estado: boolean
+  estado_aprobacion?: 'pendiente' | 'aprobada' | 'rechazada'
   pais_nombre?: string | null
   departamento_nombre?: string | null
   ciudad_nombre?: string | null
@@ -93,6 +97,7 @@ export interface OrganizacionParentOption {
   departamento_nombre?: string | null
   ciudad_nombre?: string | null
   departamentos?: DepartamentoOption[]
+  ciudades?: CiudadOption[]
 }
 
 export interface OrganizacionFormPayload {
@@ -105,6 +110,7 @@ export interface OrganizacionFormPayload {
   departamento_ids?: number[]
   departamento_nombres?: string[]
   ciudad_id?: number | null
+  ciudad_ids?: number[]
   ciudad_nombre?: string | null
   nombre: string
   direccion?: string | null

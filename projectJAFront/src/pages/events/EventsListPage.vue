@@ -15,6 +15,7 @@ import EventChildrenAccordion from '@/components/events/EventChildrenAccordion.v
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
 import { useAuthStore } from '@/stores/auth'
 import type { ClubEvent } from '@/modules/events/types'
 import type { PaginationMeta } from '@/types/api'
@@ -31,6 +32,21 @@ const router = useRouter()
 const toast = useToast()
 const { can } = usePermission()
 const auth = useAuthStore()
+
+usePageChrome(() => ({
+  title: t('events.title'),
+  subtitle: t('events.subtitle'),
+  actions: can('events.create')
+    ? [
+        {
+          key: 'new',
+          label: t('events.new'),
+          icon: 'pi pi-plus',
+          onClick: () => void router.push({ name: 'events.create' }),
+        },
+      ]
+    : [],
+}))
 
 const events = ref<ClubEvent[]>([])
 const loading = ref(false)

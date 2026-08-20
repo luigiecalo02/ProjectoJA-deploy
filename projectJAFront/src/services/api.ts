@@ -31,7 +31,15 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem(TOKEN_KEY)
       localStorage.removeItem('projectja_user')
-      if (!window.location.pathname.startsWith('/login')) {
+      const path = window.location.pathname
+      if (
+        !path.startsWith('/login')
+        && !path.startsWith('/registrar-club')
+        && !path.startsWith('/recuperar-contrasena')
+        && !path.startsWith('/restablecer-contrasena')
+        && !path.startsWith('/confirmar-cuenta')
+        && !path.startsWith('/auth/callback')
+      ) {
         window.location.assign('/login')
       }
     }
@@ -47,12 +55,13 @@ export function getApiErrorMessage(error: unknown, fallback = 'Error inesperado'
   const data = error.response?.data as ApiEnvelope | undefined
 
   if (data?.errors) {
-    const first = Object.values(data.errors)[0]
-    if (Array.isArray(first) && first[0]) {
-      return String(first[0])
-    }
-    if (typeof first === 'string') {
-      return first
+    const messages = Object.values(data.errors).flatMap((item) => {
+      if (Array.isArray(item)) return item.map((value) => String(value))
+      if (typeof item === 'string') return [item]
+      return []
+    }).filter(Boolean)
+    if (messages.length) {
+      return messages.join(' ')
     }
   }
 

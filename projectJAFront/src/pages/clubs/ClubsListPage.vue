@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import DataTable from 'primevue/datatable'
@@ -13,13 +13,32 @@ import AppSearchField from '@/components/AppSearchField.vue'
 import { clubsService } from '@/services/clubsService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
+import { clubPageScope } from '@/modules/clubs/pageScope'
 import type { Club } from '@/modules/clubs/types'
 import type { PaginationMeta } from '@/types/api'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const { can } = usePermission()
+const scope = computed(() => clubPageScope(route.name))
+
+usePageChrome(() => ({
+  title: scope.value.isMiClub ? t('miClub.title') : t('clubs.title'),
+  subtitle: scope.value.isMiClub ? t('miClub.listSubtitle') : t('clubs.subtitle'),
+  actions: can(scope.value.createPerm)
+    ? [
+        {
+          key: 'new',
+          label: t('clubs.new'),
+          icon: 'pi pi-plus',
+          onClick: () => void router.push({ name: scope.value.createRoute }),
+        },
+      ]
+    : [],
+}))
 
 const clubs = ref<Club[]>([])
 const loading = ref(false)
@@ -100,14 +119,14 @@ onMounted(() => void load())
   <section class="pj-page">
     <header class="pj-page__header">
       <div>
-        <h1 class="pj-page__title">{{ t('clubs.title') }}</h1>
-        <p class="pj-page__subtitle">{{ t('clubs.subtitle') }}</p>
+        <h1 class="pj-page__title">{{ scope.isMiClub ? t('miClub.title') : t('clubs.title') }}</h1>
+        <p class="pj-page__subtitle">{{ scope.isMiClub ? t('miClub.listSubtitle') : t('clubs.subtitle') }}</p>
       </div>
       <Button
-        v-if="can('clubs.create')"
+        v-if="can(scope.createPerm)"
         icon="pi pi-plus"
         :label="t('clubs.new')"
-        @click="router.push({ name: 'clubs.create' })"
+        @click="router.push({ name: scope.createRoute })"
       />
     </header>
 
@@ -160,14 +179,14 @@ onMounted(() => void load())
             <template #body="{ data }">
               <div class="actions">
                 <Button
-                  v-if="can('clubs.update')"
+                  v-if="can(scope.updatePerm)"
                   icon="pi pi-pencil"
                   text
                   rounded
-                  @click="router.push({ name: 'clubs.edit', params: { id: data.id } })"
+                  @click="router.push({ name: scope.editRoute, params: { id: data.id } })"
                 />
                 <Button
-                  v-if="can('clubs.delete')"
+                  v-if="can(scope.deletePerm)"
                   icon="pi pi-trash"
                   text
                   rounded

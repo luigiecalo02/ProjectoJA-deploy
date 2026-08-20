@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
@@ -11,11 +11,13 @@ import { useAuthStore } from '@/stores/auth'
 import { authService } from '@/services/authService'
 import { getApiErrorMessage } from '@/services/api'
 import { evaluatePasswordStrength } from '@/utils/passwordStrength'
-import { brandConfig } from '@/config/brand'
+import { useBrandStore } from '@/stores/brand'
+import { clubInscripcionService } from '@/services/clubInscripcionService'
 import type { ParticipantRegistrationField } from '@/modules/auth/types'
 
 const { t } = useI18n()
 const auth = useAuthStore()
+const brand = useBrandStore()
 const router = useRouter()
 const route = useRoute()
 const form = reactive({
@@ -26,6 +28,7 @@ const form = reactive({
 
 const loading = ref(false)
 const errorMessage = ref('')
+const clubFormEnabled = ref(true)
 const mode = ref<'login' | 'register'>('login')
 const registrationStep = ref<'identify' | 'otp' | 'complete'>('identify')
 const challengeId = ref('')
@@ -52,6 +55,15 @@ const registrationTitle = computed(() => {
   return t('auth.registrationCompleteTitle')
 })
 
+onMounted(async () => {
+  try {
+    const options = await clubInscripcionService.options()
+    clubFormEnabled.value = options.enabled
+  } catch {
+    clubFormEnabled.value = true
+  }
+})
+
 async function submit(): Promise<void> {
   errorMessage.value = ''
   loading.value = true
@@ -68,10 +80,6 @@ async function submit(): Promise<void> {
   } finally {
     loading.value = false
   }
-}
-
-function oauth(provider: 'google' | 'facebook'): void {
-  window.location.href = authService.oauthRedirectUrl(provider)
 }
 
 function switchMode(nextMode: 'login' | 'register'): void {
@@ -157,11 +165,14 @@ async function completeRegistration(): Promise<void> {
     @submit.prevent="submit"
   >
     <header class="login-form__header">
-      <img class="login-form__logos" :src="brandConfig.logos" :alt="t('auth.clubsAlt')" />
+      <img class="login-form__logos" :src="brand.loginLogos" :alt="t('auth.clubsAlt')" />
       <h1>{{ t('auth.welcomeBack') }}</h1>
       <p>{{ t('auth.loginSubtitle') }}</p>
     </header>
 
+    <Message v-if="route.query.reset === '1'" severity="success" :closable="false">
+      {{ t('auth.resetSuccess') }}
+    </Message>
     <Message v-if="errorMessage" severity="error" :closable="false">
       {{ errorMessage }}
     </Message>
@@ -205,7 +216,9 @@ async function completeRegistration(): Promise<void> {
         <Checkbox v-model="form.remember" binary input-id="remember" />
         <span>{{ t('auth.remember') }}</span>
       </label>
-      <span class="forgot">{{ t('auth.forgot') }}</span>
+      <button type="button" class="forgot" @click="router.push({ name: 'auth.forgot' })">
+        {{ t('auth.forgot') }}
+      </button>
     </div>
 
     <Button
@@ -229,23 +242,31 @@ async function completeRegistration(): Promise<void> {
         class="oauth-btn"
         icon="pi pi-google"
         :label="t('auth.googleContinue')"
-        @click="oauth('google')"
       />
       <Button
         type="button"
         class="oauth-btn oauth-btn--facebook"
         icon="pi pi-facebook"
         :label="t('auth.facebookContinue')"
-        @click="oauth('facebook')"
       />
     </div>
 
-    <Button
-      type="button"
-      text
-      :label="t('auth.registrationOpen')"
-      @click="switchMode('register')"
-    />
+    <div class="login-alt-actions">
+      <Button
+        type="button"
+        text
+        :label="t('auth.registrationOpen')"
+        @click="switchMode('register')"
+      />
+      <Button
+        v-if="clubFormEnabled"
+        type="button"
+        outlined
+        icon="pi pi-flag"
+        :label="t('auth.registerClub')"
+        @click="router.push({ name: 'club.inscripcion' })"
+      />
+    </div>
   </form>
 
   <form
@@ -260,7 +281,7 @@ async function completeRegistration(): Promise<void> {
     "
   >
     <header class="login-form__header">
-      <img class="login-form__logos" :src="brandConfig.logos" :alt="t('auth.clubsAlt')" />
+      <img class="login-form__logos" :src="brand.loginLogos" :alt="t('auth.clubsAlt')" />
       <h1>{{ registrationTitle }}</h1>
       <p>{{ t(`auth.registrationStep${registrationStep}`) }}</p>
     </header>
@@ -379,12 +400,22 @@ async function completeRegistration(): Promise<void> {
       :loading="loading"
       class="login-form__submit"
     />
-    <Button
-      type="button"
-      text
-      :label="t('auth.registrationBackToLogin')"
-      @click="switchMode('login')"
-    />
+    <div class="login-alt-actions">
+      <Button
+        type="button"
+        text
+        :label="t('auth.registrationBackToLogin')"
+        @click="switchMode('login')"
+      />
+      <Button
+        v-if="clubFormEnabled"
+        type="button"
+        outlined
+        icon="pi pi-flag"
+        :label="t('auth.registerClub')"
+        @click="router.push({ name: 'club.inscripcion' })"
+      />
+    </div>
   </form>
 </template>
 
@@ -464,6 +495,11 @@ async function completeRegistration(): Promise<void> {
 .forgot {
   color: var(--pj-navy);
   opacity: 0.85;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
 }
 
 .login-form__submit {
@@ -489,6 +525,16 @@ async function completeRegistration(): Promise<void> {
   content: '';
   height: 1px;
   background: #e2e8f0;
+}
+
+.login-alt-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.login-alt-actions :deep(.p-button) {
+  justify-content: center;
 }
 
 .oauth-row {

@@ -12,12 +12,28 @@ import PageLoader from '@/components/PageLoader.vue'
 import { rolesService } from '@/services/rolesService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
 import type { ManagedRole } from '@/modules/roles/types'
 
 const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
 const { can } = usePermission()
+
+usePageChrome(() => ({
+  title: t('roles.title'),
+  subtitle: t('roles.subtitle'),
+  actions: can('roles.create')
+    ? [
+        {
+          key: 'new',
+          label: t('roles.new'),
+          icon: 'pi pi-plus',
+          onClick: () => void router.push({ name: 'roles.create' }),
+        },
+      ]
+    : [],
+}))
 
 const roles = ref<ManagedRole[]>([])
 const loading = ref(false)

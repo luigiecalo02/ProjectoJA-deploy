@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { useThemeStore } from '@/stores/theme'
 import Button from 'primevue/button'
 import { brandConfig } from '@/config/brand'
@@ -8,11 +9,15 @@ import { toCssImageUrl } from '@/modules/settings/assetUrl'
 import { loginHeroFitVars } from '@/modules/settings/loginHeroFit'
 import { useBrandStore } from '@/stores/brand'
 import PwaInstallButton from '@/components/pwa/PwaInstallButton.vue'
+import { extractProminentColor, toCanvasSafeUrl } from '@/utils/dominantColor'
 
 const { t } = useI18n()
+const route = useRoute()
 const theme = useThemeStore()
 const brand = useBrandStore()
 const heroBroken = ref(false)
+const heroImg = ref<HTMLImageElement | null>(null)
+const panelBg = ref<string | null>(null)
 const isDesktop = ref(window.matchMedia('(min-width: 960px)').matches)
 let media: MediaQueryList | null = null
 
@@ -24,6 +29,9 @@ onMounted(() => {
   media = window.matchMedia('(min-width: 960px)')
   syncViewport()
   media.addEventListener('change', syncViewport)
+  if (heroImg.value?.complete) {
+    syncPanelColor()
+  }
 })
 
 onBeforeUnmount(() => {
@@ -32,32 +40,53 @@ onBeforeUnmount(() => {
 
 watch(() => brand.loginHero, () => {
   heroBroken.value = false
+  panelBg.value = null
 })
 
 const heroUrl = computed(() => (heroBroken.value ? brandConfig.loginHero : brand.loginHero))
-const heroCss = computed(() => toCssImageUrl(heroUrl.value))
+const heroSafeUrl = computed(() => toCanvasSafeUrl(heroUrl.value))
+const heroCss = computed(() => toCssImageUrl(heroSafeUrl.value))
 const heroCopy = computed(() =>
   isDesktop.value ? brand.loginHeroCopy.desktop : brand.loginHeroCopy.mobile,
 )
 const heroStyle = computed(() => ({
   backgroundImage: heroCss.value,
+  backgroundColor: panelBg.value || undefined,
   ...loginHeroFitVars(heroCopy.value.fit),
 }))
+const shellStyle = computed(() => ({
+  '--login-panel-bg': panelBg.value || 'var(--pj-bg)',
+}))
+const panelStyle = computed(() => ({
+  '--pj-pattern': brand.patternCss,
+}))
+
+function syncPanelColor(): void {
+  const image = heroImg.value
+  if (!image || !image.naturalWidth) return
+  panelBg.value = extractProminentColor(image)
+}
 </script>
 
 <template>
-  <div class="login-shell">
+  <div
+    class="login-shell"
+    :class="{ 'login-shell--wide': route.meta.wide }"
+    :style="shellStyle"
+  >
     <section
       class="login-hero"
       aria-label="ProjectJA"
       :style="heroStyle"
     >
       <img
+        ref="heroImg"
         class="login-hero__image"
-        :key="heroUrl"
-        :src="heroUrl"
+        :key="heroSafeUrl"
+        :src="heroSafeUrl"
         alt=""
         decoding="async"
+        @load="syncPanelColor"
         @error="heroBroken = true"
       />
       <div class="login-hero__overlay" />
@@ -122,7 +151,7 @@ const heroStyle = computed(() => ({
 
     <section
       class="login-panel"
-      :style="{ '--pj-pattern': brand.patternCss }"
+      :style="panelStyle"
     >
       <Button
         class="login-panel__theme"
@@ -132,7 +161,7 @@ const heroStyle = computed(() => ({
         :aria-label="theme.isDark ? t('nav.themeLight') : t('nav.themeDark')"
         @click="theme.toggle()"
       />
-      <div class="login-panel__card">
+      <div class="login-panel__card" :class="{ 'login-panel__card--wide': route.meta.wide }">
         <RouterView />
       </div>
       <PwaInstallButton class="login-panel__pwa" />
@@ -145,7 +174,7 @@ const heroStyle = computed(() => ({
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1fr;
-  background: #f4f6f9;
+  background: var(--login-panel-bg, var(--pj-bg));
 }
 
 .login-hero {
@@ -264,7 +293,7 @@ const heroStyle = computed(() => ({
 .login-hero__wave {
   position: absolute;
   z-index: 3;
-  color: #f4f6f9;
+  color: var(--login-panel-bg, var(--pj-bg));
   pointer-events: none;
 }
 
@@ -307,7 +336,7 @@ const heroStyle = computed(() => ({
   gap: 0.85rem;
   padding: 1.25rem max(1.25rem, env(safe-area-inset-right, 0px))
     max(1.25rem, env(safe-area-inset-bottom, 0px)) max(1.25rem, env(safe-area-inset-left, 0px));
-  background-color: #f4f6f9;
+  background-color: var(--login-panel-bg, var(--pj-bg));
   background-image: var(--pj-pattern);
   background-repeat: repeat;
   background-size: 420px auto;
@@ -318,7 +347,7 @@ const heroStyle = computed(() => ({
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
-  color: var(--pj-navy) !important;
+  color: var(--pj-text) !important;
 }
 
 .login-panel__pwa {
@@ -327,15 +356,28 @@ const heroStyle = computed(() => ({
 
 .login-panel__card {
   width: min(100%, 420px);
-  background: #fff;
+  background: var(--pj-bg-elevated);
+  color: var(--pj-text);
   border-radius: 1.25rem;
   box-shadow: 0 18px 50px rgba(11, 31, 74, 0.12);
   padding: 1.5rem 1.25rem 1.35rem;
 }
 
+.login-panel__card--wide {
+  width: min(100%, 720px);
+}
+
+.login-shell--wide .login-panel__pwa {
+  width: min(100%, 720px);
+}
+
 @media (min-width: 960px) {
   .login-shell {
     grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+  }
+
+  .login-shell--wide {
+    grid-template-columns: minmax(0, 0.85fr) minmax(560px, 1.15fr);
   }
 
   .login-hero {

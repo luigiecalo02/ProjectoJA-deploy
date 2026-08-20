@@ -25,6 +25,7 @@ import MediaCoverUpload from '@/components/media/MediaCoverUpload.vue'
 import { clubsService } from '@/services/clubsService'
 import { organizacionesService } from '@/services/organizacionesService'
 import { getApiErrorMessage } from '@/services/api'
+import { usePageChrome } from '@/composables/usePageChrome'
 import type { OrganizacionTreeNode, TipoOrganizacion } from '@/modules/organizaciones/types'
 import {
   TIPO_AVENTUREROS,
@@ -225,6 +226,30 @@ const pageTitle = computed(() =>
   isEditMode.value ? t('events.edit') : t('events.wizard.createTitle'),
 )
 const pageSubtitle = computed(() => t('events.wizard.createSubtitle'))
+
+usePageChrome(() => ({
+  title: pageTitle.value,
+  subtitle: pageSubtitle.value,
+  backTo: { name: 'events' },
+  actions: [
+    {
+      key: 'draft',
+      label: t('events.wizard.saveDraft'),
+      outlined: true,
+      loading: saving.value || uploading.value,
+      disabled: loading.value,
+      onClick: () => void saveDraft(),
+    },
+    {
+      key: 'publish',
+      label: t('events.wizard.publish'),
+      icon: 'pi pi-send',
+      loading: saving.value || uploading.value,
+      disabled: loading.value,
+      onClick: () => void publishEvent(),
+    },
+  ],
+}))
 const imagePreview = computed(() => pendingPreview.value || form.image_url)
 const bannerPreview = computed(() => pendingBannerPreview.value)
 const descCount = computed(() => form.descripcion.length)

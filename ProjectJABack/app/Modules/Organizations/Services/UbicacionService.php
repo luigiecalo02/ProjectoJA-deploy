@@ -32,14 +32,19 @@ final class UbicacionService
     }
 
     /**
+     * @param  list<int>|null  $departamentoIds
      * @return list<Ciudad>
      */
-    public function ciudades(?int $departamentoId = null): array
+    public function ciudades(?int $departamentoId = null, ?array $departamentoIds = null): array
     {
         $query = Ciudad::query()->with('departamento:id,nombre,pais_id')->orderBy('nombre');
-
+        $ids = is_array($departamentoIds) ? $departamentoIds : [];
         if ($departamentoId) {
-            $query->where('departamento_id', $departamentoId);
+            $ids[] = $departamentoId;
+        }
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if ($ids !== []) {
+            $query->whereIn('departamento_id', $ids);
         }
 
         return $query->get()->all();

@@ -14,7 +14,8 @@ final class PersonaPolicy
     {
         return $actor->hasPermission('personas.view')
             || $actor->hasPermission('integrantes.view')
-            || $actor->hasPermission('clubs.view');
+            || $actor->hasPermission('clubs.view')
+            || $actor->hasPermission('mi_club.view');
     }
 
     public function view(User $actor, Persona $persona): bool
@@ -23,6 +24,7 @@ final class PersonaPolicy
             $actor->hasPermission('personas.view')
             || $actor->hasPermission('integrantes.view')
             || $actor->hasPermission('clubs.view')
+            || $actor->hasPermission('mi_club.view')
         )) {
             return false;
         }
@@ -35,7 +37,9 @@ final class PersonaPolicy
         return $actor->hasPermission('personas.create')
             || $actor->hasPermission('integrantes.create')
             || $actor->hasPermission('clubs.manage_members')
-            || $actor->hasPermission('clubs.create');
+            || $actor->hasPermission('mi_club.manage_members')
+            || $actor->hasPermission('clubs.create')
+            || $actor->hasPermission('mi_club.create');
     }
 
     public function update(User $actor, Persona $persona): bool
@@ -44,6 +48,7 @@ final class PersonaPolicy
             $actor->hasPermission('personas.update')
             || $actor->hasPermission('integrantes.update')
             || $actor->hasPermission('clubs.manage_members')
+            || $actor->hasPermission('mi_club.manage_members')
         )) {
             return false;
         }

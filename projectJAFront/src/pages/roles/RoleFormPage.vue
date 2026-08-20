@@ -13,6 +13,7 @@ import PageLoader from '@/components/PageLoader.vue'
 import { rolesService } from '@/services/rolesService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
 import type { RolePage } from '@/modules/roles/types'
 import { primeIconOptions } from '@/utils/primeIcons'
 
@@ -139,6 +140,23 @@ async function submit(): Promise<void> {
     saving.value = false
   }
 }
+
+usePageChrome(() => ({
+  title: isEdit.value ? t('roles.edit') : t('roles.new'),
+  subtitle: t('roles.formHint'),
+  backTo: { name: 'roles' },
+  actions: canSubmit.value
+    ? [
+        {
+          key: 'save',
+          label: t('common.save'),
+          icon: 'pi pi-save',
+          loading: saving.value,
+          onClick: () => void submit(),
+        },
+      ]
+    : [],
+}))
 
 onMounted(() => {
   void load()

@@ -19,6 +19,9 @@ const emit = defineEmits<{
   edit: [id: number]
   add: [node: OrganizacionTreeNode]
   remove: [node: OrganizacionTreeNode]
+  approve: [node: OrganizacionTreeNode]
+  reject: [node: OrganizacionTreeNode]
+  relocate: [node: OrganizacionTreeNode]
 }>()
 
 const { t } = useI18n()
@@ -69,6 +72,12 @@ function isExpanded(id: number): boolean {
           <span class="org-ltn__name">{{ node.nombre }}</span>
           <Tag v-if="node.tipo_nombre" :value="node.tipo_nombre" severity="info" class="org-ltn__tag" />
           <Tag
+            v-if="node.estado_aprobacion && node.estado_aprobacion !== 'aprobada'"
+            :value="t(`organizaciones.aprobacion.${node.estado_aprobacion}`)"
+            :severity="node.estado_aprobacion === 'pendiente' ? 'warn' : 'danger'"
+            class="org-ltn__tag"
+          />
+          <Tag
             :value="node.estado ? t('common.active') : t('common.inactive')"
             :severity="node.estado ? 'success' : 'secondary'"
             class="org-ltn__tag"
@@ -90,6 +99,35 @@ function isExpanded(id: number): boolean {
           severity="success"
           v-tooltip.top="t('organizaciones.addChild')"
           @click="emit('add', node)"
+        />
+        <Button
+          v-if="canEdit && node.estado_aprobacion === 'pendiente'"
+          icon="pi pi-check"
+          text
+          rounded
+          size="small"
+          severity="success"
+          v-tooltip.top="t('organizaciones.approve')"
+          @click="emit('approve', node)"
+        />
+        <Button
+          v-if="canEdit && node.estado_aprobacion === 'pendiente'"
+          icon="pi pi-directions"
+          text
+          rounded
+          size="small"
+          v-tooltip.top="t('organizaciones.relocate')"
+          @click="emit('relocate', node)"
+        />
+        <Button
+          v-if="canEdit && node.estado_aprobacion === 'pendiente'"
+          icon="pi pi-times"
+          text
+          rounded
+          size="small"
+          severity="danger"
+          v-tooltip.top="t('organizaciones.reject')"
+          @click="emit('reject', node)"
         />
         <Button
           v-if="canEdit"
@@ -123,6 +161,9 @@ function isExpanded(id: number): boolean {
         @edit="emit('edit', $event)"
         @add="emit('add', $event)"
         @remove="emit('remove', $event)"
+        @approve="emit('approve', $event)"
+        @reject="emit('reject', $event)"
+        @relocate="emit('relocate', $event)"
       />
     </ul>
   </li>

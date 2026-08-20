@@ -20,7 +20,7 @@ interface BrandSlot {
   titleKey: string
   hintKey: string
   placementKey: string
-  preview: 'cover' | 'tile'
+  preview: 'cover' | 'contain' | 'tile'
 }
 
 const { t } = useI18n()
@@ -38,6 +38,13 @@ const localPreviews = ref<Partial<Record<BrandAssetKey, string>>>({})
 const canUpdate = computed(() => can('settings.update'))
 
 const slots: BrandSlot[] = [
+  {
+    key: 'login_logos',
+    titleKey: 'settings.loginLogos',
+    hintKey: 'settings.loginLogosHint',
+    placementKey: 'settings.loginLogosPlacement',
+    preview: 'contain',
+  },
   {
     key: 'login_hero',
     titleKey: 'settings.loginHero',
@@ -65,12 +72,14 @@ function previewUrl(slot: BrandSlot): string {
   if (localPreviews.value[slot.key]) {
     return localPreviews.value[slot.key] as string
   }
+  if (slot.key === 'login_logos') return brand.loginLogos
   if (slot.key === 'login_hero') return brand.loginHero
   if (slot.key === 'pattern_light') return brand.patternLight
   return brand.patternDark
 }
 
 function isCustom(slot: BrandSlot): boolean {
+  if (slot.key === 'login_logos') return Boolean(brand.settings.login_logos_url)
   if (slot.key === 'login_hero') return Boolean(brand.settings.login_hero_url)
   if (slot.key === 'pattern_light') return Boolean(brand.settings.pattern_light_url)
   return Boolean(brand.settings.pattern_dark_url)
@@ -182,14 +191,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="pj-page">
-    <header class="pj-page__header">
-      <div>
-        <h1 class="pj-page__title">{{ t('settings.title') }}</h1>
-        <p class="pj-page__subtitle">{{ t('settings.subtitle') }}</p>
-      </div>
-    </header>
-
+  <section class="brand-embed">
     <PageLoader v-if="loading" :label="t('common.loading')" />
 
     <div v-else class="brand-settings">
@@ -207,11 +209,13 @@ onBeforeUnmount(() => {
               :style="
                 slot.preview === 'tile'
                   ? { backgroundImage: toCssImageUrl(previewUrl(slot)) }
-                  : loginHeroFitVars(brand.loginHeroFit)
+                  : slot.preview === 'cover'
+                    ? loginHeroFitVars(brand.loginHeroFit)
+                    : undefined
               "
             >
               <img
-                v-if="slot.preview === 'cover'"
+                v-if="slot.preview === 'cover' || slot.preview === 'contain'"
                 :src="previewUrl(slot)"
                 :alt="t(slot.titleKey)"
               />
@@ -339,6 +343,20 @@ onBeforeUnmount(() => {
   object-position: var(--hero-x, 50%) var(--hero-y, 50%);
   transform: scale(var(--hero-zoom, 1));
   transform-origin: var(--hero-x, 50%) var(--hero-y, 50%);
+  display: block;
+}
+
+.brand-card__preview--contain {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+}
+
+.brand-card__preview--contain img {
+  max-width: 78%;
+  max-height: 78%;
+  object-fit: contain;
   display: block;
 }
 

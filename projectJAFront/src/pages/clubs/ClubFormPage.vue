@@ -12,12 +12,20 @@ import DatePicker from 'primevue/datepicker'
 import Message from 'primevue/message'
 import MediaProfileUpload from '@/components/media/MediaProfileUpload.vue'
 import Tag from 'primevue/tag'
+import Tabs from 'primevue/tabs'
+import TabList from 'primevue/tablist'
+import Tab from 'primevue/tab'
+import TabPanels from 'primevue/tabpanels'
+import TabPanel from 'primevue/tabpanel'
 import PageLoader from '@/components/PageLoader.vue'
 import ClubBoardPanel from '@/components/clubs/ClubBoardPanel.vue'
 import ClubMembersPanel from '@/components/clubs/ClubMembersPanel.vue'
 import { clubsService } from '@/services/clubsService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
+import { useAuthStore } from '@/stores/auth'
+import { clubPageScope } from '@/modules/clubs/pageScope'
 import type {
   Club,
   ClubDirector,
@@ -30,9 +38,43 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const { can } = usePermission()
+const auth = useAuthStore()
+const scope = computed(() => clubPageScope(route.name))
+const resolvedClubId = ref<number | null>(null)
 
-const isEdit = computed(() => route.name === 'clubs.edit')
-const clubId = computed(() => Number(route.params.id))
+const isSessionClub = computed(() => scope.value.isSessionClub && Boolean(auth.contexto?.is_club))
+const isEdit = computed(
+  () => route.name === 'clubs.edit' || route.name === 'mi-club.edit' || isSessionClub.value,
+)
+const clubId = computed(() => {
+  if (resolvedClubId.value) return resolvedClubId.value
+  if (isSessionClub.value && auth.contexto?.club_id) return Number(auth.contexto.club_id)
+  return Number(route.params.id) || 0
+})
+const canEditBoard = computed(
+  () =>
+    can(scope.value.updatePerm) ||
+    can(scope.value.directorsPerm) ||
+    can('clubs.update') ||
+    can('clubs.manage_directors'),
+)
+const pageTitle = computed(() => {
+  if (isSessionClub.value) return t('miClub.title')
+  return isEdit.value ? t('clubs.edit') : t('clubs.new')
+})
+const pageSubtitle = computed(() =>
+  isSessionClub.value ? t('miClub.subtitle') : t('clubs.formHint'),
+)
+const lockIdentity = computed(() => scope.value.isMiClub && isEdit.value)
+const iglesiaReadOnly = computed(() => lockIdentity.value || iglesiaLocked.value)
+const selectedTipoLabel = computed(
+  () => ministryOptions.value.find((opt) => opt.value === form.tipo)?.label || '—',
+)
+
+function goList(): void {
+  if (isSessionClub.value) return
+  void router.push({ name: scope.value.listRoute })
+}
 
 const loading = ref(false)
 const saving = ref(false)
@@ -167,6 +209,16 @@ async function loadOrganizaciones(): Promise<void> {
 }
 
 async function loadClub(): Promise<void> {
+  if (isSessionClub.value) {
+    const club = auth.contexto?.club_id
+      ? await clubsService.get(auth.contexto.club_id)
+      : await clubsService.current()
+    resolvedClubId.value = club.id
+    applyClub(club)
+    ensureCurrentIglesiaInOptions(club)
+    syncLocationFromIglesia()
+    return
+  }
   if (!isEdit.value) return
   const club = await clubsService.get(clubId.value)
   applyClub(club)
@@ -261,7 +313,7 @@ async function submit(): Promise<void> {
     })
 
     if (!isEdit.value) {
-      await router.replace({ name: 'clubs.edit', params: { id } })
+      await router.replace({ name: scope.value.editRoute, params: { id } })
     }
   } catch (error) {
     errorMessage.value = getApiErrorMessage(error)
@@ -269,6 +321,21 @@ async function submit(): Promise<void> {
     saving.value = false
   }
 }
+
+usePageChrome(() => ({
+  title: pageTitle.value,
+  subtitle: pageSubtitle.value,
+  backTo: isSessionClub.value ? null : { name: scope.value.listRoute },
+  actions: [
+    {
+      key: 'save',
+      label: t('common.save'),
+      icon: 'pi pi-save',
+      loading: saving.value,
+      onClick: () => void submit(),
+    },
+  ],
+}))
 
 function onBoardUpdated(club: Club): void {
   applyClub(club)
@@ -279,7 +346,7 @@ onMounted(async () => {
   try {
     await Promise.all([loadOrganizaciones(), loadClub()])
   } catch (error) {
-    errorMessage.value = getApiErrorMessage(error)
+    errorMessage.value = isSessionClub.value ? t('miClub.missing') : getApiErrorMessage(error)
   } finally {
     loading.value = false
   }
@@ -290,12 +357,14 @@ onMounted(async () => {
   <section class="pj-page club-edit">
     <header class="club-edit__header">
       <div>
-        <p class="breadcrumb">{{ t('nav.clubs') }} › {{ isEdit ? t('clubs.edit') : t('clubs.new') }}</p>
-        <h1 class="pj-page__title">{{ isEdit ? t('clubs.edit') : t('clubs.new') }}</h1>
-        <p class="pj-page__subtitle">{{ t('clubs.formHint') }}</p>
+        <p class="breadcrumb">
+          {{ isSessionClub ? t('nav.miClub') : t('nav.clubs') }} › {{ pageTitle }}
+        </p>
+        <h1 class="pj-page__title">{{ pageTitle }}</h1>
+        <p class="pj-page__subtitle">{{ pageSubtitle }}</p>
       </div>
-      <div class="header-actions">
-        <Button :label="t('common.back')" icon="pi pi-arrow-left" text @click="router.push({ name: 'clubs' })" />
+      <div v-if="!isSessionClub" class="header-actions">
+        <Button :label="t('common.back')" icon="pi pi-arrow-left" text @click="goList" />
       </div>
     </header>
 
@@ -321,9 +390,11 @@ onMounted(async () => {
           <div class="fields-col">
             <div class="field">
               <label for="organizacion_id">{{ t('clubs.organizacion') }}</label>
-              <template v-if="iglesiaLocked && selectedIglesia">
+              <template v-if="iglesiaReadOnly && selectedIglesia">
                 <p class="info-label">{{ selectedIglesia.nombre }}</p>
-                <small class="pj-muted">{{ t('clubs.iglesiaAutoSelected') }}</small>
+                <small class="pj-muted">{{
+                  lockIdentity ? t('miClub.iglesiaLocked') : t('clubs.iglesiaAutoSelected')
+                }}</small>
               </template>
               <Select
                 v-else
@@ -393,13 +464,19 @@ onMounted(async () => {
             </div>
             <div class="field">
               <label>{{ t('clubs.types') }}</label>
-              <div class="types-row">
-                <label v-for="opt in ministryOptions" :key="opt.value" class="type-radio">
-                  <RadioButton v-model="form.tipo" :input-id="`tipo-${opt.value}`" :value="opt.value" />
-                  <span>{{ opt.label }}</span>
-                </label>
-              </div>
-              <small class="pj-muted">{{ t('clubs.typesHint') }}</small>
+              <template v-if="lockIdentity">
+                <p class="info-label">{{ selectedTipoLabel }}</p>
+                <small class="pj-muted">{{ t('miClub.tipoLocked') }}</small>
+              </template>
+              <template v-else>
+                <div class="types-row">
+                  <label v-for="opt in ministryOptions" :key="opt.value" class="type-radio">
+                    <RadioButton v-model="form.tipo" :input-id="`tipo-${opt.value}`" :value="opt.value" />
+                    <span>{{ opt.label }}</span>
+                  </label>
+                </div>
+                <small class="pj-muted">{{ t('clubs.typesHint') }}</small>
+              </template>
             </div>
           </div>
 
@@ -416,38 +493,27 @@ onMounted(async () => {
         </div>
       </section>
 
-      <template v-if="isEdit">
-        <div class="club-tabs">
-          <Button
-            type="button"
-            :label="t('clubs.tabBoard')"
-            icon="pi pi-id-card"
-            :outlined="activeTab !== 'board'"
-            size="small"
-            @click="activeTab = 'board'"
-          />
-          <Button
-            type="button"
-            :label="t('clubs.tabMembers')"
-            icon="pi pi-users"
-            :outlined="activeTab !== 'members'"
-            size="small"
-            @click="activeTab = 'members'"
-          />
-          <Tag
-            v-if="clubPersonas.length"
-            severity="info"
-            :value="String(clubPersonas.length)"
-            class="club-tabs__count"
-          />
-        </div>
-
-        <section
-          v-show="activeTab === 'board'"
-          v-if="can('clubs.update') || can('clubs.manage_directors')"
-          class="club-card club-card--board"
-        >
-        <ClubBoardPanel :club-id="clubId" @updated="onBoardUpdated">
+      <Tabs v-if="isEdit" v-model:value="activeTab" class="club-tabs">
+        <TabList>
+          <Tab value="board">
+            <i class="pi pi-id-card" />
+            <span>{{ t('clubs.tabBoard') }}</span>
+          </Tab>
+          <Tab value="members">
+            <i class="pi pi-users" />
+            <span>{{ t('clubs.tabMembers') }}</span>
+            <Tag
+              v-if="clubPersonas.length"
+              severity="info"
+              :value="String(clubPersonas.length)"
+              class="club-tabs__count"
+            />
+          </Tab>
+        </TabList>
+        <TabPanels>
+          <TabPanel value="board">
+            <section v-if="canEditBoard" class="club-card club-card--board">
+        <ClubBoardPanel :club-id="clubId" :lock-director="lockIdentity" @updated="onBoardUpdated">
           <template #info>
             <div class="hero-form">
               <div class="hero-form__logo">
@@ -464,9 +530,11 @@ onMounted(async () => {
               <div class="hero-form__fields">
                 <div class="field">
                   <label for="organizacion_id_edit">{{ t('clubs.organizacion') }}</label>
-                  <template v-if="iglesiaLocked && selectedIglesia">
+                  <template v-if="iglesiaReadOnly && selectedIglesia">
                     <p class="info-label">{{ selectedIglesia.nombre }}</p>
-                    <small class="pj-muted">{{ t('clubs.iglesiaAutoSelected') }}</small>
+                    <small class="pj-muted">{{
+                      lockIdentity ? t('miClub.iglesiaLocked') : t('clubs.iglesiaAutoSelected')
+                    }}</small>
                   </template>
                   <Select
                     v-else
@@ -498,7 +566,11 @@ onMounted(async () => {
                 <small class="pj-muted location-hint">{{ t('clubs.locationFromIglesiaHint') }}</small>
                 <div class="field">
                   <label>{{ t('clubs.types') }}</label>
-                  <div class="types-row">
+                  <template v-if="lockIdentity">
+                    <p class="info-label">{{ selectedTipoLabel }}</p>
+                    <small class="pj-muted">{{ t('miClub.tipoLocked') }}</small>
+                  </template>
+                  <div v-else class="types-row">
                     <label v-for="opt in ministryOptions" :key="opt.value" class="type-radio">
                       <RadioButton v-model="form.tipo" :input-id="`tipo-edit-${opt.value}`" :value="opt.value" />
                       <span>{{ opt.label }}</span>
@@ -506,7 +578,7 @@ onMounted(async () => {
                   </div>
                 </div>
                 <div class="hero-form__actions">
-                  <Button type="button" :label="t('common.cancel')" text @click="router.push({ name: 'clubs' })" />
+                  <Button v-if="!isSessionClub" type="button" :label="t('common.cancel')" text @click="goList" />
                   <Button type="submit" :label="t('common.save')" :loading="saving" />
                 </div>
               </div>
@@ -536,21 +608,23 @@ onMounted(async () => {
             </div>
           </template>
         </ClubBoardPanel>
-        </section>
-
-        <ClubMembersPanel
-          v-show="activeTab === 'members'"
-          v-model:persona-ids="form.persona_ids"
-          v-model:personas="clubPersonas"
-          :club-id="clubId"
-          :club-organizacion-id="clubOrganizacionId"
-          :iglesia-organizacion-id="form.organizacion_id"
-          @refreshed="refreshClub"
-        />
-      </template>
+            </section>
+          </TabPanel>
+          <TabPanel value="members">
+            <ClubMembersPanel
+              v-model:persona-ids="form.persona_ids"
+              v-model:personas="clubPersonas"
+              :club-id="clubId"
+              :club-organizacion-id="clubOrganizacionId"
+              :iglesia-organizacion-id="form.organizacion_id"
+              @refreshed="refreshClub"
+            />
+          </TabPanel>
+        </TabPanels>
+      </Tabs>
 
       <div v-if="!isEdit || activeTab === 'members'" class="form-actions">
-        <Button type="button" :label="t('common.cancel')" text @click="router.push({ name: 'clubs' })" />
+        <Button v-if="!isSessionClub" type="button" :label="t('common.cancel')" text @click="goList" />
         <Button type="submit" :label="t('common.save')" :loading="saving" />
       </div>
     </form>
@@ -585,14 +659,35 @@ onMounted(async () => {
 }
 
 .club-tabs {
-  display: flex;
-  flex-wrap: wrap;
+  background: color-mix(in srgb, var(--pj-bg-elevated) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pj-border) 65%, transparent);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.club-tabs :deep(.p-tablist-tab-list) {
+  gap: 0;
+  padding: 0 0.5rem;
+  background: color-mix(in srgb, var(--pj-bg-muted) 55%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--pj-border) 60%, transparent);
+}
+
+.club-tabs :deep(.p-tab) {
+  display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  padding: 0.85rem 1rem;
+  font-weight: 600;
+}
+
+.club-tabs :deep(.p-tabpanels),
+.club-tabs :deep(.p-tabpanel) {
+  padding: 0;
+  background: transparent;
 }
 
 .club-tabs__count {
-  margin-left: 0.15rem;
+  margin-left: 0.1rem;
 }
 
 .club-card {

@@ -3,6 +3,7 @@
 namespace App\Modules\Organizations\Services;
 
 use App\Models\User;
+use App\Modules\Organizations\Models\Ciudad;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\TipoOrganizacion;
 use App\Modules\Shared\Services\AuditLogger;
@@ -32,6 +33,7 @@ final class OrganizacionService
                 'departamento:id,nombre',
                 'ciudad:id,nombre',
                 'departamentos:id,nombre,pais_id',
+                'ciudades:id,nombre,departamento_id',
             ]);
 
         if ($actor && $this->orgAccess->shouldScopeByOrganization($actor)) {
@@ -61,6 +63,10 @@ final class OrganizacionService
             $query->where('tipo_organizacion_id', (int) $filters['tipo_organizacion_id']);
         }
 
+        if (! empty($filters['estado_aprobacion'])) {
+            $query->where('estado_aprobacion', (string) $filters['estado_aprobacion']);
+        }
+
         if (array_key_exists('organizacion_padre_id', $filters) && $filters['organizacion_padre_id'] !== null && $filters['organizacion_padre_id'] !== '') {
             if ($filters['organizacion_padre_id'] === 'null' || $filters['organizacion_padre_id'] === 'root') {
                 $query->whereNull('organizacion_padre_id');
@@ -83,6 +89,7 @@ final class OrganizacionService
                 'departamento:id,nombre,pais_id',
                 'ciudad:id,nombre,departamento_id',
                 'departamentos:id,nombre,pais_id',
+                'ciudades:id,nombre,departamento_id',
             ])
             ->findOrFail($id);
     }
@@ -132,6 +139,7 @@ final class OrganizacionService
             'tipo_organizacion_id',
             'organizacion_padre_id',
             'estado',
+            'estado_aprobacion',
             'pais_id',
             'departamento_id',
             'ciudad_id',
@@ -148,6 +156,7 @@ final class OrganizacionService
                 'tipo_nombre' => $org->tipo?->nombre,
                 'organizacion_padre_id' => $org->organizacion_padre_id,
                 'estado' => (bool) $org->estado,
+                'estado_aprobacion' => $org->estado_aprobacion ?: Organizacion::APROBACION_APROBADA,
                 'pais_nombre' => $org->pais?->nombre,
                 'departamento_nombre' => $org->departamento?->nombre,
                 'ciudad_nombre' => $org->ciudad?->nombre,
@@ -190,6 +199,9 @@ final class OrganizacionService
         if (array_key_exists('estado', $filters) && $filters['estado'] !== null && $filters['estado'] !== '') {
             return true;
         }
+        if (! empty($filters['estado_aprobacion'])) {
+            return true;
+        }
 
         return false;
     }
@@ -206,6 +218,7 @@ final class OrganizacionService
         $estadoFilter = array_key_exists('estado', $filters) && $filters['estado'] !== null && $filters['estado'] !== ''
             ? filter_var($filters['estado'], FILTER_VALIDATE_BOOLEAN)
             : null;
+        $aprobacion = ! empty($filters['estado_aprobacion']) ? (string) $filters['estado_aprobacion'] : null;
 
         $matches = [];
         foreach ($byId as $id => $node) {
@@ -213,6 +226,9 @@ final class OrganizacionService
                 continue;
             }
             if ($estadoFilter !== null && (bool) $node['estado'] !== $estadoFilter) {
+                continue;
+            }
+            if ($aprobacion !== null && (string) ($node['estado_aprobacion'] ?? '') !== $aprobacion) {
                 continue;
             }
             if ($q !== '') {
@@ -269,8 +285,10 @@ final class OrganizacionService
                 'departamento:id,nombre',
                 'ciudad:id,nombre',
                 'departamentos:id,nombre,pais_id',
+                'ciudades:id,nombre,departamento_id',
             ])
             ->where('estado', true)
+            ->where('estado_aprobacion', Organizacion::APROBACION_APROBADA)
             ->orderBy('nombre');
 
         if ($excludeId) {
@@ -328,9 +346,22 @@ final class OrganizacionService
                 'telefono' => $data['telefono'] ?? null,
                 'correo' => $data['correo'] ?? null,
                 'estado' => $data['estado'] ?? true,
+                'estado_aprobacion' => $data['estado_aprobacion'] ?? Organizacion::APROBACION_APROBADA,
             ]);
 
-            $this->syncDepartamentosCobertura($org, $data, $location['pais_id'] ? (int) $location['pais_id'] : null);
+            $this->syncDepartamentosCobertura(
+                $org,
+                array_merge($data, [
+                    'departamento_ids' => $data['departamento_ids'] ?? $location['departamento_ids'] ?? [],
+                ]),
+                $location['pais_id'] ? (int) $location['pais_id'] : null,
+            );
+            $this->syncCiudadesCobertura(
+                $org,
+                array_merge($data, [
+                    'ciudad_ids' => $data['ciudad_ids'] ?? $location['ciudad_ids'] ?? [],
+                ]),
+            );
 
             $this->auditLogger->log('organizaciones', 'create', null, $org->toArray(), $org);
 
@@ -379,7 +410,19 @@ final class OrganizacionService
                 'estado' => array_key_exists('estado', $data) ? (bool) $data['estado'] : $organizacion->estado,
             ])->save();
 
-            $this->syncDepartamentosCobertura($organizacion, $data, $location['pais_id'] ? (int) $location['pais_id'] : null);
+            $this->syncDepartamentosCobertura(
+                $organizacion,
+                array_merge($data, [
+                    'departamento_ids' => $data['departamento_ids'] ?? $location['departamento_ids'] ?? [],
+                ]),
+                $location['pais_id'] ? (int) $location['pais_id'] : null,
+            );
+            $this->syncCiudadesCobertura(
+                $organizacion,
+                array_merge($data, [
+                    'ciudad_ids' => $data['ciudad_ids'] ?? $location['ciudad_ids'] ?? [],
+                ]),
+            );
 
             $this->auditLogger->log('organizaciones', 'update', $old, $organizacion->fresh()->toArray(), $organizacion);
 
@@ -411,8 +454,9 @@ final class OrganizacionService
      *
      * Unión: selecciona país.
      * Asociación: hereda país y cubre uno o varios departamentos.
-     * Distrito: hereda país, elige un departamento de la asociación y una ciudad.
-     * Iglesia/Club: heredan toda la ubicación del padre; Iglesia puede definir dirección.
+     * Distrito: hereda país y cubre uno o varios departamentos de la asociación.
+     * Iglesia: un departamento (de la cobertura del distrito) y una ciudad.
+     * Club: hereda la ubicación de la iglesia.
      *
      * @param  array<string, mixed>  $data
      * @return array{pais_id: int|null, departamento_id: int|null, ciudad_id: int|null, direccion: string|null}
@@ -445,7 +489,7 @@ final class OrganizacionService
             Organizacion::TIPO_UNION => $this->resolveUnionLocation($data),
             Organizacion::TIPO_ASOCIACION => $this->resolveAsociacionLocation($data, $padre),
             Organizacion::TIPO_DISTRITO => $this->resolveDistritoLocation($data, $padre),
-            Organizacion::TIPO_IGLESIA => $this->resolveInheritedLocation($data, $padre, true),
+            Organizacion::TIPO_IGLESIA => $this->resolveIglesiaLocation($data, $padre),
             Organizacion::TIPO_CLUB,
             Organizacion::TIPO_AVENTUREROS,
             Organizacion::TIPO_CONQUISTADORES,
@@ -536,55 +580,122 @@ final class OrganizacionService
             ]);
         }
 
-        $padre->loadMissing('departamentos:id,nombre,pais_id');
-        $permitidos = $padre->departamentos->pluck('id')->map(fn ($id) => (int) $id)->all();
-
-        // Compatibilidad: si la asociación aún no tiene pivot, usa su departamento_id histórico.
-        if ($permitidos === [] && $padre->departamento_id) {
-            $permitidos = [(int) $padre->departamento_id];
-        }
-
+        $permitidos = $padre->coberturaDepartamentoIds();
         if ($permitidos === []) {
             throw ValidationException::withMessages([
                 'organizacion_padre_id' => ['La Asociación padre no tiene departamentos asignados.'],
             ]);
         }
 
+        $ids = $this->normalizeDepartamentoIds($data, (int) $padre->pais_id);
+        if ($ids === []) {
+            throw ValidationException::withMessages([
+                'departamento_ids' => ['El Distrito debe indicar al menos un departamento.'],
+            ]);
+        }
+
+        foreach ($ids as $id) {
+            if (! in_array($id, $permitidos, true)) {
+                throw ValidationException::withMessages([
+                    'departamento_ids' => ['Los departamentos del distrito deben pertenecer a la asociación.'],
+                ]);
+            }
+        }
+
+        $ciudadIds = $this->normalizeCiudadIds($data, $ids);
+        if ($ciudadIds === []) {
+            throw ValidationException::withMessages([
+                'ciudad_ids' => ['El Distrito debe indicar al menos una ciudad.'],
+            ]);
+        }
+
+        return [
+            'pais_id' => (int) $padre->pais_id,
+            'departamento_id' => $ids[0],
+            'ciudad_id' => $ciudadIds[0],
+            'direccion' => null,
+            'departamento_ids' => $ids,
+            'ciudad_ids' => $ciudadIds,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{pais_id: int|null, departamento_id: int|null, ciudad_id: int|null, direccion: string|null}
+     */
+    private function resolveIglesiaLocation(array $data, ?Organizacion $padre): array
+    {
+        if (! $padre?->pais_id) {
+            throw ValidationException::withMessages([
+                'organizacion_padre_id' => ['La Iglesia debe pertenecer a un Distrito con país definido.'],
+            ]);
+        }
+
+        $permitidos = $padre->coberturaDepartamentoIds();
+        if ($permitidos === []) {
+            throw ValidationException::withMessages([
+                'organizacion_padre_id' => ['El Distrito padre no tiene departamentos asignados.'],
+            ]);
+        }
+
+        $ciudadesPermitidas = $padre->coberturaCiudadIds();
+        $departamentoId = isset($data['departamento_id']) ? (int) $data['departamento_id'] : 0;
+        if ($departamentoId <= 0 && count($permitidos) === 1) {
+            $departamentoId = $permitidos[0];
+        }
+
         $departamento = $this->ubicacionService->resolveDepartamento(
             (int) $padre->pais_id,
-            isset($data['departamento_id']) ? (int) $data['departamento_id'] : null,
+            $departamentoId > 0 ? $departamentoId : null,
             isset($data['departamento_nombre']) ? (string) $data['departamento_nombre'] : null,
         );
 
         if (! $departamento) {
             throw ValidationException::withMessages([
-                'departamento_id' => ['El Distrito debe indicar el departamento.'],
+                'departamento_id' => ['La Iglesia debe indicar un departamento.'],
             ]);
         }
 
         if (! in_array((int) $departamento->id, $permitidos, true)) {
             throw ValidationException::withMessages([
-                'departamento_id' => ['El departamento debe pertenecer a la Asociación padre.'],
+                'departamento_id' => ['El departamento debe pertenecer al distrito seleccionado.'],
             ]);
+        }
+
+        $ciudadId = isset($data['ciudad_id']) ? (int) $data['ciudad_id'] : 0;
+        if ($ciudadId <= 0 && count($ciudadesPermitidas) === 1) {
+            $ciudadId = $ciudadesPermitidas[0];
         }
 
         $ciudad = $this->ubicacionService->resolveCiudad(
             (int) $departamento->id,
-            isset($data['ciudad_id']) ? (int) $data['ciudad_id'] : null,
+            $ciudadId > 0 ? $ciudadId : null,
             isset($data['ciudad_nombre']) ? (string) $data['ciudad_nombre'] : null,
         );
-
         if (! $ciudad) {
             throw ValidationException::withMessages([
-                'ciudad_id' => ['El Distrito debe indicar la ciudad.'],
+                'ciudad_id' => ['La Iglesia debe indicar la ciudad.'],
+            ]);
+        }
+
+        if ($ciudadesPermitidas !== [] && ! in_array((int) $ciudad->id, $ciudadesPermitidas, true)) {
+            throw ValidationException::withMessages([
+                'ciudad_id' => ['La ciudad debe pertenecer al distrito seleccionado.'],
+            ]);
+        }
+
+        $direccion = trim((string) ($data['direccion'] ?? ''));
+        if ($direccion === '') {
+            throw ValidationException::withMessages([
+                'direccion' => ['La Iglesia debe indicar la dirección.'],
             ]);
         }
 
         return [
             'pais_id' => (int) $padre->pais_id,
             'departamento_id' => (int) $departamento->id,
-            'ciudad_id' => $ciudad->id,
-            'direccion' => null,
+            'ciudad_id' => (int) $ciudad->id,
+            'direccion' => $direccion,
         ];
     }
 
@@ -634,6 +745,11 @@ final class OrganizacionService
      * Unión: UNI-0001
      * Hijos: {codigoPadre}-ASO-01, {codigoPadre}-DIS-01, etc.
      */
+    public function nextCodigo(int $tipoId, ?int $padreId): string
+    {
+        return $this->generateCodigo($tipoId, $padreId);
+    }
+
     private function generateCodigo(int $tipoId, ?int $padreId): string
     {
         $prefix = $this->codigoPrefixForTipo($tipoId);
@@ -690,13 +806,14 @@ final class OrganizacionService
     }
 
     /**
-     * Sincroniza departamentos cubiertos (Asociación). Otros tipos limpian el pivot.
+     * Sincroniza departamentos cubiertos (Asociación y Distrito). Otros tipos limpian el pivot.
      *
      * @param  array<string, mixed>  $data
      */
     private function syncDepartamentosCobertura(Organizacion $organizacion, array $data, ?int $paisId): void
     {
-        if ((int) $organizacion->tipo_organizacion_id !== Organizacion::TIPO_ASOCIACION) {
+        $tipoId = (int) $organizacion->tipo_organizacion_id;
+        if (! in_array($tipoId, [Organizacion::TIPO_ASOCIACION, Organizacion::TIPO_DISTRITO], true)) {
             $organizacion->departamentos()->sync([]);
 
             return;
@@ -704,14 +821,16 @@ final class OrganizacionService
 
         if (! $paisId) {
             throw ValidationException::withMessages([
-                'pais_id' => ['La Asociación requiere un país para asignar departamentos.'],
+                'pais_id' => ['Se requiere un país para asignar departamentos.'],
             ]);
         }
 
         $ids = $this->normalizeDepartamentoIds($data, $paisId);
         if ($ids === []) {
             throw ValidationException::withMessages([
-                'departamento_ids' => ['La Asociación debe indicar al menos un departamento.'],
+                'departamento_ids' => [$tipoId === Organizacion::TIPO_DISTRITO
+                    ? 'El Distrito debe indicar al menos un departamento.'
+                    : 'La Asociación debe indicar al menos un departamento.'],
             ]);
         }
 
@@ -754,6 +873,57 @@ final class OrganizacionService
             if ($departamento) {
                 $ids[] = (int) $departamento->id;
             }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function syncCiudadesCobertura(Organizacion $organizacion, array $data): void
+    {
+        if ((int) $organizacion->tipo_organizacion_id !== Organizacion::TIPO_DISTRITO) {
+            $organizacion->ciudades()->sync([]);
+
+            return;
+        }
+
+        $departamentoIds = $organizacion->coberturaDepartamentoIds();
+        $ids = $this->normalizeCiudadIds($data, $departamentoIds);
+        if ($ids === []) {
+            throw ValidationException::withMessages([
+                'ciudad_ids' => ['El Distrito debe indicar al menos una ciudad.'],
+            ]);
+        }
+
+        $organizacion->ciudades()->sync($ids);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  list<int>  $departamentoIds
+     * @return list<int>
+     */
+    private function normalizeCiudadIds(array $data, array $departamentoIds): array
+    {
+        $ids = [];
+        $rawIds = is_array($data['ciudad_ids'] ?? null) ? $data['ciudad_ids'] : [];
+        if ($rawIds === [] && ! empty($data['ciudad_id'])) {
+            $rawIds = [$data['ciudad_id']];
+        }
+
+        foreach ($rawIds as $rawId) {
+            $ciudad = Ciudad::query()->find((int) $rawId);
+            if (! $ciudad) {
+                continue;
+            }
+            if ($departamentoIds !== [] && ! in_array((int) $ciudad->departamento_id, $departamentoIds, true)) {
+                throw ValidationException::withMessages([
+                    'ciudad_ids' => ['Las ciudades del distrito deben pertenecer a sus departamentos.'],
+                ]);
+            }
+            $ids[] = (int) $ciudad->id;
         }
 
         return array_values(array_unique($ids));

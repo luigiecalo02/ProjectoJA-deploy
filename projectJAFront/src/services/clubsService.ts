@@ -73,6 +73,11 @@ export const clubsService = {
     return data.data
   },
 
+  async current(): Promise<Club> {
+    const { data } = await api.get<ApiEnvelope<Club>>('/api/v1/clubs/current')
+    return data.data
+  },
+
   async create(payload: ClubFormPayload): Promise<Club> {
     const { data } = await api.post<ApiEnvelope<Club>>('/api/v1/clubs', payload)
     return data.data

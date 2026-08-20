@@ -5,14 +5,18 @@ namespace App\Modules\Auth\Services;
 use App\Modules\Auth\Contracts\ParticipantOtpSender;
 use App\Modules\Auth\Notifications\ParticipantRegistrationOtpNotification;
 use App\Modules\Clubs\Models\Persona;
+use App\Modules\Settings\Services\MailSettingsService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
 
 final class LaravelParticipantOtpSender implements ParticipantOtpSender
 {
+    public function __construct(private readonly MailSettingsService $mailSettings) {}
+
     public function send(Persona $persona, string $otp): bool
     {
         if (filled($persona->correo)) {
+            $this->mailSettings->apply();
             Notification::route('mail', $persona->correo)
                 ->notify(new ParticipantRegistrationOtpNotification($otp));
 

@@ -16,6 +16,7 @@ import PageLoader from '@/components/PageLoader.vue'
 import { usersService } from '@/services/usersService'
 import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { usePageChrome } from '@/composables/usePageChrome'
 import type { User } from '@/modules/auth/types'
 import type { PaginationMeta } from '@/types/api'
 
@@ -23,6 +24,21 @@ const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
 const { can } = usePermission()
+
+usePageChrome(() => ({
+  title: t('users.title'),
+  subtitle: t('users.subtitle'),
+  actions: can('users.create')
+    ? [
+        {
+          key: 'new',
+          label: t('users.new'),
+          icon: 'pi pi-plus',
+          onClick: () => void router.push({ name: 'users.create' }),
+        },
+      ]
+    : [],
+}))
 
 const query = ref('')
 const statusFilter = ref<boolean | null>(null)
