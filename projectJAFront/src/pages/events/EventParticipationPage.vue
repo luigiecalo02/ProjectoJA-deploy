@@ -8,6 +8,7 @@ import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import PageLoader from '@/components/PageLoader.vue'
 import EventJudgeActivityCard from '@/components/events/EventJudgeActivityCard.vue'
+import EventActivityRosterTab from '@/components/events/EventActivityRosterTab.vue'
 import MediaGalleryUpload from '@/components/media/MediaGalleryUpload.vue'
 import MediaDocumentsUpload from '@/components/media/MediaDocumentsUpload.vue'
 import { eventsService } from '@/services/eventsService'
@@ -83,6 +84,10 @@ const selected = computed(() => {
   return find(data.value.evento)
 })
 
+const directorLocked = computed(() =>
+  Boolean(data.value?.modificacion_bloqueada || selected.value?.modificacion_bloqueada),
+)
+
 function toJudgeSubevento(node: ParticipationNode): JudgeSubevento {
   return {
     id: node.id,
@@ -98,9 +103,19 @@ function toJudgeSubevento(node: ParticipationNode): JudgeSubevento {
     tipos_evidencia: node.tipos_evidencia,
     es_calificable: node.es_calificable,
     puntaje_desde_hijos: node.puntaje_desde_hijos,
+    puntaje_por_participar: node.puntaje_por_participar,
     tiempo_estimado_minutos: node.tiempo_estimado_minutos,
+    requiere_puesto_entrega: node.requiere_puesto_entrega,
+    requiere_tiempo_entrega: node.requiere_tiempo_entrega,
+    resultado_esperado: node.resultado_esperado,
     participantes_min: node.participantes_min,
     participantes_max: node.participantes_max,
+    permite_inscribir_no_participantes: node.permite_inscribir_no_participantes,
+    participantes_genero: node.participantes_genero,
+    participantes_min_m: node.participantes_min_m,
+    participantes_max_m: node.participantes_max_m,
+    participantes_min_f: node.participantes_min_f,
+    participantes_max_f: node.participantes_max_f,
     es_conjunto: node.es_conjunto,
     nivel_conjunto: node.nivel_conjunto,
     maneja_fecha_fin: node.maneja_fecha_fin,
@@ -445,7 +460,7 @@ function selectNode(node: ParticipationNode): void {
     descripcion: latest?.descripcion || '',
   }
   pendingFile.value = null
-  editingEvidence.value = !latest
+  editingEvidence.value = !latest && !data.value?.modificacion_bloqueada
 }
 
 function onSelectChildFromCard(node: JudgeTreeNode): void {
@@ -521,6 +536,7 @@ function selectEvidenceTipo(tipo: string): void {
 }
 
 function startChangeEvidence(): void {
+  if (directorLocked.value) return
   const latest = latestEvidence.value
   evidenceForm.value = {
     tipo: latest?.tipo || selected.value?.tipos_evidencia?.[0] || 'link',
@@ -844,6 +860,11 @@ onMounted(() => {
               :show-calificacion="false"
               :show-resultado="true"
               :show-observaciones="true"
+              :show-participantes="
+                selected.participantes_min != null ||
+                selected.participantes_max != null ||
+                Boolean(selected.permite_inscribir_no_participantes)
+              "
               observaciones-mode="director"
               :resultado="selected.calificacion"
               :tip-text="t('events.participateActivityTip')"
@@ -860,7 +881,11 @@ onMounted(() => {
               :saving-director-obs="savingDirectorObs"
               @select-subevento="onSelectChildFromCard"
               @save-director-obs="saveDirectorObservacion"
-            />
+            >
+              <template #participantes>
+                <EventActivityRosterTab :actividad-id="selected.id" :locked="directorLocked" />
+              </template>
+            </EventJudgeActivityCard>
 
             <section class="detail-section">
               <h3>{{ t('events.clubEvidenceTitle') }}</h3>
@@ -889,7 +914,7 @@ onMounted(() => {
                         {{ latestEvidence.descripcion }}
                       </p>
                     </div>
-                    <div class="evidence-preview__actions">
+                    <div v-if="!directorLocked" class="evidence-preview__actions">
                       <Button
                         type="button"
                         outlined
@@ -963,6 +988,8 @@ onMounted(() => {
                     </div>
                   </div>
                 </div>
+
+                <p v-else-if="directorLocked" class="pj-muted">{{ t('events.evidenceLocked') }}</p>
 
                 <div v-else class="evidence-form">
                   <div class="field">

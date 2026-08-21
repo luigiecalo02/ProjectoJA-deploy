@@ -5,6 +5,7 @@ namespace App\Modules\Events\Services;
 use App\Models\User;
 use App\Modules\Clubs\Models\Club;
 use App\Modules\Events\Models\Event;
+use App\Modules\Events\Models\EventoActividadParticipante;
 use App\Modules\Events\Models\EventoCalificacion;
 use App\Modules\Events\Models\EventoCalificacionDetalle;
 use App\Modules\Events\Models\EventoCalificacionObsDirector;
@@ -178,12 +179,7 @@ final class EventJudgeService
         }
 
         return [
-            'evento' => [
-                'id' => $root->id,
-                'name' => $root->name,
-                'image_url' => $root->image_url,
-                'estado' => $root->estado,
-            ],
+            'evento' => $this->eventHeader($root),
             'subeventos' => $subeventos,
             'arbol' => $this->buildJudgeTree($root, $scope),
             'subevento' => $selected,
@@ -266,6 +262,9 @@ final class EventJudgeService
         foreach (array_keys($evidencias) as $orgKey) {
             $orgIds[] = (int) $orgKey;
         }
+        foreach (array_keys($pendientes) as $orgKey) {
+            $orgIds[] = (int) $orgKey;
+        }
         $orgIds = array_values(array_unique(array_filter(
             $orgIds,
             fn (int $id) => $this->orgIdAllowed($id, $allowedOrgLookup)
@@ -288,12 +287,7 @@ final class EventJudgeService
 
         if ($orgIds === []) {
             return [
-                'evento' => [
-                    'id' => $root->id,
-                    'name' => $root->name,
-                    'image_url' => $root->image_url,
-                    'estado' => $root->estado,
-                ],
+                'evento' => $this->eventHeader($root),
                 'filtros' => [
                     'distritos' => [],
                     'subeventos' => $subeventosFiltro,
@@ -473,12 +467,7 @@ final class EventJudgeService
         }
 
         return [
-            'evento' => [
-                'id' => $root->id,
-                'name' => $root->name,
-                'image_url' => $root->image_url,
-                'estado' => $root->estado,
-            ],
+            'evento' => $this->eventHeader($root),
             'filtros' => [
                 'distritos' => array_values(array_keys($distritosSet)),
                 'subeventos' => $subeventosFiltro,
@@ -711,6 +700,37 @@ final class EventJudgeService
 
         Organizacion::query()->findOrFail($orgId);
 
+        $puestoEntrega = isset($data['puesto_entrega']) ? trim((string) $data['puesto_entrega']) : null;
+        $puestoEntrega = $puestoEntrega !== '' ? $puestoEntrega : null;
+        $tiempoEntrega = $this->normalizeTiempoEntrega($data['tiempo_entrega'] ?? null);
+        $resultadoObtenido = isset($data['resultado_obtenido']) ? (int) $data['resultado_obtenido'] : null;
+        $resultadoEsperado = $subevento->resultado_esperado !== null ? (int) $subevento->resultado_esperado : null;
+
+        if ($subevento->requiere_puesto_entrega && $puestoEntrega === null) {
+            throw ValidationException::withMessages([
+                'puesto_entrega' => ['Indica el puesto de entrega.'],
+            ]);
+        }
+        if ($subevento->requiere_tiempo_entrega && $tiempoEntrega === null) {
+            throw ValidationException::withMessages([
+                'tiempo_entrega' => ['Indica el tiempo de entrega.'],
+            ]);
+        }
+        if ($resultadoEsperado !== null) {
+            if ($resultadoObtenido === null) {
+                throw ValidationException::withMessages([
+                    'resultado_obtenido' => ['Indica cuántos resultados están bien.'],
+                ]);
+            }
+            if ($resultadoObtenido < 0 || $resultadoObtenido > $resultadoEsperado) {
+                throw ValidationException::withMessages([
+                    'resultado_obtenido' => ["El resultado debe estar entre 0 y {$resultadoEsperado}."],
+                ]);
+            }
+        } else {
+            $resultadoObtenido = null;
+        }
+
         $subevento->load(['criterios' => fn ($q) => $q->orderByPivot('orden')]);
         $criterios = $subevento->criterios;
         $max = $subevento->puntaje_maximo !== null ? (float) $subevento->puntaje_maximo : null;
@@ -722,7 +742,14 @@ final class EventJudgeService
         $total = 0.0;
         $detallesNorm = [];
 
-        if ($criterios->isNotEmpty()) {
+        if ($subevento->puntaje_por_participar) {
+            if ($max === null) {
+                throw ValidationException::withMessages([
+                    'puntaje_obtenido' => ['Esta actividad no tiene puntaje máximo configurado.'],
+                ]);
+            }
+            $total = $max;
+        } elseif ($criterios->isNotEmpty()) {
             $byId = $criterios->keyBy('id');
             $seen = [];
 
@@ -760,6 +787,8 @@ final class EventJudgeService
                     ];
                 }
             }
+        } elseif ($resultadoEsperado !== null && $resultadoObtenido !== null && $max !== null) {
+            $total = round(($resultadoObtenido / $resultadoEsperado) * $max, 2);
         } else {
             $total = round((float) ($data['puntaje_obtenido'] ?? 0), 2);
             if ($total < 0) {
@@ -776,7 +805,17 @@ final class EventJudgeService
             ]);
         }
 
-        $calificacion = DB::transaction(function () use ($actor, $subevento, $orgId, $total, $observaciones, $detallesNorm) {
+        $calificacion = DB::transaction(function () use (
+            $actor,
+            $subevento,
+            $orgId,
+            $total,
+            $observaciones,
+            $detallesNorm,
+            $puestoEntrega,
+            $tiempoEntrega,
+            $resultadoObtenido,
+        ) {
             $calificacion = EventoCalificacion::query()->updateOrCreate(
                 [
                     'evento_id' => $subevento->id,
@@ -787,6 +826,9 @@ final class EventJudgeService
                 [
                     'puntaje_obtenido' => $total,
                     'observaciones' => $observaciones,
+                    'puesto_entrega' => $puestoEntrega,
+                    'tiempo_entrega' => $tiempoEntrega,
+                    'resultado_obtenido' => $resultadoObtenido,
                 ],
             );
 
@@ -1050,13 +1092,23 @@ final class EventJudgeService
             'tipos_evidencia' => array_values($sub->tipos_evidencia ?? []),
             'es_calificable' => (bool) $sub->es_calificable,
             'puntaje_desde_hijos' => (bool) $sub->puntaje_desde_hijos,
+            'puntaje_por_participar' => (bool) $sub->puntaje_por_participar,
             'puede_calificar' => $puedeCalificar,
             'asignado' => $scope['open'] || isset($scope['assigned_ids'][(int) $sub->id]),
             'tiempo_estimado_minutos' => $sub->tiempo_estimado_minutos !== null
                 ? (int) $sub->tiempo_estimado_minutos
                 : null,
+            'requiere_puesto_entrega' => (bool) $sub->requiere_puesto_entrega,
+            'requiere_tiempo_entrega' => (bool) $sub->requiere_tiempo_entrega,
+            'resultado_esperado' => $sub->resultado_esperado !== null ? (int) $sub->resultado_esperado : null,
             'participantes_min' => $sub->participantes_min !== null ? (int) $sub->participantes_min : null,
             'participantes_max' => $sub->participantes_max !== null ? (int) $sub->participantes_max : null,
+            'permite_inscribir_no_participantes' => (bool) $sub->permite_inscribir_no_participantes,
+            'participantes_genero' => $sub->participantes_genero,
+            'participantes_min_m' => $sub->participantes_min_m !== null ? (int) $sub->participantes_min_m : null,
+            'participantes_max_m' => $sub->participantes_max_m !== null ? (int) $sub->participantes_max_m : null,
+            'participantes_min_f' => $sub->participantes_min_f !== null ? (int) $sub->participantes_min_f : null,
+            'participantes_max_f' => $sub->participantes_max_f !== null ? (int) $sub->participantes_max_f : null,
             'es_conjunto' => (bool) $sub->es_conjunto,
             'nivel_conjunto' => $sub->nivel_conjunto,
             'maneja_fecha_fin' => (bool) $sub->maneja_fecha_fin,
@@ -1183,13 +1235,20 @@ final class EventJudgeService
             ->orderByDesc('id')
             ->get();
 
-        if ($evidenciasScope->isEmpty()) {
+        $rosterScope = EventoActividadParticipante::query()
+            ->whereIn('evento_id', $scopeIds)
+            ->whereNotNull('organizacion_id')
+            ->with('persona:id,nombre1,nombre2,apellido1,apellido2,sexo')
+            ->get();
+
+        if ($evidenciasScope->isEmpty() && $rosterScope->isEmpty()) {
             return [];
         }
 
         $allowed = $this->judgeAllowedOrgLookup($actor);
         $orgIds = $evidenciasScope
             ->pluck('organizacion_id')
+            ->merge($rosterScope->pluck('organizacion_id'))
             ->map(fn ($id) => (int) $id)
             ->unique()
             ->filter(fn (int $id) => $this->orgIdAllowed($id, $allowed))
@@ -1236,6 +1295,11 @@ final class EventJudgeService
         /** @var Collection<int, Collection<int, EventoEvidencia>> $evByOrgAll */
         $evByOrgAll = $evidenciasScope->groupBy('organizacion_id');
 
+        $rosterByOrgActividad = $rosterScope
+            ->filter(fn (EventoActividadParticipante $row) => $this->orgIdAllowed((int) $row->organizacion_id, $allowed))
+            ->where('evento_id', $actividad->id)
+            ->groupBy('organizacion_id');
+
         $max = $actividad->puntaje_maximo !== null ? (float) $actividad->puntaje_maximo : null;
         $out = [];
 
@@ -1247,6 +1311,7 @@ final class EventJudgeService
 
             $evActividad = $evByOrgActividad->get($orgId) ?? collect();
             $evAll = $evByOrgAll->get($orgId) ?? collect();
+            $rosterActividad = $rosterByOrgActividad->get($orgId) ?? collect();
             $cal = $cals->get($orgId);
             $obs = $obsDirector->get($orgId);
             $score = $cal ? (float) $cal->puntaje_obtenido : null;
@@ -1269,6 +1334,18 @@ final class EventJudgeService
                 'evidencias_en_actividad' => $evActividad->count(),
                 'evidencias' => $evActividad
                     ->map(fn (EventoEvidencia $e) => $this->participation->evidenciaPayload($e))
+                    ->values()
+                    ->all(),
+                'participantes' => $rosterActividad
+                    ->map(function (EventoActividadParticipante $row) {
+                        $persona = $row->persona;
+
+                        return [
+                            'id' => (int) $row->persona_id,
+                            'nombre' => $persona?->full_name ?: ('#'.$row->persona_id),
+                            'sexo' => $persona?->sexo,
+                        ];
+                    })
                     ->values()
                     ->all(),
                 'calificacion' => $calPayload,
@@ -1594,7 +1671,14 @@ final class EventJudgeService
             ->groupBy('organizacion_id', 'evento_id')
             ->get();
 
-        if ($evidenciaCounts->isEmpty()) {
+        $rosterCounts = EventoActividadParticipante::query()
+            ->whereIn('evento_id', $eventIds)
+            ->whereNotNull('organizacion_id')
+            ->selectRaw('organizacion_id, evento_id, COUNT(*) as total')
+            ->groupBy('organizacion_id', 'evento_id')
+            ->get();
+
+        if ($evidenciaCounts->isEmpty() && $rosterCounts->isEmpty()) {
             return [];
         }
 
@@ -1628,6 +1712,24 @@ final class EventJudgeService
             $out[(string) $orgId][(string) $eventoId] = $count;
         }
 
+        foreach ($rosterCounts as $row) {
+            $orgId = (int) $row->organizacion_id;
+            $eventoId = (int) $row->evento_id;
+            $key = $orgId.':'.$eventoId;
+            if (isset($calificadoSet[$key])) {
+                continue;
+            }
+            if ((int) $row->total <= 0) {
+                continue;
+            }
+            if (! isset($out[(string) $orgId])) {
+                $out[(string) $orgId] = [];
+            }
+            if (! isset($out[(string) $orgId][(string) $eventoId])) {
+                $out[(string) $orgId][(string) $eventoId] = 1;
+            }
+        }
+
         return $out;
     }
 
@@ -1659,6 +1761,19 @@ final class EventJudgeService
         return null;
     }
 
+    private function normalizeTiempoEntrega(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        $text = trim((string) $value);
+        if (preg_match('/^(\d{1,3}):([0-5]\d)\.(\d{2})$/', $text, $m)) {
+            return ((int) $m[1]).':'.$m[2].'.'.$m[3];
+        }
+
+        return null;
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -1670,6 +1785,9 @@ final class EventJudgeService
             'organizacion_id' => $cal->organizacion_id,
             'puntaje_obtenido' => (float) $cal->puntaje_obtenido,
             'observaciones' => $cal->observaciones,
+            'puesto_entrega' => $cal->puesto_entrega,
+            'tiempo_entrega' => $this->normalizeTiempoEntrega($cal->tiempo_entrega),
+            'resultado_obtenido' => $cal->resultado_obtenido !== null ? (int) $cal->resultado_obtenido : null,
             'calificado_por' => $cal->calificado_por,
             'detalles' => ($cal->relationLoaded('detalles') ? $cal->detalles : $cal->detalles()->get())
                 ->map(fn (EventoCalificacionDetalle $d) => [
@@ -1697,5 +1815,19 @@ final class EventJudgeService
         foreach ($event->hijos as $hijo) {
             $this->eagerLoadTree($hijo, $depth - 1);
         }
+    }
+
+    /**
+     * @return array{id: int, name: string, image_url: ?string, banner_url: ?string, estado: mixed}
+     */
+    private function eventHeader(Event $root): array
+    {
+        return [
+            'id' => $root->id,
+            'name' => $root->name,
+            'image_url' => $root->image_url,
+            'banner_url' => $root->banner_url,
+            'estado' => $root->estado,
+        ];
     }
 }

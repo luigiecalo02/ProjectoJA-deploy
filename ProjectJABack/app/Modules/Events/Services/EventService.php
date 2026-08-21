@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Organizations\Models\Organizacion;
+use App\Modules\Organizations\Models\TipoOrganizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
@@ -320,7 +321,7 @@ final class EventService
     public function create(User $actor, array $data): Event
     {
         $orgIds = $this->normalizeIds($data['organizacion_ids'] ?? []);
-        $tipoIds = $this->normalizeIds($data['tipo_organizacion_ids'] ?? []);
+        $tipoIds = $this->resolveAudienceTipoIds($data);
         $juezIds = array_key_exists('juez_ids', $data)
             ? $this->normalizeIds($data['juez_ids'] ?? [])
             : null;
@@ -332,6 +333,7 @@ final class EventService
         unset(
             $data['organizacion_ids'],
             $data['tipo_organizacion_ids'],
+            $data['audiencia'],
             $data['role_ids'],
             $data['juez_ids'],
             $data['supervisor_ids'],
@@ -409,18 +411,20 @@ final class EventService
     public function update(Event $event, User $actor, array $data): Event
     {
         $hasOrgs = array_key_exists('organizacion_ids', $data);
-        $hasTipos = array_key_exists('tipo_organizacion_ids', $data);
+        $hasTipos = array_key_exists('tipo_organizacion_ids', $data)
+            || array_key_exists('audiencia', $data);
         $hasJueces = array_key_exists('juez_ids', $data);
         $hasSupervisores = array_key_exists('supervisor_ids', $data);
         $hasCriterios = array_key_exists('criterios', $data);
         $orgIds = $hasOrgs ? $this->normalizeIds($data['organizacion_ids'] ?? []) : null;
-        $tipoIds = $hasTipos ? $this->normalizeIds($data['tipo_organizacion_ids'] ?? []) : null;
+        $tipoIds = $hasTipos ? $this->resolveAudienceTipoIds($data) : null;
         $juezIds = $hasJueces ? $this->normalizeIds($data['juez_ids'] ?? []) : null;
         $supervisorIds = $hasSupervisores ? $this->normalizeIds($data['supervisor_ids'] ?? []) : null;
         $criterios = $hasCriterios && is_array($data['criterios']) ? $data['criterios'] : [];
         unset(
             $data['organizacion_ids'],
             $data['tipo_organizacion_ids'],
+            $data['audiencia'],
             $data['role_ids'],
             $data['juez_ids'],
             $data['supervisor_ids'],
@@ -489,6 +493,26 @@ final class EventService
 
             return $event;
         });
+    }
+
+    public function changeEstado(Event $event, User $actor, string $estado): Event
+    {
+        $allowed = [
+            Event::ESTADO_BORRADOR,
+            Event::ESTADO_PUBLICADO,
+            Event::ESTADO_EN_PROCESO,
+            Event::ESTADO_CERRADO,
+        ];
+        if (! in_array($estado, $allowed, true)) {
+            throw ValidationException::withMessages([
+                'estado' => ['El estado debe ser en preparación, activo, en proceso o finalizado.'],
+            ]);
+        }
+
+        return $this->update($event, $actor, [
+            'estado' => $estado,
+            'is_active' => in_array($estado, [Event::ESTADO_PUBLICADO, Event::ESTADO_EN_PROCESO], true),
+        ]);
     }
 
     public function delete(Event $event): void
@@ -635,7 +659,23 @@ final class EventService
 
     public function storeImage(Event $event, UploadedFile $file, User $actor): Event
     {
-        $stored = $this->imageOptimizer->store($file, "events/{$event->id}", 'evt');
+        return $this->storeMedia($event, $file, $actor, 'image_url', 'evt', 'image');
+    }
+
+    public function storeBanner(Event $event, UploadedFile $file, User $actor): Event
+    {
+        return $this->storeMedia($event, $file, $actor, 'banner_url', 'banner', 'banner');
+    }
+
+    private function storeMedia(
+        Event $event,
+        UploadedFile $file,
+        User $actor,
+        string $column,
+        string $prefix,
+        string $auditAction,
+    ): Event {
+        $stored = $this->imageOptimizer->store($file, "events/{$event->id}", $prefix);
         $url = url('storage/'.$stored->path);
 
         StoredFile::query()->create([
@@ -647,9 +687,9 @@ final class EventService
             'uploaded_by' => $actor->id,
         ]);
 
-        $old = ['image_url' => $event->image_url];
-        $event->update(['image_url' => $url]);
-        $this->auditLogger->log('events', 'image', $old, ['image_url' => $url], $event);
+        $old = [$column => $event->{$column}];
+        $event->update([$column => $url]);
+        $this->auditLogger->log('events', $auditAction, $old, [$column => $url], $event);
 
         return $event->fresh([
             'organizacion:id,nombre,codigo',
@@ -674,6 +714,104 @@ final class EventService
     private function syncTiposOrganizacion(Event $event, array $tipoIds): void
     {
         $event->tiposOrganizacion()->sync($tipoIds);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return list<int>
+     */
+    private function resolveAudienceTipoIds(array $data): array
+    {
+        if (array_key_exists('audiencia', $data) && is_string($data['audiencia'])) {
+            return $this->tipoIdsFromAudiencia($data['audiencia']);
+        }
+
+        return $this->remapTipoOrganizacionIds($this->normalizeIds($data['tipo_organizacion_ids'] ?? []));
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function tipoIdsFromAudiencia(string $audiencia): array
+    {
+        $key = strtolower(trim($audiencia));
+        if ($key === '' || $key === 'libre') {
+            return [];
+        }
+
+        $patterns = match ($key) {
+            'conquistadores' => ['%conquistador%'],
+            'aventureros' => ['%aventurer%'],
+            'guias_mayores' => ['%gu_a%mayor%', '%guia%mayor%'],
+            default => [],
+        };
+        if ($patterns === []) {
+            return [];
+        }
+
+        $ids = TipoOrganizacion::query()
+            ->where(function ($query) use ($patterns) {
+                foreach ($patterns as $index => $like) {
+                    if ($index === 0) {
+                        $query->where('nombre', 'like', $like);
+                    } else {
+                        $query->orWhere('nombre', 'like', $like);
+                    }
+                }
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        if ($ids !== []) {
+            return array_values(array_unique($ids));
+        }
+
+        $fallback = [
+            'conquistadores' => Organizacion::TIPO_CONQUISTADORES,
+            'aventureros' => Organizacion::TIPO_AVENTUREROS,
+            'guias_mayores' => Organizacion::TIPO_GUIAS_MAYORES,
+        ][$key] ?? null;
+
+        if ($fallback && TipoOrganizacion::query()->whereKey($fallback)->exists()) {
+            return [(int) $fallback];
+        }
+
+        return [];
+    }
+
+    /**
+     * @param  list<int>  $tipoIds
+     * @return list<int>
+     */
+    private function remapTipoOrganizacionIds(array $tipoIds): array
+    {
+        if ($tipoIds === []) {
+            return [];
+        }
+
+        $existing = TipoOrganizacion::query()
+            ->whereIn('id', $tipoIds)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        $missing = array_values(array_diff($tipoIds, $existing));
+        if ($missing === []) {
+            return $existing;
+        }
+
+        $fallback = [
+            Organizacion::TIPO_AVENTUREROS => 'aventureros',
+            Organizacion::TIPO_CONQUISTADORES => 'conquistadores',
+            Organizacion::TIPO_GUIAS_MAYORES => 'guias_mayores',
+        ];
+        foreach ($missing as $id) {
+            if (! isset($fallback[$id])) {
+                continue;
+            }
+            $existing = array_merge($existing, $this->tipoIdsFromAudiencia($fallback[$id]));
+        }
+
+        return array_values(array_unique($existing));
     }
 
     /**

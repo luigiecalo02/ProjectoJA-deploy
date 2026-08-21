@@ -57,6 +57,9 @@ final class EventJudgeController
             'criterios' => ['nullable', 'array'],
             'criterios.*.criterio_evaluacion_id' => ['required_with:criterios', 'integer', 'exists:criterio_evaluacion,id'],
             'criterios.*.puntos' => ['required_with:criterios', 'numeric', 'min:0'],
+            'puesto_entrega' => ['nullable', 'string', 'max:80'],
+            'tiempo_entrega' => ['nullable', 'string', 'regex:/^\d{1,3}:[0-5]\d\.\d{2}$/'],
+            'resultado_obtenido' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $calificacion = $this->service->saveScore($request->user(), $event, $data);

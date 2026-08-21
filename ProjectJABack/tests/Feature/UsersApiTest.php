@@ -3,7 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Modules\Clubs\Models\Persona;
+use App\Modules\Organizations\Models\Organizacion;
+use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Users\Models\Role;
+use Database\Seeders\OrganizacionCatalogSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -77,5 +81,97 @@ class UsersApiTest extends TestCase
         ])
             ->assertStatus(422)
             ->assertJsonValidationErrors(['email']);
+    }
+
+    public function test_scoped_admin_only_lists_users_from_own_organization_downward(): void
+    {
+        $this->seed(OrganizacionCatalogSeeder::class);
+
+        $distrito = Organizacion::query()->create([
+            'tipo_organizacion_id' => Organizacion::TIPO_DISTRITO,
+            'nombre' => 'Distrito Norte',
+            'codigo' => 'DIS-N-'.uniqid(),
+            'estado' => true,
+        ]);
+        $iglesiaLocal = Organizacion::query()->create([
+            'organizacion_padre_id' => $distrito->id,
+            'tipo_organizacion_id' => Organizacion::TIPO_IGLESIA,
+            'nombre' => 'Iglesia Norte',
+            'codigo' => 'IGL-N-'.uniqid(),
+            'estado' => true,
+        ]);
+        $iglesiaAjena = Organizacion::query()->create([
+            'tipo_organizacion_id' => Organizacion::TIPO_IGLESIA,
+            'nombre' => 'Iglesia Sur',
+            'codigo' => 'IGL-S-'.uniqid(),
+            'estado' => true,
+        ]);
+
+        $localUser = $this->userInOrganization($iglesiaLocal->id, 'local@test.local');
+        $foreignUser = $this->userInOrganization($iglesiaAjena->id, 'ajeno@test.local');
+        $admin = $this->scopedAdmin($distrito->id);
+
+        Sanctum::actingAs($admin);
+
+        $ids = collect($this->getJson('/api/v1/users')->assertOk()->json('data'))->pluck('id');
+        $this->assertTrue($ids->contains($localUser->id));
+        $this->assertFalse($ids->contains($foreignUser->id));
+
+        $filtered = collect($this->getJson('/api/v1/users?organizacion_id='.$iglesiaLocal->id)
+            ->assertOk()
+            ->json('data'))->pluck('id');
+        $this->assertTrue($filtered->contains($localUser->id));
+        $this->assertFalse($filtered->contains($foreignUser->id));
+
+        $ignored = collect($this->getJson('/api/v1/users?organizacion_id='.$iglesiaAjena->id)
+            ->assertOk()
+            ->json('data'))->pluck('id');
+        $this->assertTrue($ignored->contains($localUser->id));
+        $this->assertFalse($ignored->contains($foreignUser->id));
+    }
+
+    private function scopedAdmin(int $organizacionId): User
+    {
+        $user = User::factory()->create(['email' => 'district-admin@test.local']);
+        $persona = Persona::query()->create([
+            'tipo_identificacion' => 'CC',
+            'identificacion' => 'ADM-'.uniqid(),
+            'nombre1' => 'Admin',
+            'apellido1' => 'Distrital',
+            'correo' => $user->email,
+        ]);
+        PersonaOrganizacion::query()->create([
+            'persona_id' => $persona->id,
+            'organizacion_id' => $organizacionId,
+            'estado' => true,
+        ]);
+        $user->forceFill([
+            'is_admin' => true,
+            'persona_id' => $persona->id,
+            'active_organizacion_id' => $organizacionId,
+        ])->save();
+        $user->clearPermissionCache();
+
+        return $user->fresh();
+    }
+
+    private function userInOrganization(int $organizacionId, string $email): User
+    {
+        $user = User::factory()->create(['email' => $email]);
+        $persona = Persona::query()->create([
+            'tipo_identificacion' => 'CC',
+            'identificacion' => 'USR-'.uniqid(),
+            'nombre1' => 'Usuario',
+            'apellido1' => 'Org',
+            'correo' => $email,
+        ]);
+        PersonaOrganizacion::query()->create([
+            'persona_id' => $persona->id,
+            'organizacion_id' => $organizacionId,
+            'estado' => true,
+        ]);
+        $user->forceFill(['persona_id' => $persona->id])->save();
+
+        return $user->fresh();
     }
 }

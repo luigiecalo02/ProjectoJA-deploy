@@ -31,5 +31,7 @@ Route::prefix('auth')->group(function () {
         Route::get('context-options', [AuthController::class, 'contextOptions']);
         Route::post('context', [AuthController::class, 'setContext']);
         Route::delete('context', [AuthController::class, 'clearContext']);
+        Route::post('impersonate/{user}', [AuthController::class, 'impersonate']);
+        Route::post('stop-impersonation', [AuthController::class, 'stopImpersonation']);
     });
 });

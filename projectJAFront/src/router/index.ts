@@ -196,13 +196,13 @@ const routes: RouteRecordRaw[] = [
         path: 'productos-servicios',
         name: 'productosServicios',
         component: () => import('@/pages/events/ProductosServiciosPage.vue'),
-        meta: { permission: 'events.view', titleKey: 'productosServicios.title' },
+        meta: { permission: 'productos_servicios.view', titleKey: 'productosServicios.title' },
       },
       {
         path: 'seguros/consulta',
         name: 'segurosConsulta',
         component: () => import('@/pages/events/SeguroConsultaPage.vue'),
-        meta: { permission: 'events.view', titleKey: 'segurosConsulta.title' },
+        meta: { permission: 'seguros_consulta.view', titleKey: 'segurosConsulta.title' },
       },
       {
         path: 'terrenos',

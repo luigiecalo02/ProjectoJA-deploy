@@ -12,8 +12,10 @@ import Paginator from 'primevue/paginator'
 import PageLoader from '@/components/PageLoader.vue'
 import AppSearchField from '@/components/AppSearchField.vue'
 import EventChildrenAccordion from '@/components/events/EventChildrenAccordion.vue'
+import EventBannerCard from '@/components/events/EventBannerCard.vue'
+import EventEstadoSelect from '@/components/events/EventEstadoSelect.vue'
 import { eventsService } from '@/services/eventsService'
-import { getApiErrorMessage } from '@/services/api'
+import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
 import { useAuthStore } from '@/stores/auth'
@@ -64,18 +66,50 @@ const deleteDialogVisible = computed({
   },
 })
 
+const VIEW_STORAGE_KEY = 'pj.events.listView'
+
+function readViewMode(): 'tree' | 'banner' {
+  try {
+    return localStorage.getItem(VIEW_STORAGE_KEY) === 'tree' ? 'tree' : 'banner'
+  } catch {
+    return 'banner'
+  }
+}
+
+const isEventsAdmin = computed(() => {
+  const roles = auth.user?.roles ?? []
+  return (
+    Boolean(auth.user?.is_super || auth.user?.is_admin) ||
+    roles.includes('super_admin') ||
+    roles.includes('admin')
+  )
+})
+
+const viewMode = ref<'tree' | 'banner'>(readViewMode())
+const listView = computed(() => (isEventsAdmin.value ? viewMode.value : 'banner'))
+
+watch(viewMode, (mode) => {
+  if (!isEventsAdmin.value) return
+  try {
+    localStorage.setItem(VIEW_STORAGE_KEY, mode)
+  } catch {
+    /* ignore */
+  }
+})
+
 const filters = reactive({
   search: '',
   estado: null as string | null,
   audiencia: null as string | null,
   fecha: 'proximos' as string | null,
   page: 1,
-  per_page: 5,
+  per_page: 20,
 })
 
 const estadoFilterOptions = computed(() => [
   { label: t('events.filterEstadoTodos'), value: null },
   { label: t('events.estadoPublicado'), value: 'publicado' },
+  { label: t('events.estadoEnProceso'), value: 'en_proceso' },
   { label: t('events.estadoBorrador'), value: 'borrador' },
   { label: t('events.estadoCerrado'), value: 'cerrado' },
   { label: t('events.estadoCancelado'), value: 'cancelado' },
@@ -183,11 +217,11 @@ function enrollButtonLabel(event: ClubEvent): string {
 }
 
 function canParticipate(event: ClubEvent): boolean {
-  return isClubDirectorContext.value && event.estado === 'publicado'
+  return isClubDirectorContext.value && (event.estado === 'publicado' || event.estado === 'en_proceso')
 }
 
 function canJudge(event: ClubEvent): boolean {
-  if (!can('events.evaluate') || event.estado !== 'publicado') return false
+  if (!can('events.evaluate') || (event.estado !== 'publicado' && event.estado !== 'en_proceso')) return false
   const ids = event.juez_ids
   if (!ids || ids.length === 0) return true
   const uid = auth.user?.id
@@ -197,7 +231,7 @@ function canJudge(event: ClubEvent): boolean {
 function canViewStandings(event: ClubEvent): boolean {
   return (
     (can('events.view_scores') || can('events.evaluate')) &&
-    (event.estado === 'publicado' || event.estado === 'cerrado')
+    (event.estado === 'publicado' || event.estado === 'en_proceso' || event.estado === 'cerrado')
   )
 }
 
@@ -241,6 +275,25 @@ function onTreeNodeOpen(node: ClubEvent, rootId: number): void {
   }
 }
 
+function cupoLabel(event: ClubEvent): string {
+  if (event.cupo_ilimitado) return t('events.wizard.cupoIlimitado')
+  if (event.cupo_maximo) return String(event.cupo_maximo)
+  return '—'
+}
+
+function enrollmentLabel(event: ClubEvent): string {
+  if (!event.requiere_pago || event.precio == null) return '—'
+  return Number(event.precio).toLocaleString('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    maximumFractionDigits: 0,
+  })
+}
+
+function audienceSummary(event: ClubEvent): string {
+  return audienceBadges(event).map((badge) => badge.label).join(', ')
+}
+
 function formatDateRange(startsAt: string, endsAt: string): string {
   const start = new Date(startsAt)
   const end = new Date(endsAt)
@@ -269,10 +322,46 @@ function audienceBadges(event: ClubEvent): Array<{ key: string; label: string; c
   })
 }
 
+const updatingEstadoId = ref<number | null>(null)
+
+function canChangeEstado(): boolean {
+  return isEventsAdmin.value
+}
+
+async function changeEventEstado(event: ClubEvent, estado: string): Promise<void> {
+  if (!canChangeEstado()) return
+  if (estado !== 'borrador' && estado !== 'publicado' && estado !== 'en_proceso' && estado !== 'cerrado') return
+  if (event.estado === estado) return
+  updatingEstadoId.value = event.id
+  try {
+    const saved = await eventsService.updateEstado(event.id, estado)
+    event.estado = saved.estado
+    event.is_active = saved.is_active
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('events.estadoUpdated'),
+      life: 2200,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: getApiErrorMessage(error),
+      life: 4000,
+    })
+  } finally {
+    updatingEstadoId.value = null
+  }
+}
+
 function estadoMeta(event: ClubEvent): { label: string; css: string } {
   const estado = event.estado || (event.is_active ? 'publicado' : 'borrador')
   if (estado === 'publicado' && event.is_active) {
     return { label: t('events.estadoPublicado'), css: 'status--publicado' }
+  }
+  if (estado === 'en_proceso') {
+    return { label: t('events.estadoEnProceso'), css: 'status--en-proceso' }
   }
   if (estado === 'borrador') {
     return { label: t('events.estadoBorrador'), css: 'status--borrador' }
@@ -331,9 +420,11 @@ function matchesFecha(event: ClubEvent): boolean {
 }
 
 const visibleEvents = computed(() =>
-  events.value.filter(
-    (e) => !e.evento_padre_id && matchesAudiencia(e) && matchesFecha(e),
-  ),
+  events.value.filter((e) => {
+    if (e.evento_padre_id) return false
+    if (!isEventsAdmin.value) return true
+    return matchesAudiencia(e) && matchesFecha(e)
+  }),
 )
 
 async function loadEvents(): Promise<void> {
@@ -341,9 +432,9 @@ async function loadEvents(): Promise<void> {
   try {
     const result = await eventsService.list({
       page: filters.page,
-      per_page: filters.per_page,
-      search: filters.search || undefined,
-      estado: filters.estado || undefined,
+      per_page: isEventsAdmin.value ? filters.per_page : 20,
+      search: isEventsAdmin.value ? filters.search || undefined : undefined,
+      estado: isEventsAdmin.value ? filters.estado || undefined : undefined,
       solo_raiz: true,
     })
     events.value = result.items
@@ -545,7 +636,7 @@ onMounted(() => {
       />
     </header>
 
-    <div class="events-toolbar">
+    <div v-if="isEventsAdmin" class="events-toolbar">
       <AppSearchField
         v-model="filters.search"
         class="events-toolbar__search"
@@ -572,27 +663,175 @@ onMounted(() => {
         option-value="value"
         class="events-toolbar__select"
       />
+      <div class="events-toolbar__views" role="group" :aria-label="t('events.viewMode')">
+        <Button
+          type="button"
+          size="small"
+          :outlined="viewMode !== 'tree'"
+          icon="pi pi-sitemap"
+          :label="t('events.viewTree')"
+          @click="viewMode = 'tree'"
+        />
+        <Button
+          type="button"
+          size="small"
+          :outlined="viewMode !== 'banner'"
+          icon="pi pi-image"
+          :label="t('events.viewBanner')"
+          @click="viewMode = 'banner'"
+        />
+      </div>
     </div>
 
     <PageLoader v-if="loading && !events.length" :label="t('common.loading')" />
 
-    <div v-else class="events-list">
+    <div v-else class="events-list" :class="{ 'events-list--banner': listView === 'banner' }">
       <p v-if="!visibleEvents.length" class="pj-muted events-empty">{{ t('events.empty') }}</p>
 
-      <article v-for="event in visibleEvents" :key="event.id" class="event-card-wrap">
-        <div class="event-card">
-          <div class="event-card__media">
+      <article
+        v-for="event in visibleEvents"
+        :key="event.id"
+        class="event-card-wrap"
+        :class="{ 'event-card-wrap--banner': listView === 'banner' }"
+      >
+        <div :class="listView === 'banner' ? 'event-banner-stack' : 'event-card'">
+        <EventBannerCard
+          v-if="listView === 'banner'"
+          :name="event.name"
+          :banner-url="resolveFileUrl(event.banner_url)"
+          :logo-url="resolveFileUrl(event.image_url)"
+          :status-label="estadoMeta(event).label"
+          :status-css="estadoMeta(event).css"
+          :audience-label="audienceSummary(event)"
+          :dates-label="formatDateRange(event.starts_at, event.ends_at)"
+          :place-label="event.lugar || t('events.wizard.previewPlace')"
+          :description="event.descripcion"
+          :cupo-label="cupoLabel(event)"
+          :score-label="enrollmentLabel(event)"
+          :cupo-caption="t('events.wizard.participants')"
+          :score-caption="t('events.enrollmentValue')"
+        >
+          <template v-if="canChangeEstado()" #status>
+            <EventEstadoSelect
+              compact
+              :model-value="event.estado || 'borrador'"
+              :loading="updatingEstadoId === event.id"
+              @update:model-value="changeEventEstado(event, $event)"
+            />
+          </template>
+          <div class="event-card__side event-card__side--banner">
+            <span
+              v-if="inscripcionStatusMeta(event.inscripcion_estado)"
+              class="inscripcion-chip"
+              :class="inscripcionStatusMeta(event.inscripcion_estado)?.css"
+            >
+              {{ inscripcionStatusMeta(event.inscripcion_estado)?.label }}
+            </span>
+            <div
+              v-if="canEnroll(event) || canParticipate(event) || canJudge(event) || canViewStandings(event) || canReviewInscripciones(event) || canAccessAlojamiento(event) || can('terrenos.view') || can('terrenos.assign')"
+              class="event-card__actions"
+            >
+              <Button
+                v-if="canEnroll(event)"
+                type="button"
+                size="small"
+                icon="pi pi-user-plus"
+                :label="enrollButtonLabel(event)"
+                @click="goEnroll(event)"
+              />
+              <Button
+                v-if="canReviewInscripciones(event)"
+                type="button"
+                size="small"
+                severity="secondary"
+                icon="pi pi-inbox"
+                :label="t('events.revisionMenu')"
+                @click="goInscripcionesRevision(event)"
+              />
+              <Button
+                v-if="canParticipate(event)"
+                type="button"
+                size="small"
+                severity="secondary"
+                icon="pi pi-play"
+                :label="t('events.participate')"
+                @click="goParticipate(event)"
+              />
+              <Button
+                v-if="canJudge(event)"
+                type="button"
+                size="small"
+                severity="help"
+                icon="pi pi-pencil"
+                :label="t('events.judge')"
+                @click="goJudge(event)"
+              />
+              <Button
+                v-if="canViewStandings(event)"
+                type="button"
+                size="small"
+                outlined
+                icon="pi pi-chart-bar"
+                :label="t('events.standings')"
+                @click="goStandings(event)"
+              />
+              <Button
+                v-if="canViewStandings(event)"
+                type="button"
+                size="small"
+                outlined
+                icon="pi pi-sitemap"
+                :label="t('events.standingsTree')"
+                @click="goStandingsTree(event)"
+              />
+              <span v-if="canAccessDistribucion(event)">
+                <Button
+                  type="button"
+                  size="small"
+                  outlined
+                  icon="pi pi-map"
+                  :label="distribucionButtonLabel()"
+                  @click="router.push({ name: 'events.distribucion', params: { id: event.id } })"
+                />
+              </span>
+              <Button
+                v-if="canAccessAlojamiento(event)"
+                type="button"
+                size="small"
+                outlined
+                icon="pi pi-building"
+                :label="event.alojamiento_asignado ? t('alojamiento.change') : t('alojamiento.action')"
+                @click="router.push({ name: 'events.alojamiento', params: { id: event.id } })"
+              />
+            </div>
+            <Button
+              v-if="menuItemsFor(event).length"
+              type="button"
+              icon="pi pi-ellipsis-v"
+              text
+              rounded
+              class="event-card__menu-btn"
+              @click="toggleMenu(event.id, $event)"
+            />
+            <Menu
+              :ref="(el) => setMenuRef(event.id, el)"
+              :model="menuItemsFor(event)"
+              popup
+            />
+          </div>
+        </EventBannerCard>
+          <div v-if="listView === 'tree'" class="event-card__media">
             <img v-if="event.image_url" :src="event.image_url" :alt="event.name" />
             <div v-else class="event-card__media-empty">
               <i class="pi pi-image" />
             </div>
           </div>
 
-          <div class="event-card__icon" :class="categoryTone(event)">
+          <div v-if="listView === 'tree'" class="event-card__icon" :class="categoryTone(event)">
             <i :class="categoryIcon(event)" />
           </div>
 
-          <div class="event-card__body">
+          <div v-if="listView === 'tree'" class="event-card__body">
             <h2 class="event-card__title">{{ event.name }}</h2>
             <p v-if="event.lugar" class="event-card__meta">
               <i class="pi pi-map-marker" />
@@ -646,8 +885,14 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="event-card__side">
-            <span class="status-pill" :class="estadoMeta(event).css">
+        <div v-if="listView === 'tree'" class="event-card__side">
+            <EventEstadoSelect
+              v-if="canChangeEstado()"
+              :model-value="event.estado || 'borrador'"
+              :loading="updatingEstadoId === event.id"
+              @update:model-value="changeEventEstado(event, $event)"
+            />
+            <span v-else class="status-pill" :class="estadoMeta(event).css">
               {{ estadoMeta(event).label }}
             </span>
             <span
@@ -750,11 +995,11 @@ onMounted(() => {
               :model="menuItemsFor(event)"
               popup
             />
-          </div>
+        </div>
         </div>
 
         <EventChildrenAccordion
-          v-if="hasChildren(event) && isExpanded(event.id) && event.hijos?.length"
+          v-if="listView === 'tree' && hasChildren(event) && isExpanded(event.id) && event.hijos?.length"
           :nodes="event.hijos"
           :expanded="expandedChildren"
           :mode="listMode"
@@ -763,17 +1008,17 @@ onMounted(() => {
           @open="onTreeNodeOpen"
         />
       </article>
+    </div>
 
-      <div class="events-footer">
-        <p class="pj-muted">{{ rangeLabel }}</p>
-        <Paginator
-          :rows="filters.per_page"
-          :total-records="pagination?.total ?? events.length"
-          :first="((pagination?.current_page ?? 1) - 1) * (pagination?.per_page ?? filters.per_page)"
-          template="PrevPageLink PageLinks NextPageLink"
-          @page="onPage"
-        />
-      </div>
+    <div v-if="!(loading && !events.length)" class="events-footer">
+      <p class="pj-muted">{{ rangeLabel }}</p>
+      <Paginator
+        :rows="filters.per_page"
+        :total-records="pagination?.total ?? events.length"
+        :first="((pagination?.current_page ?? 1) - 1) * (pagination?.per_page ?? filters.per_page)"
+        template="PrevPageLink PageLinks NextPageLink"
+        @page="onPage"
+      />
     </div>
 
     <Dialog
@@ -797,6 +1042,11 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.events-page {
+  flex: 1;
+  min-height: calc(100dvh - 8.75rem);
+}
+
 .events-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -818,7 +1068,59 @@ onMounted(() => {
   min-width: 10.5rem;
 }
 
-.events-list {
+.events-toolbar__views {
+  display: flex;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.events-list--banner {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  gap: 1.15rem;
+  width: 100%;
+}
+
+.events-list--banner .events-empty {
+  flex: 1 1 100%;
+}
+
+.event-card-wrap--banner {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  width: min(100%, 22.5rem);
+  max-width: 22.5rem;
+  flex: 0 1 22.5rem;
+}
+
+.event-banner-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.event-card__side--banner {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  align-self: stretch;
+  width: 100%;
+  padding: 0;
+  gap: 0.45rem;
+}
+
+.event-card__side--banner .event-card__actions {
+  justify-content: flex-start;
+}
+
+.events-list:not(.events-list--banner) {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -1047,6 +1349,11 @@ onMounted(() => {
   color: #15803d;
 }
 
+.status--en-proceso {
+  background: color-mix(in srgb, #2563eb 16%, transparent);
+  color: #1d4ed8;
+}
+
 .status--borrador {
   background: color-mix(in srgb, #f59e0b 18%, transparent);
   color: #b45309;
@@ -1065,7 +1372,13 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
-  margin-top: 0.35rem;
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  padding: 0.45rem 0 0.15rem;
+  background: color-mix(in srgb, var(--pj-bg) 92%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 @media (max-width: 860px) {

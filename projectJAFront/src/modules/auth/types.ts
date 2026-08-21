@@ -11,6 +11,8 @@ export interface User {
   email: string
   avatar_url: string | null
   is_active: boolean
+  is_super?: boolean
+  is_admin?: boolean
   roles: Role[]
   club_ids?: number[]
   clubs?: Array<{
@@ -85,6 +87,13 @@ export interface AuthUser {
   roles: string[]
   permissions: string[]
   is_super?: boolean
+  is_admin?: boolean
+  impersonated?: boolean
+  impersonator?: {
+    id: number
+    name: string
+    email?: string
+  } | null
   persona_id?: number | null
   organizaciones?: Array<{
     id: number

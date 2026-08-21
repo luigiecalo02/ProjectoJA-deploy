@@ -73,6 +73,21 @@ final class EventController
         return ApiResponse::success($this->payload($event), 'Evento actualizado');
     }
 
+    public function updateEstado(Request $request, Event $event): JsonResponse
+    {
+        $actor = $request->user();
+        abort_unless($actor?->isPlatformAdmin(), Response::HTTP_FORBIDDEN);
+        abort_unless($actor->can('update', $event), Response::HTTP_FORBIDDEN);
+
+        $data = $request->validate([
+            'estado' => ['required', 'string', 'in:borrador,publicado,en_proceso,cerrado'],
+        ]);
+
+        $event = $this->eventService->changeEstado($event, $actor, $data['estado']);
+
+        return ApiResponse::success($this->payload($event), 'Estado actualizado');
+    }
+
     public function destroy(Request $request, Event $event): JsonResponse
     {
         abort_unless($request->user()->can('delete', $event), Response::HTTP_FORBIDDEN);
@@ -101,6 +116,13 @@ final class EventController
         $event = $this->eventService->storeImage($event, $request->file('image'), $request->user());
 
         return ApiResponse::success($this->payload($event), 'Imagen actualizada');
+    }
+
+    public function banner(UploadEventImageRequest $request, Event $event): JsonResponse
+    {
+        $event = $this->eventService->storeBanner($event, $request->file('image'), $request->user());
+
+        return ApiResponse::success($this->payload($event), 'Banner actualizado');
     }
 
     public function tipos(Request $request): JsonResponse
@@ -278,6 +300,7 @@ final class EventController
             'latitud' => $event->latitud !== null ? (float) $event->latitud : null,
             'longitud' => $event->longitud !== null ? (float) $event->longitud : null,
             'image_url' => $event->image_url,
+            'banner_url' => $event->banner_url,
             'starts_at' => $event->starts_at?->toIso8601String(),
             'ends_at' => $event->ends_at?->toIso8601String(),
             'is_active' => (bool) $event->is_active,
@@ -287,9 +310,19 @@ final class EventController
             'es_calificable' => (bool) $event->es_calificable,
             'puntaje_maximo' => $event->puntaje_maximo !== null ? (float) $event->puntaje_maximo : null,
             'puntaje_desde_hijos' => (bool) $event->puntaje_desde_hijos,
+            'puntaje_por_participar' => (bool) $event->puntaje_por_participar,
             'tiempo_estimado_minutos' => $event->tiempo_estimado_minutos,
+            'requiere_puesto_entrega' => (bool) $event->requiere_puesto_entrega,
+            'requiere_tiempo_entrega' => (bool) $event->requiere_tiempo_entrega,
+            'resultado_esperado' => $event->resultado_esperado !== null ? (int) $event->resultado_esperado : null,
             'participantes_min' => $event->participantes_min,
             'participantes_max' => $event->participantes_max,
+            'permite_inscribir_no_participantes' => (bool) $event->permite_inscribir_no_participantes,
+            'participantes_genero' => $event->participantes_genero,
+            'participantes_min_m' => $event->participantes_min_m,
+            'participantes_max_m' => $event->participantes_max_m,
+            'participantes_min_f' => $event->participantes_min_f,
+            'participantes_max_f' => $event->participantes_max_f,
             'equipos_org_min' => $event->equipos_org_min,
             'equipos_org_max' => $event->equipos_org_max,
             'es_conjunto' => (bool) $event->es_conjunto,

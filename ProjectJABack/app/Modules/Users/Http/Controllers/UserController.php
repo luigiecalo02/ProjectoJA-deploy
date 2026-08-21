@@ -22,8 +22,9 @@ final class UserController
         $this->authorizeViewAny($request);
 
         $paginator = $this->userService->list(
-            $request->only(['q', 'role', 'is_active']),
-            (int) $request->integer('per_page', 15),
+            $request->only(['q', 'role', 'is_active', 'organizacion_id']),
+            min(20, max(1, (int) $request->integer('per_page', 15))),
+            $request->user(),
         );
 
         $paginator->getCollection()->transform(fn (User $user) => $this->payload($user));

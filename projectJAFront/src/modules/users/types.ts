@@ -5,6 +5,7 @@ export interface UserListParams {
   per_page?: number
   search?: string
   is_active?: boolean | null
+  organizacion_id?: number | null
 }
 
 export interface UserFormPayload {

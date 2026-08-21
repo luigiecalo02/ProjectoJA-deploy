@@ -24,6 +24,7 @@ import type {
   CategoriaSubeventoPayload,
   CriterioEvaluacion,
   CriterioEvaluacionPayload,
+  ActivityRoster,
   EventParticipation,
   EventoEvidenciaItem,
   JudgeBoard,
@@ -48,6 +49,31 @@ export interface SegurosConsultaPage {
 
 let tiposEventoCache: TipoEvento[] | null = null
 let tiposEventoInflight: Promise<TipoEvento[]> | null = null
+
+const IMAGE_FILE_NAME = /\.(jpe?g|png|webp|gif)$/i
+
+function isLikelyImageFile(file: File): boolean {
+  return file.type.startsWith('image/') || IMAGE_FILE_NAME.test(file.name)
+}
+
+function assertEventImageFile(file: File, maxBytes: number, tooLargeMessage: string): void {
+  if (!isLikelyImageFile(file)) {
+    throw new Error('Solo se permiten archivos de imagen.')
+  }
+  if (file.size > maxBytes) {
+    throw new Error(tooLargeMessage)
+  }
+}
+
+async function postEventMedia(url: string, file: File): Promise<ClubEvent> {
+  const image = await prepareUploadFile(file)
+  const body = new FormData()
+  body.append('image', image)
+  const { data } = await api.post<ApiEnvelope<ClubEvent>>(url, body, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data.data
+}
 
 export const eventsService = {
   async list(params: EventListParams = {}): Promise<EventsPage> {
@@ -336,6 +362,21 @@ export const eventsService = {
     return data.data
   },
 
+  async activityRoster(eventId: number): Promise<ActivityRoster> {
+    const { data } = await api.get<ApiEnvelope<ActivityRoster>>(
+      `/api/v1/events/${eventId}/actividad-participantes`,
+    )
+    return data.data
+  },
+
+  async syncActivityRoster(eventId: number, personaIds: number[]): Promise<ActivityRoster> {
+    const { data } = await api.put<ApiEnvelope<ActivityRoster>>(
+      `/api/v1/events/${eventId}/actividad-participantes`,
+      { persona_ids: personaIds },
+    )
+    return data.data
+  },
+
   async participation(eventId: number): Promise<EventParticipation> {
     const { data } = await api.get<ApiEnvelope<EventParticipation>>(
       `/api/v1/events/${eventId}/participation`,
@@ -437,6 +478,9 @@ export const eventsService = {
       puntaje_obtenido?: number | null
       observaciones?: string | null
       criterios?: Array<{ criterio_evaluacion_id: number; puntos: number }>
+      puesto_entrega?: string | null
+      tiempo_entrega?: string | null
+      resultado_obtenido?: number | null
     },
   ): Promise<JudgeCalificacion> {
     const { data } = await api.post<ApiEnvelope<JudgeCalificacion>>(
@@ -533,6 +577,16 @@ export const eventsService = {
     return data.data
   },
 
+  async updateEstado(
+    id: number,
+    estado: 'borrador' | 'publicado' | 'en_proceso' | 'cerrado',
+  ): Promise<ClubEvent> {
+    const { data } = await api.patch<ApiEnvelope<ClubEvent>>(`/api/v1/events/${id}/estado`, {
+      estado,
+    })
+    return data.data
+  },
+
   async remove(id: number): Promise<void> {
     await api.delete<ApiEnvelope<null>>(`/api/v1/events/${id}`)
   },
@@ -543,21 +597,12 @@ export const eventsService = {
   },
 
   async uploadImage(id: number, file: File): Promise<ClubEvent> {
-    if (!file.type.startsWith('image/')) {
-      throw new Error('Solo se permiten archivos de imagen.')
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      throw new Error('La imagen no puede superar 5 MB.')
-    }
+    assertEventImageFile(file, 5 * 1024 * 1024, 'La imagen no puede superar 5 MB.')
+    return postEventMedia(`/api/v1/events/${id}/image`, file)
+  },
 
-    const image = await prepareUploadFile(file)
-    const body = new FormData()
-    body.append('image', image)
-
-    const { data } = await api.post<ApiEnvelope<ClubEvent>>(`/api/v1/events/${id}/image`, body, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-
-    return data.data
+  async uploadBanner(id: number, file: File): Promise<ClubEvent> {
+    assertEventImageFile(file, 10 * 1024 * 1024, 'El banner no puede superar 10 MB.')
+    return postEventMedia(`/api/v1/events/${id}/banner`, file)
   },
 }

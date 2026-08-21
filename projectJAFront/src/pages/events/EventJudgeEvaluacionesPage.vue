@@ -11,6 +11,7 @@ import PageLoader from '@/components/PageLoader.vue'
 import EventSearchPanel from '@/components/events/EventSearchPanel.vue'
 import { eventsService } from '@/services/eventsService'
 import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
+import { extractBannerHeroVars } from '@/utils/dominantColor'
 import { getApiErrorMessage } from '@/services/api'
 import type {
   JudgeEvaluacionClub,
@@ -34,10 +35,38 @@ const selectedOrgId = ref<number | null>(null)
 const bootstrapped = ref(false)
 
 const eventId = computed(() => Number(route.params.id))
+const bannerUrl = computed(() => resolveAssetUrl(data.value?.evento.banner_url))
+const logoUrl = computed(() => resolveAssetUrl(data.value?.evento.image_url))
+const heroCoverUrl = computed(() => bannerUrl.value || logoUrl.value)
+const showEventLogo = computed(() => Boolean(logoUrl.value && bannerUrl.value))
+const heroTheme = ref<Record<string, string>>({})
+let heroThemeSequence = 0
 const heroStyle = computed(() => {
-  const url = resolveAssetUrl(data.value?.evento.image_url)
-  return url ? { '--hero-image': toCssImageUrl(url) } : undefined
+  const url = heroCoverUrl.value
+  if (!url) return undefined
+  return {
+    '--hero-image': toCssImageUrl(url),
+    ...heroTheme.value,
+  }
 })
+
+watch(
+  heroCoverUrl,
+  async (url) => {
+    heroTheme.value = {}
+    if (!url) return
+    const sequence = ++heroThemeSequence
+    try {
+      const vars = await extractBannerHeroVars(url)
+      if (sequence !== heroThemeSequence) return
+      heroTheme.value = vars
+    } catch {
+      if (sequence !== heroThemeSequence) return
+      heroTheme.value = {}
+    }
+  },
+  { immediate: true },
+)
 
 const estadoOptions = computed(() => [
   { value: '', label: t('events.judgeFilterAll') },
@@ -170,9 +199,15 @@ onMounted(() => {
   <div class="eval-page" :class="{ 'has-detail': !!detalle }">
     <header
       class="eval-hero"
-      :class="{ 'has-cover': Boolean(data?.evento.image_url) }"
+      :class="{ 'has-cover': Boolean(heroCoverUrl), 'has-logo': showEventLogo }"
       :style="heroStyle"
     >
+      <img
+        v-if="showEventLogo && logoUrl"
+        class="eval-hero__logo"
+        :src="logoUrl"
+        :alt="data?.evento.name || t('events.judgeEvalTitle')"
+      />
       <div>
         <Button
           type="button"
@@ -485,6 +520,9 @@ onMounted(() => {
 }
 
 .eval-hero {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
   padding: 1.15rem 1.3rem;
   border-radius: 16px;
   overflow: hidden;
@@ -495,10 +533,21 @@ onMounted(() => {
   border: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
 }
 
+.eval-hero__logo {
+  width: 4.5rem;
+  height: 4.5rem;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 0.9rem;
+  border: 3px solid #fff;
+  background: #fff;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.28);
+}
+
 .eval-hero.has-cover {
-  color: #fff;
+  color: var(--hero-text, #fff);
   background-image:
-    linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%),
+    var(--hero-overlay, linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%)),
     var(--hero-image);
   background-size: cover;
   background-position: center;
@@ -507,7 +556,11 @@ onMounted(() => {
 
 .eval-hero.has-cover .pj-muted,
 .eval-hero.has-cover .eval-kicker {
-  color: rgba(255, 255, 255, 0.86);
+  color: var(--hero-muted, rgba(255, 255, 255, 0.86));
+}
+
+.eval-hero.has-cover :deep(.p-button.p-button-text) {
+  color: var(--hero-text, #fff);
 }
 
 .eval-back {

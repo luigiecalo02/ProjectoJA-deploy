@@ -100,4 +100,93 @@ final class AuthService
 
         return ['user' => $user, 'token' => $token];
     }
+
+    /**
+     * @return array{user: User, token: string, impersonator: User}
+     */
+    public function impersonate(User $actor, User $target): array
+    {
+        if ($actor->id === $target->id) {
+            throw ValidationException::withMessages([
+                'user' => ['No puedes entrar como tu mismo usuario.'],
+            ]);
+        }
+
+        if (! $target->is_active) {
+            throw ValidationException::withMessages([
+                'user' => ['La cuenta está desactivada.'],
+            ]);
+        }
+
+        $token = $target->createToken('impersonation', [
+            'impersonator:'.$actor->id,
+        ])->plainTextToken;
+
+        $this->auditLogger->log('auth', 'impersonate', [
+            'actor_id' => $actor->id,
+            'actor_email' => $actor->email,
+        ], [
+            'target_id' => $target->id,
+            'target_email' => $target->email,
+        ], $target);
+
+        return [
+            'user' => $target,
+            'token' => $token,
+            'impersonator' => $actor,
+        ];
+    }
+
+    /**
+     * @return array{user: User, token: string}
+     */
+    public function stopImpersonation(User $current): array
+    {
+        $impersonatorId = $this->impersonatorIdFromUser($current);
+        if ($impersonatorId === null) {
+            throw ValidationException::withMessages([
+                'session' => ['No hay una sesión de autologin activa.'],
+            ]);
+        }
+
+        $actor = User::query()->find($impersonatorId);
+        if (! $actor || ! $actor->is_active) {
+            throw ValidationException::withMessages([
+                'session' => ['La cuenta administradora no está disponible.'],
+            ]);
+        }
+
+        $current->currentAccessToken()?->delete();
+        $token = $actor->createToken('api')->plainTextToken;
+
+        $this->auditLogger->log('auth', 'stop_impersonation', [
+            'target_id' => $current->id,
+            'target_email' => $current->email,
+        ], [
+            'actor_id' => $actor->id,
+            'actor_email' => $actor->email,
+        ], $actor);
+
+        return ['user' => $actor, 'token' => $token];
+    }
+
+    public function impersonatorIdFromUser(User $user): ?int
+    {
+        $token = $user->currentAccessToken();
+        if (! $token) {
+            return null;
+        }
+
+        foreach ($token->abilities ?? [] as $ability) {
+            if (! is_string($ability) || ! str_starts_with($ability, 'impersonator:')) {
+                continue;
+            }
+
+            $id = (int) substr($ability, strlen('impersonator:'));
+
+            return $id > 0 ? $id : null;
+        }
+
+        return null;
+    }
 }

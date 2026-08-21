@@ -84,6 +84,30 @@ class RolePermissionSeeder extends Seeder
                 ],
             ],
             [
+                'key' => 'seguros_consulta',
+                'name' => 'Consultar seguro',
+                'route_name' => 'segurosConsulta',
+                'icon' => 'pi pi-shield',
+                'sort_order' => 41,
+                'description' => 'Consulta de vigencia de seguros de personas',
+                'permissions' => [
+                    ['action' => 'view', 'display_name' => 'Ver consultar seguro', 'sort_order' => 1],
+                ],
+            ],
+            [
+                'key' => 'productos_servicios',
+                'name' => 'Servicios',
+                'route_name' => 'productosServicios',
+                'icon' => 'pi pi-box',
+                'sort_order' => 42,
+                'description' => 'Catálogo de productos y servicios para eventos',
+                'permissions' => [
+                    ['action' => 'view', 'display_name' => 'Ver servicios', 'sort_order' => 1],
+                    ['action' => 'create', 'display_name' => 'Crear servicios', 'sort_order' => 2],
+                    ['action' => 'update', 'display_name' => 'Actualizar servicios', 'sort_order' => 3],
+                ],
+            ],
+            [
                 'key' => 'clubs',
                 'name' => 'Clubes',
                 'route_name' => 'clubs',
@@ -322,6 +346,8 @@ class RolePermissionSeeder extends Seeder
         $directorPermissions = Permission::query()->whereIn('name', [
             'dashboard.view',
             'events.view',
+            'seguros_consulta.view',
+            'productos_servicios.view',
             'clubs.view',
             'clubs.update',
             'clubs.manage_members',
@@ -345,6 +371,8 @@ class RolePermissionSeeder extends Seeder
             Permission::query()->whereIn('name', [
                 'dashboard.view',
                 'events.view',
+                'seguros_consulta.view',
+                'productos_servicios.view',
                 'clubs.view',
                 'mi_club.view',
                 'personas.view',
@@ -360,6 +388,8 @@ class RolePermissionSeeder extends Seeder
             Permission::query()->whereIn('name', [
                 'dashboard.view',
                 'events.view',
+                'seguros_consulta.view',
+                'productos_servicios.view',
                 'clubs.view',
                 'mi_club.view',
                 'personas.view',
@@ -371,6 +401,8 @@ class RolePermissionSeeder extends Seeder
             Permission::query()->whereIn('name', [
                 'dashboard.view',
                 'events.view',
+                'seguros_consulta.view',
+                'productos_servicios.view',
                 'clubs.view',
                 'mi_club.view',
                 'personas.view',
@@ -386,6 +418,8 @@ class RolePermissionSeeder extends Seeder
             Permission::query()->whereIn('name', [
                 'dashboard.view',
                 'events.view',
+                'seguros_consulta.view',
+                'productos_servicios.view',
                 'cabanas.view',
                 'cabanas.self_assign',
             ])->pluck('id')
@@ -395,6 +429,8 @@ class RolePermissionSeeder extends Seeder
             Permission::query()->whereIn('name', [
                 'dashboard.view',
                 'events.view',
+                'seguros_consulta.view',
+                'productos_servicios.view',
                 'events.evaluate',
                 'events.view_scores',
             ])->pluck('id')
@@ -404,6 +440,8 @@ class RolePermissionSeeder extends Seeder
             Permission::query()->whereIn('name', [
                 'dashboard.view',
                 'events.view',
+                'seguros_consulta.view',
+                'productos_servicios.view',
                 'events.view_scores',
             ])->pluck('id')
         );

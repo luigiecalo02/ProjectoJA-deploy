@@ -29,8 +29,12 @@ const bootstrapped = ref(false)
 const expanded = ref<Set<number>>(new Set())
 
 const eventId = computed(() => Number(route.params.id))
+const bannerUrl = computed(() => resolveAssetUrl(data.value?.evento.banner_url))
+const logoUrl = computed(() => resolveAssetUrl(data.value?.evento.image_url))
+const heroCoverUrl = computed(() => bannerUrl.value || logoUrl.value)
+const showEventLogo = computed(() => Boolean(logoUrl.value && bannerUrl.value))
 const heroStyle = computed(() => {
-  const url = resolveAssetUrl(data.value?.evento.image_url)
+  const url = heroCoverUrl.value
   return url ? { '--hero-image': toCssImageUrl(url) } : undefined
 })
 
@@ -238,23 +242,34 @@ onMounted(() => {
   <div class="standings-page">
     <header
       class="pj-page__header standings-hero"
-      :class="{ 'has-cover': Boolean(data?.evento.image_url) }"
+      :class="{
+        'has-cover': Boolean(heroCoverUrl),
+        'has-logo': showEventLogo,
+      }"
       :style="heroStyle"
     >
-      <div class="standings-hero__copy">
-        <Button
-          type="button"
-          text
-          icon="pi pi-arrow-left"
-          :label="t('common.back')"
-          class="standings-back"
-          @click="router.push({ name: 'events' })"
+      <div class="standings-hero__intro">
+        <img
+          v-if="showEventLogo && logoUrl"
+          class="standings-hero__logo"
+          :src="logoUrl"
+          :alt="data?.evento.name || t('events.standingsTreeTitle')"
         />
-        <p class="standings-kicker">{{ t('events.standingsTreeKicker') }}</p>
-        <h1 class="pj-page__title standings-title">
-          {{ data?.evento.name || t('events.standingsTreeTitle') }}
-        </h1>
-        <p class="pj-muted">{{ t('events.standingsTreeSubtitle') }}</p>
+        <div class="standings-hero__copy">
+          <Button
+            type="button"
+            text
+            icon="pi pi-arrow-left"
+            :label="t('common.back')"
+            class="standings-back"
+            @click="router.push({ name: 'events' })"
+          />
+          <p class="standings-kicker">{{ t('events.standingsTreeKicker') }}</p>
+          <h1 class="pj-page__title standings-title">
+            {{ data?.evento.name || t('events.standingsTreeTitle') }}
+          </h1>
+          <p class="pj-muted">{{ t('events.standingsTreeSubtitle') }}</p>
+        </div>
       </div>
       <div v-if="data" class="standings-summary">
         <div>
@@ -415,7 +430,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   gap: 1.25rem;
-  align-items: end;
+  align-items: flex-end;
   flex-wrap: wrap;
   padding: 1.25rem 1.35rem;
   border-radius: 16px;
@@ -455,6 +470,39 @@ onMounted(() => {
 
 .standings-hero.has-cover :deep(.standings-back) {
   color: #fff;
+}
+
+.standings-hero__intro {
+  display: flex;
+  align-items: center;
+  gap: 0.95rem;
+  min-width: 0;
+}
+
+.standings-hero__logo {
+  width: 4.5rem;
+  height: 4.5rem;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 0.9rem;
+  border: 3px solid #fff;
+  background: #fff;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.28);
+}
+
+.standings-hero.has-cover.has-logo {
+  overflow: visible;
+  margin-bottom: 2.4rem;
+}
+
+.standings-hero.has-cover.has-logo .standings-hero__intro {
+  align-items: flex-end;
+}
+
+.standings-hero.has-cover.has-logo .standings-hero__logo {
+  position: relative;
+  z-index: 2;
+  margin-bottom: -2.4rem;
 }
 
 .standings-back {

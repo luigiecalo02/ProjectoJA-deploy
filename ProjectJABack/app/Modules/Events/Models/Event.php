@@ -23,6 +23,8 @@ class Event extends Model
 
     public const ESTADO_PUBLICADO = 'publicado';
 
+    public const ESTADO_EN_PROCESO = 'en_proceso';
+
     public const ESTADO_CERRADO = 'cerrado';
 
     public const ESTADO_CANCELADO = 'cancelado';
@@ -46,6 +48,7 @@ class Event extends Model
         'latitud',
         'longitud',
         'image_url',
+        'banner_url',
         'starts_at',
         'ends_at',
         'created_by',
@@ -56,9 +59,19 @@ class Event extends Model
         'es_calificable',
         'puntaje_maximo',
         'puntaje_desde_hijos',
+        'puntaje_por_participar',
         'tiempo_estimado_minutos',
+        'requiere_puesto_entrega',
+        'requiere_tiempo_entrega',
+        'resultado_esperado',
         'participantes_min',
         'participantes_max',
+        'permite_inscribir_no_participantes',
+        'participantes_genero',
+        'participantes_min_m',
+        'participantes_max_m',
+        'participantes_min_f',
+        'participantes_max_f',
         'equipos_org_min',
         'equipos_org_max',
         'es_conjunto',
@@ -112,6 +125,7 @@ class Event extends Model
             'es_en_sitio' => 'boolean',
             'es_calificable' => 'boolean',
             'puntaje_desde_hijos' => 'boolean',
+            'puntaje_por_participar' => 'boolean',
             'requiere_pago' => 'boolean',
             'requiere_seguro' => 'boolean',
             'cupo_ilimitado' => 'boolean',
@@ -125,8 +139,16 @@ class Event extends Model
             'puntos_inscripcion_a_tiempo' => 'decimal:2',
             'puntos_inscripcion_fuera_tiempo' => 'decimal:2',
             'tiempo_estimado_minutos' => 'integer',
+            'requiere_puesto_entrega' => 'boolean',
+            'requiere_tiempo_entrega' => 'boolean',
+            'resultado_esperado' => 'integer',
             'participantes_min' => 'integer',
             'participantes_max' => 'integer',
+            'permite_inscribir_no_participantes' => 'boolean',
+            'participantes_min_m' => 'integer',
+            'participantes_max_m' => 'integer',
+            'participantes_min_f' => 'integer',
+            'participantes_max_f' => 'integer',
             'equipos_org_min' => 'integer',
             'equipos_org_max' => 'integer',
             'es_conjunto' => 'boolean',
@@ -413,6 +435,20 @@ class Event extends Model
     public function eventoCriterios(): HasMany
     {
         return $this->hasMany(EventoCriterio::class, 'evento_id')->orderBy('orden');
+    }
+
+    public function isLive(): bool
+    {
+        return in_array($this->estado, [self::ESTADO_PUBLICADO, self::ESTADO_EN_PROCESO], true);
+    }
+
+    public function locksDirectorModifications(): bool
+    {
+        return in_array($this->estado, [
+            self::ESTADO_EN_PROCESO,
+            self::ESTADO_CERRADO,
+            self::ESTADO_CANCELADO,
+        ], true);
     }
 
     public function isVisibleTo(User $user): bool

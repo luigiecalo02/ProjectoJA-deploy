@@ -154,6 +154,7 @@ final class EventStandingsService
                 'name' => $root->name,
                 'estado' => $root->estado,
                 'image_url' => $root->image_url,
+                'banner_url' => $root->banner_url,
             ],
             'alcance' => [
                 'evento_id' => (int) $scope->id,
@@ -243,6 +244,7 @@ final class EventStandingsService
                     'name' => $root->name,
                     'estado' => $root->estado,
                     'image_url' => $root->image_url,
+                'banner_url' => $root->banner_url,
                 ],
                 'tree' => $tree,
                 'sort' => $sort,
@@ -331,6 +333,7 @@ final class EventStandingsService
                 'name' => $root->name,
                 'estado' => $root->estado,
                 'image_url' => $root->image_url,
+                'banner_url' => $root->banner_url,
             ],
             'tree' => $tree,
             'sort' => $sort,
@@ -421,6 +424,7 @@ final class EventStandingsService
                 'name' => $root->name,
                 'estado' => $root->estado,
                 'image_url' => $root->image_url,
+                'banner_url' => $root->banner_url,
             ],
             'alcance' => [
                 'evento_id' => (int) $scope->id,

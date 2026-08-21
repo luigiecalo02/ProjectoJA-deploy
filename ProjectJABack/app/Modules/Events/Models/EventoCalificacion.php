@@ -20,6 +20,9 @@ class EventoCalificacion extends Model
         'puntaje_obtenido',
         'puesto',
         'observaciones',
+        'puesto_entrega',
+        'tiempo_entrega',
+        'resultado_obtenido',
         'calificado_por',
     ];
 
@@ -27,6 +30,7 @@ class EventoCalificacion extends Model
     {
         return [
             'puntaje_obtenido' => 'decimal:2',
+            'resultado_obtenido' => 'integer',
         ];
     }
 

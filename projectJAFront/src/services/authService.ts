@@ -59,6 +59,16 @@ export const authService = {
     await api.post<ApiEnvelope<null>>('/api/v1/auth/logout')
   },
 
+  async impersonate(userId: number): Promise<LoginResult> {
+    const { data } = await api.post<ApiEnvelope<LoginResult>>(`/api/v1/auth/impersonate/${userId}`)
+    return data.data
+  },
+
+  async stopImpersonation(): Promise<LoginResult> {
+    const { data } = await api.post<ApiEnvelope<LoginResult>>('/api/v1/auth/stop-impersonation')
+    return data.data
+  },
+
   async me(): Promise<AuthUser> {
     const { data } = await api.get<ApiEnvelope<AuthUser>>('/api/v1/auth/me')
     return data.data

@@ -9,6 +9,7 @@ use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacionRol;
+use App\Modules\Organizations\Services\OrganizationAccessService;
 use App\Modules\Settings\Services\MailSettingsService;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
@@ -28,10 +29,15 @@ final class UserService
         private readonly ImageOptimizer $imageOptimizer,
         private readonly AccountMailService $accountMail,
         private readonly MailSettingsService $mailSettings,
+        private readonly OrganizationAccessService $orgAccess,
     ) {}
 
-    public function list(array $filters = [], int $perPage = 15): LengthAwarePaginator
+    public function list(array $filters = [], int $perPage = 15, ?User $actor = null): LengthAwarePaginator
     {
+        if ($actor) {
+            $filters = $this->constrainOrganizationFilter($actor, $filters);
+        }
+
         return $this->users->paginate($filters, $perPage);
     }
 
@@ -590,5 +596,31 @@ final class UserService
         }
 
         $user->clubs()->sync($clubIds);
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    private function constrainOrganizationFilter(User $actor, array $filters): array
+    {
+        if (! $this->orgAccess->shouldScopeByOrganization($actor)) {
+            return $filters;
+        }
+
+        $accessible = $this->orgAccess->accessibleOrganizationIds($actor);
+        $requested = ! empty($filters['organizacion_id']) ? (int) $filters['organizacion_id'] : null;
+
+        if ($requested && in_array($requested, $accessible, true)) {
+            $filters['organizacion_id'] = $requested;
+            unset($filters['organizacion_ids']);
+
+            return $filters;
+        }
+
+        unset($filters['organizacion_id']);
+        $filters['organizacion_ids'] = $accessible === [] ? [-1] : $accessible;
+
+        return $filters;
     }
 }

@@ -17,7 +17,7 @@ final class SeguroConsultaController
     public function index(Request $request): JsonResponse
     {
         abort_unless(
-            $request->user()?->hasPermission('events.view'),
+            $request->user()?->hasPermission('seguros_consulta.view'),
             Response::HTTP_FORBIDDEN,
         );
 

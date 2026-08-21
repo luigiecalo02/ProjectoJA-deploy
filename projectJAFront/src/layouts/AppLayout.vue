@@ -24,6 +24,7 @@ const { can } = usePermission()
 
 const drawerOpen = ref(false)
 const loggingOut = ref(false)
+const stoppingImpersonation = ref(false)
 const chrome = getPageChrome()
 const chromeMenu = ref<InstanceType<typeof Menu> | null>(null)
 const isMobileChrome = ref(false)
@@ -108,7 +109,7 @@ function toggleChromeMenu(event: Event): void {
 
 const navItems = computed(() => {
   const items = [
-    { to: { name: 'dashboard' }, label: t('nav.dashboard'), icon: 'pi pi-home', show: true },
+    { to: { name: 'dashboard' }, label: t('nav.dashboard'), icon: 'pi pi-home', show: can('dashboard.view') },
     { to: { name: 'users' }, label: t('nav.users'), icon: 'pi pi-users', show: can('users.view') },
     { to: { name: 'roles' }, label: t('nav.roles'), icon: 'pi pi-shield', show: can('roles.view') },
     { to: { name: 'settings.platform' }, label: t('nav.settingsBrand'), icon: 'pi pi-cog', show: can('settings.view') },
@@ -122,13 +123,13 @@ const navItems = computed(() => {
       to: { name: 'segurosConsulta' },
       label: t('nav.segurosConsulta'),
       icon: 'pi pi-shield',
-      show: can('events.view'),
+      show: can('seguros_consulta.view'),
     },
     {
       to: { name: 'productosServicios' },
       label: t('nav.productosServicios'),
       icon: 'pi pi-box',
-      show: can('events.view'),
+      show: can('productos_servicios.view'),
     },
     { to: { name: 'terrenos' }, label: t('nav.terrenos'), icon: 'pi pi-map', show: can('terrenos.view') },
     { to: { name: 'cabanas' }, label: t('nav.cabanas'), icon: 'pi pi-building', show: can('cabanas.view') },
@@ -166,9 +167,23 @@ async function logout(): Promise<void> {
   loggingOut.value = true
   try {
     await auth.logout()
+    if (auth.isAuthenticated) {
+      await router.push({ name: 'dashboard' })
+      return
+    }
     await router.push({ name: 'login' })
   } finally {
     loggingOut.value = false
+  }
+}
+
+async function returnToAdmin(): Promise<void> {
+  stoppingImpersonation.value = true
+  try {
+    await auth.stopImpersonation()
+    await router.push({ name: 'users' })
+  } finally {
+    stoppingImpersonation.value = false
   }
 }
 
@@ -206,6 +221,20 @@ onBeforeUnmount(() => {
       '--pj-pattern': brand.patternCss,
     }"
   >
+    <div v-if="auth.isImpersonating" class="impersonation-banner" role="status">
+      <span>
+        <i class="pi pi-eye" />
+        {{ t('users.impersonatingAs', { name: auth.user?.name || '' }) }}
+        <em v-if="auth.impersonator?.name">{{ t('users.impersonatingFrom', { name: auth.impersonator.name }) }}</em>
+      </span>
+      <Button
+        size="small"
+        icon="pi pi-undo"
+        :label="t('users.stopImpersonation')"
+        :loading="stoppingImpersonation"
+        @click="returnToAdmin"
+      />
+    </div>
     <aside class="app-sidebar desktop-only">
       <button
         type="button"
@@ -432,6 +461,32 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 1fr;
   overflow-x: clip;
+}
+
+.impersonation-banner {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 1rem;
+  background: #b45309;
+  color: #fff7ed;
+  z-index: 20;
+}
+
+.impersonation-banner span {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+  font-weight: 700;
+}
+
+.impersonation-banner em {
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.9;
 }
 
 .app-sidebar {

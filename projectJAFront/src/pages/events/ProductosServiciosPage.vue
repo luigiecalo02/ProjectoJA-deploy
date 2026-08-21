@@ -40,7 +40,9 @@ const form = reactive({
   activo: true,
 })
 
-const canManage = computed(() => can('events.update'))
+const canCreate = computed(() => can('productos_servicios.create'))
+const canUpdate = computed(() => can('productos_servicios.update'))
+const canManage = computed(() => canCreate.value || canUpdate.value)
 
 const tipoOptions = computed(() => [
   { label: t('productosServicios.tipos.PASADIA'), value: 'PASADIA' },
@@ -83,7 +85,7 @@ function openCreate(): void {
 usePageChrome(() => ({
   title: t('productosServicios.title'),
   subtitle: t('productosServicios.subtitle'),
-  actions: canManage.value
+  actions: canCreate.value
     ? [
         {
           key: 'new',
@@ -182,7 +184,7 @@ async function save(): Promise<void> {
 }
 
 async function toggleActivo(item: ProductoServicio): Promise<void> {
-  if (!canManage.value) return
+  if (!canUpdate.value) return
   const next = !(item.activo !== false)
   try {
     await eventsService.updateProductoServicio(item.id, {
@@ -223,7 +225,7 @@ onMounted(() => {
         <p class="pj-page__subtitle">{{ t('productosServicios.subtitle') }}</p>
       </div>
       <Button
-        v-if="canManage"
+        v-if="canCreate"
         icon="pi pi-plus"
         :label="t('productosServicios.new')"
         @click="openCreate"
@@ -278,7 +280,7 @@ onMounted(() => {
           </template>
         </Column>
 
-        <Column v-if="canManage" :header="t('common.actions')" style="width: 9rem">
+        <Column v-if="canUpdate" :header="t('common.actions')" style="width: 9rem">
           <template #body="{ data }">
             <div class="actions">
               <Button

@@ -42,6 +42,7 @@ const props = withDefaults(
     judgeObservacion?: string
     canWriteJudgeObs?: boolean
     savingJudgeObs?: boolean
+    showParticipantes?: boolean
   }>(),
   {
     defaultTab: 'info',
@@ -59,6 +60,7 @@ const props = withDefaults(
     judgeObservacion: '',
     canWriteJudgeObs: false,
     savingJudgeObs: false,
+    showParticipantes: false,
   },
 )
 
@@ -96,6 +98,9 @@ const tabs = computed(() => {
   ]
   if (hasSubeventos.value) {
     base.push({ id: 'subeventos', label: t('events.judgeTabSubeventos') })
+  }
+  if (props.showParticipantes) {
+    base.push({ id: 'participantes', label: t('events.activityRosterTab') })
   }
   base.push(
     { id: 'descripcion', label: t('events.judgeTabDescripcion') },
@@ -232,6 +237,7 @@ watch(
 const estadoLabel = computed(() => {
   const estado = props.actividad.estado
   if (estado === 'publicado') return t('events.estadoPublicado')
+  if (estado === 'en_proceso') return t('events.estadoEnProceso')
   if (estado === 'borrador') return t('events.estadoBorrador')
   if (estado === 'cerrado') return t('events.estadoCerrado')
   if (estado === 'cancelado') return t('events.estadoCancelado')
@@ -379,6 +385,11 @@ const subeventoRows = computed(() =>
       <h4>{{ t('events.wizard.shortDescription') }}</h4>
       <p>{{ actividad.descripcion || t('events.wizard.previewPending') }}</p>
       <ul class="meta-list">
+        <li v-if="actividad.puntaje_por_participar">
+          <i class="pi pi-verified" />
+          <span>{{ t('events.wizard.subOptScoreByParticipation') }}</span>
+          <strong>{{ t('common.yes') }}</strong>
+        </li>
         <li v-if="actividad.puntaje_maximo != null || actividad.es_calificable || actividad.puntaje_desde_hijos">
           <i class="pi pi-star" />
           <span>{{ t('events.wizard.subColScore') }}</span>
@@ -399,16 +410,50 @@ const subeventoRows = computed(() =>
           <span>{{ t('events.wizard.subColCategory') }}</span>
           <strong>{{ actividad.categoria_subevento?.nombre || '—' }}</strong>
         </li>
-        <li v-if="actividad.tiempo_estimado_minutos != null">
-          <i class="pi pi-clock" />
-          <span>{{ t('events.wizard.subTime') }}</span>
-          <strong>{{ actividad.tiempo_estimado_minutos }} min</strong>
+        <li v-if="actividad.requiere_puesto_entrega">
+          <i class="pi pi-map-marker" />
+          <span>{{ t('events.wizard.subPuestoEntrega') }}</span>
+          <strong>{{ t('common.yes') }}</strong>
         </li>
-        <li v-if="actividad.participantes_min != null || actividad.participantes_max != null">
+        <li v-if="actividad.requiere_tiempo_entrega">
+          <i class="pi pi-clock" />
+          <span>{{ t('events.wizard.subTiempoEntrega') }}</span>
+          <strong>{{ t('common.yes') }}</strong>
+        </li>
+        <li v-if="actividad.resultado_esperado != null">
+          <i class="pi pi-check-square" />
+          <span>{{ t('events.wizard.subResultadoEsperado') }}</span>
+          <strong>{{ actividad.resultado_esperado }}</strong>
+        </li>
+        <li
+          v-if="
+            actividad.participantes_min != null ||
+            actividad.participantes_max != null ||
+            actividad.participantes_genero != null
+          "
+        >
           <i class="pi pi-users" />
           <span>{{ t('events.wizard.subParticipants') }}</span>
           <strong>
-            {{ actividad.participantes_min || '—' }} – {{ actividad.participantes_max || '—' }}
+            <template v-if="actividad.participantes_genero === 'mixto'">
+              {{ t('events.wizard.subParticipantsGenderMixto') }}
+              · M
+              {{ actividad.participantes_min_m ?? '—' }}<template v-if="actividad.participantes_max_m != null">–{{ actividad.participantes_max_m }}</template>
+              / F
+              {{ actividad.participantes_min_f ?? '—' }}<template v-if="actividad.participantes_max_f != null">–{{ actividad.participantes_max_f }}</template>
+            </template>
+            <template v-else>
+              {{ actividad.participantes_min ?? '—' }}<template v-if="actividad.participantes_max != null">–{{ actividad.participantes_max }}</template>
+              <template v-if="actividad.participantes_genero === 'M'">
+                · {{ t('events.wizard.subParticipantsGenderM') }}
+              </template>
+              <template v-else-if="actividad.participantes_genero === 'F'">
+                · {{ t('events.wizard.subParticipantsGenderF') }}
+              </template>
+              <template v-else-if="actividad.participantes_genero === 'cualquiera'">
+                · {{ t('events.wizard.subParticipantsGenderCualquiera') }}
+              </template>
+            </template>
           </strong>
         </li>
         <li v-if="actividad.es_conjunto">
@@ -591,6 +636,10 @@ const subeventoRows = computed(() =>
       <p v-else class="pj-muted">{{ t('events.judgeResultPending') }}</p>
     </div>
 
+    <div v-if="showParticipantes" v-show="detailTab === 'participantes'" class="judge-activity__body">
+      <slot name="participantes" />
+    </div>
+
     <div v-show="detailTab === 'observaciones'" class="judge-activity__body">
       <p class="pj-muted obs-hint">
         {{
@@ -751,6 +800,11 @@ const subeventoRows = computed(() =>
   background: color-mix(in srgb, #16a34a 14%, transparent);
   color: #15803d;
   white-space: nowrap;
+}
+
+.estado-pill.is-en_proceso {
+  background: color-mix(in srgb, #2563eb 14%, transparent);
+  color: #1d4ed8;
 }
 
 .estado-pill.is-borrador {

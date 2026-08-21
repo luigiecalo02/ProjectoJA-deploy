@@ -2,6 +2,7 @@
 
 namespace App\Modules\Auth\Http\Controllers;
 
+use App\Models\User;
 use App\Modules\Auth\Http\Requests\LoginRequest;
 use App\Modules\Auth\Services\AuthService;
 use App\Modules\Auth\Services\SessionContextService;
@@ -93,6 +94,32 @@ final class AuthController
         );
     }
 
+    public function impersonate(Request $request, User $user): JsonResponse
+    {
+        abort_unless($request->user()->can('impersonate', $user), Response::HTTP_FORBIDDEN);
+
+        $result = $this->authService->impersonate($request->user(), $user);
+        $target = $this->sessionContext->ensureContext($result['user']);
+
+        return ApiResponse::success([
+            'token' => $result['token'],
+            'token_type' => 'Bearer',
+            'user' => $this->userPayload($target, $result['impersonator']),
+        ], 'Sesión iniciada como el usuario seleccionado');
+    }
+
+    public function stopImpersonation(Request $request): JsonResponse
+    {
+        $result = $this->authService->stopImpersonation($request->user());
+        $actor = $this->sessionContext->ensureContext($result['user']);
+
+        return ApiResponse::success([
+            'token' => $result['token'],
+            'token_type' => 'Bearer',
+            'user' => $this->userPayload($actor),
+        ], 'Volviste a tu usuario');
+    }
+
     public function redirect(string $provider): RedirectResponse|JsonResponse
     {
         if (! in_array($provider, ['google', 'facebook'], true)) {
@@ -117,8 +144,10 @@ final class AuthController
         return redirect()->away("{$front}/auth/callback?token={$token}");
     }
 
-    private function userPayload($user): array
+    private function userPayload(User $user, ?User $impersonator = null): array
     {
+        $resolved = $impersonator ?? $this->resolveImpersonator($user);
+
         return [
             'id' => $user->id,
             'name' => $user->name,
@@ -126,6 +155,7 @@ final class AuthController
             'avatar_url' => $this->publicFileUrl($user->avatar_url),
             'is_active' => $user->is_active,
             'is_super' => $user->isSuperAdmin(),
+            'is_admin' => (bool) $user->is_admin,
             'persona_id' => $user->persona_id,
             'roles' => $user->roleNames(),
             'permissions' => $user->permissionNames(),
@@ -134,7 +164,20 @@ final class AuthController
             'contexto' => $this->sessionContext->current($user),
             'requires_context' => $this->sessionContext->requiresSelection($user),
             'context_options' => $this->sessionContext->options($user),
+            'impersonated' => $resolved !== null,
+            'impersonator' => $resolved ? [
+                'id' => $resolved->id,
+                'name' => $resolved->name,
+                'email' => $resolved->email,
+            ] : null,
         ];
+    }
+
+    private function resolveImpersonator(User $user): ?User
+    {
+        $id = $this->authService->impersonatorIdFromUser($user);
+
+        return $id ? User::query()->find($id) : null;
     }
 
     private function publicFileUrl(?string $value): ?string

@@ -35,4 +35,17 @@ final class UserPolicy
     {
         return $actor->hasPermission('users.assign_roles');
     }
+
+    public function impersonate(User $actor, User $user): bool
+    {
+        if ($actor->id === $user->id || ! $user->is_active) {
+            return false;
+        }
+
+        if ($user->isSuperAdmin() && ! $actor->isSuperAdmin()) {
+            return false;
+        }
+
+        return $actor->isPlatformAdmin() || $actor->hasPermission('users.view');
+    }
 }

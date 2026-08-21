@@ -14,9 +14,12 @@ const props = withDefaults(
     showRemove?: boolean
     title?: string
     subtitle?: string
+    meta?: string
     hint?: string
+    compact?: boolean
+    dense?: boolean
   }>(),
-  { showRemove: false },
+  { showRemove: false, compact: false, dense: false },
 )
 
 const emit = defineEmits<{
@@ -54,14 +57,15 @@ async function onInput(event: Event): Promise<void> {
     :kind="MEDIA_UPLOAD_KIND.cover"
     icon="pi pi-image"
     :title="title || t('media.coverTitle')"
-    :subtitle="subtitle || t('media.coverSubtitle')"
-    :meta="t('media.coverMeta')"
-    :hint="hint"
+    :subtitle="compact || dense ? undefined : subtitle || t('media.coverSubtitle')"
+    :meta="compact ? undefined : meta ?? t('media.coverMeta')"
+    :hint="compact ? undefined : hint"
+    :dense="dense || compact"
   >
     <button
       type="button"
       class="cover"
-      :class="{ 'has-image': !!src }"
+      :class="{ 'has-image': !!src, 'is-compact': compact }"
       :disabled="disabled || busy"
       :aria-label="t('media.changeCover')"
       @click="openPicker()"
@@ -80,7 +84,7 @@ async function onInput(event: Event): Promise<void> {
       :disabled="disabled || busy"
       @change="onInput"
     />
-    <template #actions>
+    <template v-if="!compact" #actions>
       <div class="actions">
         <Button
           :label="t('media.selectImage')"
@@ -119,11 +123,31 @@ async function onInput(event: Event): Promise<void> {
     #dcfce7;
   cursor: pointer;
 }
+.cover.is-compact {
+  max-width: 14rem;
+  border-radius: 12px;
+}
+.cover.is-compact .cover__action i {
+  width: 2.1rem;
+  height: 2.1rem;
+  font-size: 0.85rem;
+}
+.cover.is-compact .cover__action em {
+  font-size: 0.75rem;
+}
 .cover:disabled { cursor: not-allowed; }
 .cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.cover.has-image .cover__action {
+  opacity: 0;
+  background: rgb(15 23 42 / 38%);
+}
+.cover.has-image:hover .cover__action,
+.cover.has-image:focus-visible .cover__action {
+  opacity: 1;
 }
 .cover__action {
   position: absolute;
@@ -133,6 +157,7 @@ async function onInput(event: Event): Promise<void> {
   justify-items: center;
   gap: 0.4rem;
   color: #fff;
+  transition: opacity 0.16s ease;
 }
 .cover__action i {
   width: 3rem;

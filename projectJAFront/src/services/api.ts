@@ -31,6 +31,8 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem(TOKEN_KEY)
       localStorage.removeItem('projectja_user')
+      localStorage.removeItem('projectja_impersonator_token')
+      localStorage.removeItem('projectja_impersonator_user')
       const path = window.location.pathname
       if (
         !path.startsWith('/login')

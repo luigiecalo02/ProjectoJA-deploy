@@ -16,6 +16,7 @@ const props = withDefaults(
     dense?: boolean
     title?: string
     subtitle?: string
+    meta?: string
     hint?: string
   }>(),
   { showRemove: false, compact: false, dense: false },
@@ -57,8 +58,8 @@ async function onInput(event: Event): Promise<void> {
     icon="pi pi-user"
     :title="title || t('media.profileTitle')"
     :subtitle="dense ? undefined : subtitle || t('media.profileSubtitle')"
-    :meta="t('media.profileMeta')"
-    :hint="dense ? undefined : hint || t('media.profileHint')"
+    :meta="meta ?? t('media.profileMeta')"
+    :hint="dense ? undefined : hint === undefined ? t('media.profileHint') : hint"
     :dense="dense"
   >
     <div class="profile" :class="{ compact }">

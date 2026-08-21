@@ -6,6 +6,8 @@ import type { AuthContextOption, AuthUser, LoginPayload } from '@/modules/auth/t
 import { clubLoaderKeyFromContext, persistClubLoader } from '@/modules/auth/clubLogin'
 
 const USER_KEY = 'projectja_user'
+const IMPERSONATOR_TOKEN_KEY = 'projectja_impersonator_token'
+const IMPERSONATOR_USER_KEY = 'projectja_impersonator_user'
 
 function readStoredUser(): AuthUser | null {
   const raw = localStorage.getItem(USER_KEY)
@@ -27,6 +29,16 @@ export const useAuthStore = defineStore('auth', () => {
   const requiresContext = computed(() => Boolean(user.value?.requires_context))
   const contexto = computed(() => user.value?.contexto ?? null)
   const contextOptions = computed(() => user.value?.context_options ?? [])
+  const isImpersonating = computed(() => Boolean(user.value?.impersonated || user.value?.impersonator))
+  const impersonator = computed(() => user.value?.impersonator ?? null)
+  const canImpersonate = computed(() => {
+    if (isImpersonating.value) return false
+    return (
+      Boolean(user.value?.is_super || user.value?.is_admin) ||
+      (user.value?.roles ?? []).includes('super_admin') ||
+      (user.value?.roles ?? []).includes('admin')
+    )
+  })
 
   function persistUser(nextUser: AuthUser): void {
     user.value = nextUser
@@ -40,11 +52,23 @@ export const useAuthStore = defineStore('auth', () => {
     persistUser(nextUser)
   }
 
+  function clearImpersonatorBackup(): void {
+    localStorage.removeItem(IMPERSONATOR_TOKEN_KEY)
+    localStorage.removeItem(IMPERSONATOR_USER_KEY)
+  }
+
   function clearSession(): void {
     token.value = null
     user.value = null
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(USER_KEY)
+    clearImpersonatorBackup()
+  }
+
+  function backupCurrentSession(): void {
+    if (!token.value || !user.value || isImpersonating.value) return
+    localStorage.setItem(IMPERSONATOR_TOKEN_KEY, token.value)
+    localStorage.setItem(IMPERSONATOR_USER_KEY, JSON.stringify(user.value))
   }
 
   async function login(payload: LoginPayload): Promise<void> {
@@ -53,6 +77,10 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout(): Promise<void> {
+    if (isImpersonating.value) {
+      await stopImpersonation()
+      return
+    }
     try {
       if (token.value) {
         await authService.logout()
@@ -60,6 +88,18 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       clearSession()
     }
+  }
+
+  async function impersonate(userId: number): Promise<void> {
+    backupCurrentSession()
+    const result = await authService.impersonate(userId)
+    persistSession(result.token, result.user)
+  }
+
+  async function stopImpersonation(): Promise<void> {
+    const result = await authService.stopImpersonation()
+    persistSession(result.token, result.user)
+    clearImpersonatorBackup()
   }
 
   async function fetchMe(): Promise<AuthUser | null> {
@@ -133,6 +173,8 @@ export const useAuthStore = defineStore('auth', () => {
     contextOptions,
     login,
     logout,
+    impersonate,
+    stopImpersonation,
     fetchMe,
     bootstrap,
     acceptToken,
@@ -142,5 +184,8 @@ export const useAuthStore = defineStore('auth', () => {
     clearSession,
     persistSession,
     persistUser,
+    isImpersonating,
+    impersonator,
+    canImpersonate,
   }
 })

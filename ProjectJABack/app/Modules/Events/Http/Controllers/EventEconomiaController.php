@@ -90,6 +90,12 @@ final class EventEconomiaController
 
     public function productos(Request $request): JsonResponse
     {
+        abort_unless(
+            $request->user()?->hasPermission('productos_servicios.view')
+            || $request->user()?->hasPermission('events.view')
+            || $request->user()?->isPlatformAdmin(),
+            Response::HTTP_FORBIDDEN,
+        );
         $soloActivos = ! $request->boolean('all');
         $items = $this->productoService->listCatalog($soloActivos)->map(fn (ProductoServicio $p) => $this->productoPayload($p));
 
@@ -98,7 +104,11 @@ final class EventEconomiaController
 
     public function storeProducto(Request $request): JsonResponse
     {
-        abort_unless($request->user()?->can('events.update') || $request->user()?->isPlatformAdmin(), 403);
+        abort_unless(
+            $request->user()?->hasPermission('productos_servicios.create')
+            || $request->user()?->isPlatformAdmin(),
+            403,
+        );
         $data = $request->validate([
             'nombre' => ['required', 'string', 'max:255'],
             'tipo' => ['required', 'string', 'max:64'],
@@ -114,7 +124,11 @@ final class EventEconomiaController
 
     public function updateProducto(Request $request, ProductoServicio $productoServicio): JsonResponse
     {
-        abort_unless($request->user()?->can('events.update') || $request->user()?->isPlatformAdmin(), 403);
+        abort_unless(
+            $request->user()?->hasPermission('productos_servicios.update')
+            || $request->user()?->isPlatformAdmin(),
+            403,
+        );
         $data = $request->validate([
             'nombre' => ['sometimes', 'string', 'max:255'],
             'tipo' => ['sometimes', 'string', 'max:64'],

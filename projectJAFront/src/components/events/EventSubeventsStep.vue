@@ -10,6 +10,7 @@ import Select from 'primevue/select'
 import MultiSelect from 'primevue/multiselect'
 import DatePicker from 'primevue/datepicker'
 import ToggleSwitch from 'primevue/toggleswitch'
+import Checkbox from 'primevue/checkbox'
 import Message from 'primevue/message'
 import PageLoader from '@/components/PageLoader.vue'
 import AppSearchField from '@/components/AppSearchField.vue'
@@ -111,11 +112,21 @@ const form = reactive({
   categoria_subevento_id: null as number | null,
   tipo_evento_id: null as number | null,
   puntaje_maximo: null as number | null,
+  puntaje_por_participar: false,
   starts_at: null as Date | null,
   ends_at: null as Date | null,
   tiempo_estimado_minutos: null as number | null,
+  requiere_puesto_entrega: false,
+  requiere_tiempo_entrega: false,
+  resultado_esperado: null as number | null,
   participantes_min: null as number | null,
   participantes_max: null as number | null,
+  permite_inscribir_no_participantes: false,
+  participantes_genero: 'cualquiera' as 'mixto' | 'M' | 'F' | 'cualquiera',
+  participantes_min_m: null as number | null,
+  participantes_max_m: null as number | null,
+  participantes_min_f: null as number | null,
+  participantes_max_f: null as number | null,
   es_conjunto: false,
   nivel_conjunto: null as 'club' | 'iglesia' | 'distrito' | 'asociacion' | null,
   puntos_penalizacion: null as number | null,
@@ -132,7 +143,7 @@ const form = reactive({
 const opts = reactive({
   manejaPuntaje: false,
   puntajeDesdeHijos: false,
-  manejaTiempo: false,
+  configCalificacion: false,
   controlParticipantes: false,
   esConjunto: false,
   manejaFechaFin: false,
@@ -153,6 +164,13 @@ const visibilityOptions = computed(() => [
   { label: t('events.visibilityPublic'), value: 'publico' as const },
   { label: t('events.visibilityOrganization'), value: 'organizacion' as const },
   { label: t('events.visibilityPrivate'), value: 'privado' as const },
+])
+
+const participantesGeneroOptions = computed(() => [
+  { label: t('events.wizard.subParticipantsGenderCualquiera'), value: 'cualquiera' },
+  { label: t('events.wizard.subParticipantsGenderMixto'), value: 'mixto' },
+  { label: t('events.wizard.subParticipantsGenderM'), value: 'M' },
+  { label: t('events.wizard.subParticipantsGenderF'), value: 'F' },
 ])
 
 const nivelConjuntoOptions = computed(() => [
@@ -182,6 +200,36 @@ function peopleNames(
 ): string {
   if (!people?.length) return emptyLabel
   return people.map((p) => p.name).join(', ')
+}
+
+function quotaRange(min?: number | null, max?: number | null): string {
+  if (min == null && max == null) return '—'
+  if (max == null) return String(min ?? '—')
+  return `${min ?? '—'}–${max}`
+}
+
+function participantesQuotaLabel(item: {
+  participantes_genero?: string | null
+  participantes_min?: number | null
+  participantes_max?: number | null
+  participantes_min_m?: number | null
+  participantes_max_m?: number | null
+  participantes_min_f?: number | null
+  participantes_max_f?: number | null
+}): string {
+  if (item.participantes_genero === 'M') {
+    return `${quotaRange(item.participantes_min, item.participantes_max)} · ${t('events.wizard.subParticipantsGenderM')}`
+  }
+  if (item.participantes_genero === 'F') {
+    return `${quotaRange(item.participantes_min, item.participantes_max)} · ${t('events.wizard.subParticipantsGenderF')}`
+  }
+  if (item.participantes_genero === 'mixto') {
+    return `${t('events.wizard.subParticipantsGenderMixto')} · M ${quotaRange(item.participantes_min_m, item.participantes_max_m)} / F ${quotaRange(item.participantes_min_f, item.participantes_max_f)}`
+  }
+  if (item.participantes_genero === 'cualquiera') {
+    return `${quotaRange(item.participantes_min, item.participantes_max)} · ${t('events.wizard.subParticipantsGenderCualquiera')}`
+  }
+  return quotaRange(item.participantes_min, item.participantes_max)
 }
 
 const evidenciaTipoOptions = computed(() => [
@@ -505,11 +553,21 @@ function resetForm(): void {
   form.categoria_subevento_id = categorias.value[0]?.id ?? null
   form.tipo_evento_id = contextTipoEventoId.value
   form.puntaje_maximo = 100
+  form.puntaje_por_participar = false
   form.starts_at = dateOnly(contextStartsAt())
   form.ends_at = dateOnly(contextEndsAt())
-  form.tiempo_estimado_minutos = 10
-  form.participantes_min = 6
-  form.participantes_max = 12
+  form.tiempo_estimado_minutos = null
+  form.requiere_puesto_entrega = false
+  form.requiere_tiempo_entrega = false
+  form.resultado_esperado = null
+  form.participantes_min = 1
+  form.participantes_max = null
+  form.permite_inscribir_no_participantes = false
+  form.participantes_genero = 'cualquiera'
+  form.participantes_min_m = null
+  form.participantes_max_m = null
+  form.participantes_min_f = null
+  form.participantes_max_f = null
   form.es_conjunto = false
   form.nivel_conjunto = null
   form.puntos_penalizacion = 5
@@ -524,7 +582,7 @@ function resetForm(): void {
   for (const key of Object.keys(criterioPoints)) delete criterioPoints[Number(key)]
   opts.manejaPuntaje = false
   opts.puntajeDesdeHijos = false
-  opts.manejaTiempo = false
+  opts.configCalificacion = false
   opts.controlParticipantes = false
   opts.esConjunto = false
   opts.manejaFechaFin = false
@@ -557,11 +615,27 @@ function openEdit(item: ClubEvent): void {
   form.categoria_subevento_id = item.categoria_subevento_id ?? null
   form.tipo_evento_id = item.tipo_evento_id ?? null
   form.puntaje_maximo = item.puntaje_maximo ?? null
+  form.puntaje_por_participar = !!item.puntaje_por_participar
   form.starts_at = dateOnly(item.starts_at)
   form.ends_at = dateOnly(item.ends_at)
   form.tiempo_estimado_minutos = item.tiempo_estimado_minutos ?? null
+  form.requiere_puesto_entrega = !!item.requiere_puesto_entrega
+  form.requiere_tiempo_entrega = !!item.requiere_tiempo_entrega || item.tiempo_estimado_minutos != null
+  form.resultado_esperado = item.resultado_esperado ?? null
   form.participantes_min = item.participantes_min ?? null
   form.participantes_max = item.participantes_max ?? null
+  form.permite_inscribir_no_participantes = !!item.permite_inscribir_no_participantes
+  form.participantes_genero =
+    item.participantes_genero === 'M' ||
+    item.participantes_genero === 'F' ||
+    item.participantes_genero === 'mixto' ||
+    item.participantes_genero === 'cualquiera'
+      ? item.participantes_genero
+      : 'cualquiera'
+  form.participantes_min_m = item.participantes_min_m ?? null
+  form.participantes_max_m = item.participantes_max_m ?? null
+  form.participantes_min_f = item.participantes_min_f ?? null
+  form.participantes_max_f = item.participantes_max_f ?? null
   form.es_conjunto = !!item.es_conjunto
   form.nivel_conjunto =
     (item.nivel_conjunto as 'club' | 'iglesia' | 'distrito' | 'asociacion' | null) ?? null
@@ -589,8 +663,19 @@ function openEdit(item: ClubEvent): void {
   }
   opts.manejaPuntaje = item.es_calificable || item.puntaje_maximo != null || !!item.puntaje_desde_hijos
   opts.puntajeDesdeHijos = !!item.puntaje_desde_hijos
-  opts.manejaTiempo = item.tiempo_estimado_minutos != null
-  opts.controlParticipantes = item.participantes_min != null || item.participantes_max != null
+  opts.configCalificacion =
+    !!item.requiere_puesto_entrega ||
+    !!item.requiere_tiempo_entrega ||
+    item.resultado_esperado != null ||
+    item.tiempo_estimado_minutos != null
+  opts.controlParticipantes =
+    item.participantes_min != null ||
+    item.participantes_max != null ||
+    item.participantes_genero != null ||
+    item.participantes_min_m != null ||
+    item.participantes_max_m != null ||
+    item.participantes_min_f != null ||
+    item.participantes_max_f != null
   opts.esConjunto = !!item.es_conjunto
   opts.manejaFechaFin = !!item.maneja_fecha_fin
   opts.manejaPenalizaciones = !!item.maneja_penalizaciones
@@ -697,14 +782,27 @@ async function saveSubevent(): Promise<void> {
     errorMessage.value = t('events.wizard.criteriaSumMismatch')
     return
   }
-  if (
-    opts.controlParticipantes &&
-    form.participantes_min != null &&
-    form.participantes_max != null &&
-    form.participantes_min > form.participantes_max
-  ) {
-    errorMessage.value = t('events.wizard.subParticipantsRangeInvalid')
-    return
+  if (opts.controlParticipantes && form.permite_inscribir_no_participantes) {
+    const mixto = form.participantes_genero === 'mixto'
+    const minOverMax =
+      !mixto &&
+      form.participantes_min != null &&
+      form.participantes_max != null &&
+      form.participantes_min > form.participantes_max
+    const minOverMaxM =
+      mixto &&
+      form.participantes_min_m != null &&
+      form.participantes_max_m != null &&
+      form.participantes_min_m > form.participantes_max_m
+    const minOverMaxF =
+      mixto &&
+      form.participantes_min_f != null &&
+      form.participantes_max_f != null &&
+      form.participantes_min_f > form.participantes_max_f
+    if (minOverMax || minOverMaxM || minOverMaxF) {
+      errorMessage.value = t('events.wizard.subParticipantsRangeInvalid')
+      return
+    }
   }
   saving.value = true
   errorMessage.value = ''
@@ -747,9 +845,68 @@ async function saveSubevent(): Promise<void> {
           : form.puntaje_maximo
         : null,
       puntaje_desde_hijos: opts.manejaPuntaje && opts.puntajeDesdeHijos,
-      tiempo_estimado_minutos: opts.manejaTiempo ? form.tiempo_estimado_minutos : null,
-      participantes_min: opts.controlParticipantes ? form.participantes_min : null,
-      participantes_max: opts.controlParticipantes ? form.participantes_max : null,
+      puntaje_por_participar:
+        opts.manejaPuntaje && !opts.puntajeDesdeHijos && form.puntaje_por_participar,
+      tiempo_estimado_minutos: null,
+      requiere_puesto_entrega: opts.configCalificacion && form.requiere_puesto_entrega,
+      requiere_tiempo_entrega: opts.configCalificacion && form.requiere_tiempo_entrega,
+      resultado_esperado:
+        opts.configCalificacion && form.resultado_esperado != null && form.resultado_esperado > 0
+          ? form.resultado_esperado
+          : null,
+      participantes_min:
+        opts.controlParticipantes &&
+        form.permite_inscribir_no_participantes &&
+        form.participantes_genero !== 'mixto'
+          ? form.participantes_min
+          : opts.controlParticipantes &&
+              form.permite_inscribir_no_participantes &&
+              form.participantes_genero === 'mixto'
+            ? (form.participantes_min_m ?? 0) + (form.participantes_min_f ?? 0) || null
+            : null,
+      participantes_max:
+        opts.controlParticipantes &&
+        form.permite_inscribir_no_participantes &&
+        form.participantes_genero !== 'mixto'
+          ? form.participantes_max
+          : opts.controlParticipantes &&
+              form.permite_inscribir_no_participantes &&
+              form.participantes_genero === 'mixto' &&
+              form.participantes_max_m != null &&
+              form.participantes_max_f != null
+            ? form.participantes_max_m + form.participantes_max_f
+            : null,
+      permite_inscribir_no_participantes: opts.controlParticipantes
+        ? form.permite_inscribir_no_participantes
+        : false,
+      participantes_genero:
+        opts.controlParticipantes && form.permite_inscribir_no_participantes
+          ? form.participantes_genero
+          : null,
+      participantes_min_m:
+        opts.controlParticipantes &&
+        form.permite_inscribir_no_participantes &&
+        form.participantes_genero === 'mixto'
+          ? form.participantes_min_m
+          : null,
+      participantes_max_m:
+        opts.controlParticipantes &&
+        form.permite_inscribir_no_participantes &&
+        form.participantes_genero === 'mixto'
+          ? form.participantes_max_m
+          : null,
+      participantes_min_f:
+        opts.controlParticipantes &&
+        form.permite_inscribir_no_participantes &&
+        form.participantes_genero === 'mixto'
+          ? form.participantes_min_f
+          : null,
+      participantes_max_f:
+        opts.controlParticipantes &&
+        form.permite_inscribir_no_participantes &&
+        form.participantes_genero === 'mixto'
+          ? form.participantes_max_f
+          : null,
       equipos_org_min: null,
       equipos_org_max: null,
       es_conjunto: opts.esConjunto,
@@ -767,7 +924,7 @@ async function saveSubevent(): Promise<void> {
       juez_ids: [...form.juez_ids],
       supervisor_ids: [...form.supervisor_ids],
       criterios:
-        opts.manejaPuntaje && !opts.puntajeDesdeHijos
+        opts.manejaPuntaje && !opts.puntajeDesdeHijos && !form.puntaje_por_participar
           ? assignedCriterioIds.value.map((id, index) => ({
               id,
               puntos: Number(criterioPoints[id] || 0),
@@ -1108,6 +1265,7 @@ watch(
   () => opts.puntajeDesdeHijos,
   (on) => {
     if (on) {
+      form.puntaje_por_participar = false
       opts.manejaPuntaje = true
       form.puntaje_maximo = childrenScoreSum.value
       if (editingId.value) void refreshChildrenScoreSum(editingId.value)
@@ -1116,18 +1274,51 @@ watch(
 )
 
 watch(
-  () => opts.manejaTiempo,
+  () => opts.configCalificacion,
   (on) => {
-    if (on && form.tiempo_estimado_minutos == null) form.tiempo_estimado_minutos = 10
+    if (!on) {
+      form.requiere_puesto_entrega = false
+      form.requiere_tiempo_entrega = false
+      form.resultado_esperado = null
+    }
   },
 )
+
+function ensureParticipantQuotaDefaults(): void {
+  if (!opts.controlParticipantes || !form.permite_inscribir_no_participantes) return
+  if (!form.participantes_genero) form.participantes_genero = 'cualquiera'
+  if (form.participantes_genero !== 'mixto' && form.participantes_min == null) {
+    form.participantes_min = 1
+  }
+  if (form.participantes_genero === 'mixto') {
+    if (form.participantes_min_m == null) form.participantes_min_m = 1
+    if (form.participantes_min_f == null) form.participantes_min_f = 1
+  }
+}
 
 watch(
   () => opts.controlParticipantes,
   (on) => {
-    if (on) {
-      if (form.participantes_min == null) form.participantes_min = 6
-      if (form.participantes_max == null) form.participantes_max = 12
+    if (on) ensureParticipantQuotaDefaults()
+  },
+)
+
+watch(
+  () => form.permite_inscribir_no_participantes,
+  (on) => {
+    if (on) ensureParticipantQuotaDefaults()
+  },
+)
+
+watch(
+  () => form.participantes_genero,
+  (genero) => {
+    if (!opts.controlParticipantes || !form.permite_inscribir_no_participantes) return
+    if (genero === 'mixto') {
+      if (form.participantes_min_m == null) form.participantes_min_m = 1
+      if (form.participantes_min_f == null) form.participantes_min_f = 1
+    } else if (form.participantes_min == null) {
+      form.participantes_min = 1
     }
   },
 )
@@ -1311,8 +1502,6 @@ onBeforeUnmount(() => {
                 <tr>
                   <th>{{ t('events.wizard.subColOrder') }}</th>
                   <th>{{ t('events.wizard.subColName') }}</th>
-                  <th>{{ t('events.tipoEvento') }}</th>
-                  <th>{{ t('events.wizard.subColCategory') }}</th>
                   <th>{{ t('events.wizard.subColScore') }}</th>
                   <th>{{ t('events.wizard.subColStatus') }}</th>
                   <th>{{ t('events.wizard.subColActions') }}</th>
@@ -1347,7 +1536,6 @@ onBeforeUnmount(() => {
                       >
                         <i :class="isExpanded(item.id) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" />
                       </button>
-                      <i class="pi pi-bars drag-handle" />
                       <span>{{ item.orden || index + 1 }}</span>
                     </td>
                     <td>
@@ -1378,25 +1566,6 @@ onBeforeUnmount(() => {
                           </button>
                         </div>
                       </div>
-                    </td>
-                    <td>
-                      <span v-if="item.tipo_evento" class="cat-pill">
-                        {{ item.tipo_evento.nombre }}
-                      </span>
-                      <span v-else class="pj-muted">—</span>
-                    </td>
-                    <td>
-                      <span
-                        v-if="item.categoria_subevento"
-                        class="cat-pill"
-                        :style="{
-                          color: item.categoria_subevento.color || undefined,
-                          borderColor: item.categoria_subevento.color || undefined,
-                        }"
-                      >
-                        {{ item.categoria_subevento.nombre }}
-                      </span>
-                      <span v-else class="pj-muted">—</span>
                     </td>
                     <td>{{ Number(item.puntaje_maximo || 0) }} pts</td>
                     <td>
@@ -1467,7 +1636,7 @@ onBeforeUnmount(() => {
                     v-if="hasChildren(item) && isExpanded(item.id) && item.hijos?.length"
                     class="sub-nest-row"
                   >
-                    <td colspan="7" class="sub-nest-cell">
+                    <td colspan="5" class="sub-nest-cell">
                       <EventSubeventTreeNodes
                         :nodes="item.hijos"
                         :expanded="expandedChildren"
@@ -1561,6 +1730,11 @@ onBeforeUnmount(() => {
             <h4>{{ t('events.wizard.shortDescription') }}</h4>
             <p>{{ selected.descripcion || t('events.wizard.previewPending') }}</p>
             <ul class="meta-list">
+              <li v-if="selected.puntaje_por_participar">
+                <i class="pi pi-verified" />
+                <span>{{ t('events.wizard.subOptScoreByParticipation') }}</span>
+                <strong>{{ t('common.yes') }}</strong>
+              </li>
               <li v-if="selected.puntaje_maximo != null || selected.es_calificable || selected.puntaje_desde_hijos">
                 <i class="pi pi-star" />
                 <span>{{ t('events.wizard.subColScore') }}</span>
@@ -1581,17 +1755,31 @@ onBeforeUnmount(() => {
                 <span>{{ t('events.wizard.subColCategory') }}</span>
                 <strong>{{ selected.categoria_subevento?.nombre || '—' }}</strong>
               </li>
-              <li v-if="selected.tiempo_estimado_minutos != null">
-                <i class="pi pi-clock" />
-                <span>{{ t('events.wizard.subTime') }}</span>
-                <strong>{{ selected.tiempo_estimado_minutos }} min</strong>
+              <li v-if="selected.requiere_puesto_entrega">
+                <i class="pi pi-map-marker" />
+                <span>{{ t('events.wizard.subPuestoEntrega') }}</span>
+                <strong>{{ t('common.yes') }}</strong>
               </li>
-              <li v-if="selected.participantes_min != null || selected.participantes_max != null">
+              <li v-if="selected.requiere_tiempo_entrega">
+                <i class="pi pi-clock" />
+                <span>{{ t('events.wizard.subTiempoEntrega') }}</span>
+                <strong>{{ t('common.yes') }}</strong>
+              </li>
+              <li v-if="selected.resultado_esperado != null">
+                <i class="pi pi-check-square" />
+                <span>{{ t('events.wizard.subResultadoEsperado') }}</span>
+                <strong>{{ selected.resultado_esperado }}</strong>
+              </li>
+              <li
+                v-if="
+                  selected.participantes_min != null ||
+                  selected.participantes_max != null ||
+                  selected.participantes_genero != null
+                "
+              >
                 <i class="pi pi-users" />
                 <span>{{ t('events.wizard.subParticipants') }}</span>
-                <strong>
-                  {{ selected.participantes_min || '—' }} – {{ selected.participantes_max || '—' }}
-                </strong>
+                <strong>{{ participantesQuotaLabel(selected) }}</strong>
               </li>
               <li v-if="selected.es_conjunto">
                 <i class="pi pi-share-alt" />
@@ -1720,21 +1908,25 @@ onBeforeUnmount(() => {
         <Message v-if="errorMessage" severity="error" :closable="true" @close="errorMessage = ''">
           {{ errorMessage }}
         </Message>
-        <div class="field">
-          <label>{{ t('events.name') }}</label>
-          <InputText v-model="form.name" class="w-full" />
-        </div>
-        <div class="field">
-          <label>{{ t('events.wizard.shortDescription') }}</label>
-          <Textarea v-model="form.descripcion" rows="3" class="w-full" auto-resize />
-        </div>
-        <div class="field">
-          <MediaCoverUpload
-            :src="imagePreview"
-            :title="t('events.wizard.subImage')"
-            :subtitle="t('media.eventCoverSubtitle')"
-            @select="onPickImage"
-          />
+        <div class="sub-form__hero">
+          <div class="field field--sub-cover">
+            <MediaCoverUpload
+              compact
+              :src="imagePreview"
+              :title="t('events.wizard.subImage')"
+              @select="onPickImage"
+            />
+          </div>
+          <div class="sub-form__hero-fields">
+            <div class="field">
+              <label>{{ t('events.name') }}</label>
+              <InputText v-model="form.name" class="w-full" />
+            </div>
+            <div class="field">
+              <label>{{ t('events.wizard.shortDescription') }}</label>
+              <Textarea v-model="form.descripcion" rows="3" class="w-full" auto-resize />
+            </div>
+          </div>
         </div>
         <div class="field">
           <label>{{ t('events.wizard.subTabRules') }}</label>
@@ -1812,6 +2004,14 @@ onBeforeUnmount(() => {
               </label>
               <small class="pj-muted">{{ t('events.wizard.subOptScoreFromChildrenHint') }}</small>
 
+              <label v-if="!opts.puntajeDesdeHijos" class="sub-option__nested">
+                <ToggleSwitch v-model="form.puntaje_por_participar" />
+                <span>{{ t('events.wizard.subOptScoreByParticipation') }}</span>
+              </label>
+              <small v-if="!opts.puntajeDesdeHijos" class="pj-muted">
+                {{ t('events.wizard.subOptScoreByParticipationHint') }}
+              </small>
+
               <div v-if="opts.puntajeDesdeHijos" class="field">
                 <label>{{ t('events.wizard.subColScore') }}</label>
                 <InputNumber
@@ -1833,7 +2033,7 @@ onBeforeUnmount(() => {
                 <InputNumber v-model="form.puntaje_maximo" class="w-full" :min="0" />
               </div>
 
-              <div v-if="!opts.puntajeDesdeHijos" class="field">
+              <div v-if="!opts.puntajeDesdeHijos && !form.puntaje_por_participar" class="field">
                 <label>{{ t('events.wizard.criteriaAssign') }}</label>
                 <small class="pj-muted">{{ t('events.wizard.criteriaAssignHint') }}</small>
                 <MultiSelect
@@ -1875,36 +2075,91 @@ onBeforeUnmount(() => {
 
           <div class="sub-option">
             <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.manejaTiempo" />
-              <span>{{ t('events.wizard.subOptTime') }}</span>
+              <ToggleSwitch v-model="opts.configCalificacion" />
+              <span>{{ t('events.wizard.subOptGrading') }}</span>
             </label>
-            <div v-if="opts.manejaTiempo" class="sub-option__fields">
+            <div v-if="opts.configCalificacion" class="sub-option__fields">
+              <label class="sub-option__toggle">
+                <Checkbox v-model="form.requiere_puesto_entrega" :binary="true" />
+                <span>{{ t('events.wizard.subPuestoEntrega') }}</span>
+              </label>
+              <label class="sub-option__toggle">
+                <Checkbox v-model="form.requiere_tiempo_entrega" :binary="true" />
+                <span>{{ t('events.wizard.subTiempoEntrega') }}</span>
+              </label>
               <div class="field">
-                <label>{{ t('events.wizard.subTime') }}</label>
+                <label>{{ t('events.wizard.subResultadoEsperado') }}</label>
                 <InputNumber
-                  v-model="form.tiempo_estimado_minutos"
+                  v-model="form.resultado_esperado"
                   class="w-full"
                   :min="1"
-                  suffix=" min"
+                  :placeholder="t('events.wizard.subResultadoEsperadoHint')"
                 />
+                <small class="pj-muted">{{ t('events.wizard.subResultadoEsperadoHint') }}</small>
               </div>
             </div>
           </div>
 
           <div class="sub-option">
             <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.controlParticipantes" />
+              <ToggleSwitch
+                v-model="opts.controlParticipantes"
+                @update:model-value="(on) => {
+                  if (on) form.permite_inscribir_no_participantes = true
+                }"
+              />
               <span>{{ t('events.wizard.subOptParticipants') }}</span>
             </label>
             <div v-if="opts.controlParticipantes" class="sub-option__fields field-grid">
-              <div class="field">
-                <label>{{ t('events.wizard.subParticipantsMin') }}</label>
-                <InputNumber v-model="form.participantes_min" class="w-full" :min="1" />
+              <div class="field field--wide">
+                <label class="sub-option__toggle">
+                  <ToggleSwitch v-model="form.permite_inscribir_no_participantes" />
+                  <span>{{ t('events.wizard.subOptEnrollNonParticipants') }}</span>
+                </label>
+                <small class="pj-muted">{{ t('events.wizard.subOptEnrollNonParticipantsHint') }}</small>
               </div>
-              <div class="field">
-                <label>{{ t('events.wizard.subParticipantsMax') }}</label>
-                <InputNumber v-model="form.participantes_max" class="w-full" :min="1" />
+              <div v-if="form.permite_inscribir_no_participantes" class="field field--wide">
+                <label>{{ t('events.wizard.subParticipantsGender') }}</label>
+                <Select
+                  v-model="form.participantes_genero"
+                  :options="participantesGeneroOptions"
+                  option-label="label"
+                  option-value="value"
+                  class="w-full"
+                />
               </div>
+              <template v-if="form.permite_inscribir_no_participantes && form.participantes_genero !== 'mixto'">
+                <div class="field">
+                  <label>{{ t('events.wizard.subParticipantsMin') }}</label>
+                  <InputNumber v-model="form.participantes_min" class="w-full" :min="1" />
+                </div>
+                <div class="field">
+                  <label>{{ t('events.wizard.subParticipantsMax') }}</label>
+                  <InputNumber v-model="form.participantes_max" class="w-full" :min="1" />
+                  <small class="pj-muted">{{ t('events.wizard.subParticipantsMaxHint') }}</small>
+                </div>
+              </template>
+              <template v-else-if="form.permite_inscribir_no_participantes">
+                <div class="field">
+                  <label>{{ t('events.wizard.subParticipantsMinM') }}</label>
+                  <InputNumber v-model="form.participantes_min_m" class="w-full" :min="0" />
+                </div>
+                <div class="field">
+                  <label>{{ t('events.wizard.subParticipantsMaxM') }}</label>
+                  <InputNumber v-model="form.participantes_max_m" class="w-full" :min="0" />
+                </div>
+                <div class="field">
+                  <label>{{ t('events.wizard.subParticipantsMinF') }}</label>
+                  <InputNumber v-model="form.participantes_min_f" class="w-full" :min="0" />
+                </div>
+                <div class="field">
+                  <label>{{ t('events.wizard.subParticipantsMaxF') }}</label>
+                  <InputNumber v-model="form.participantes_max_f" class="w-full" :min="0" />
+                </div>
+                <div class="field field--wide">
+                  <small class="pj-muted">{{ t('events.wizard.subParticipantsMaxHint') }}</small>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -2213,23 +2468,18 @@ onBeforeUnmount(() => {
 
 .sub-table th:nth-child(1),
 .sub-table td.col-orden {
-  width: 4.75rem;
+  width: 3.5rem;
 }
 
-.sub-table th:nth-child(3),
-.sub-table th:nth-child(4) {
-  width: 8rem;
-}
-
-.sub-table th:nth-child(5) {
+.sub-table th:nth-child(3) {
   width: 5.5rem;
 }
 
-.sub-table th:nth-child(6) {
+.sub-table th:nth-child(4) {
   width: 7rem;
 }
 
-.sub-table th:nth-child(7),
+.sub-table th:nth-child(5),
 .sub-table td.col-actions {
   width: 11rem;
 }
@@ -2279,11 +2529,6 @@ onBeforeUnmount(() => {
 .col-orden {
   white-space: nowrap;
   color: var(--pj-text-muted);
-}
-
-.drag-handle {
-  margin-right: 0.35rem;
-  cursor: grab;
 }
 
 .sub-expand-btn {
@@ -2557,6 +2802,30 @@ onBeforeUnmount(() => {
   gap: 0.85rem;
 }
 
+.sub-form__hero {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.field--sub-cover {
+  max-width: 14rem;
+}
+
+.sub-form__hero-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .sub-form__hero {
+    grid-template-columns: 1fr;
+  }
+}
+
 .sub-options {
   display: flex;
   flex-direction: column;
@@ -2644,6 +2913,10 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+}
+
+.field--wide {
+  grid-column: 1 / -1;
 }
 
 .w-full {

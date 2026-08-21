@@ -3,10 +3,14 @@
 namespace App\Modules\Users\Repositories;
 
 use App\Models\User;
+use App\Modules\Organizations\Services\OrganizationAccessService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
 
 final class UserRepository
 {
+    public function __construct(private readonly OrganizationAccessService $orgAccess) {}
+
     public function paginate(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         $query = User::query()->with([
@@ -48,6 +52,18 @@ final class UserRepository
             });
         }
 
+        if (! empty($filters['organizacion_id'])) {
+            $orgId = (int) $filters['organizacion_id'];
+            $scopeIds = array_values(array_unique(array_merge(
+                [$orgId],
+                $this->orgAccess->descendantIds($orgId),
+            )));
+            $this->constrainToOrganizations($query, $scopeIds);
+        } elseif (! empty($filters['organizacion_ids']) && is_array($filters['organizacion_ids'])) {
+            $scopeIds = array_values(array_unique(array_map('intval', $filters['organizacion_ids'])));
+            $this->constrainToOrganizations($query, $scopeIds === [] ? [-1] : $scopeIds);
+        }
+
         return $query->latest()->paginate($perPage);
     }
 
@@ -58,5 +74,16 @@ final class UserRepository
             'persona.organizaciones.organizacion:id,nombre',
             'persona.organizaciones.rolesAsignados.rol:id,name,display_name',
         ])->findOrFail($id);
+    }
+
+    /**
+     * @param  Builder<User>  $query
+     * @param  list<int>  $scopeIds
+     */
+    private function constrainToOrganizations(Builder $query, array $scopeIds): void
+    {
+        $query->whereHas('persona.organizaciones', function ($po) use ($scopeIds) {
+            $po->where('estado', true)->whereIn('organizacion_id', $scopeIds);
+        });
     }
 }

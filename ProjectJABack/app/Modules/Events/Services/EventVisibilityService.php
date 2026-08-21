@@ -24,12 +24,15 @@ final class EventVisibilityService
             return true;
         }
 
+        if (! $this->matchesAudience($event, $actor)) {
+            return false;
+        }
+
         if ($event->visibilidad === Event::VISIBILIDAD_PUBLICO) {
             return true;
         }
 
-        if (! $this->isWithinOrganizationReach($event, $actor)
-            || ! $this->matchesAudience($event, $actor)) {
+        if (! $this->isWithinOrganizationReach($event, $actor)) {
             return false;
         }
 
@@ -60,7 +63,10 @@ final class EventVisibilityService
             $audience,
             $privateEventIds
         ) {
-            $visibility->where('visibilidad', Event::VISIBILIDAD_PUBLICO);
+            $visibility->where(function (Builder $public) use ($audience) {
+                $public->where('visibilidad', Event::VISIBILIDAD_PUBLICO);
+                $this->applyAudienceTypeFilter($public, $audience);
+            });
 
             if ($organizationIds === [] || ! $audience['allowed']) {
                 return;
@@ -129,6 +135,14 @@ final class EventVisibilityService
                 );
         });
 
+        $this->applyAudienceTypeFilter($query, $audience);
+    }
+
+    /**
+     * @param  array{allowed: bool, unrestricted: bool, type_ids: list<int>}  $audience
+     */
+    private function applyAudienceTypeFilter(Builder $query, array $audience): void
+    {
         if ($audience['unrestricted']) {
             return;
         }

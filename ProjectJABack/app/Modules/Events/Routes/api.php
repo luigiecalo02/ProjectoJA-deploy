@@ -43,6 +43,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('events/{event}/inscripciones-revision', [EventEconomiaController::class, 'listRevision']);
     Route::get('events/{event}/productos-servicios', [EventEconomiaController::class, 'ofertasEvento']);
     Route::put('events/{event}/productos-servicios', [EventEconomiaController::class, 'syncOfertasEvento']);
+    Route::get('events/{event}/actividad-participantes', [EventParticipationController::class, 'activityRoster']);
+    Route::put('events/{event}/actividad-participantes', [EventParticipationController::class, 'syncActivityRoster']);
     Route::post('events/{event}/evidencias', [EventParticipationController::class, 'storeEvidencia']);
     Route::delete('events/evidencias/{eventoEvidencia}', [EventParticipationController::class, 'destroyEvidencia']);
     Route::post('events/{event}/observacion-director', [EventParticipationController::class, 'storeDirectorObservacion']);
@@ -54,11 +56,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('events/{event}', [EventController::class, 'show']);
     Route::put('events/{event}', [EventController::class, 'update']);
     Route::patch('events/{event}', [EventController::class, 'update']);
+    Route::patch('events/{event}/estado', [EventController::class, 'updateEstado']);
     Route::post('events/{event}/reorder-children', [EventController::class, 'reorderChildren']);
     Route::post('events/{event}/move', [EventController::class, 'move']);
     Route::post('events/{event}/duplicate', [EventController::class, 'duplicate']);
     Route::delete('events/{event}', [EventController::class, 'destroy']);
     Route::post('events/{event}/image', [EventController::class, 'image']);
+    Route::post('events/{event}/banner', [EventController::class, 'banner']);
 
     Route::get('evento-inscripciones/{eventoInscripcion}', [EventEconomiaController::class, 'showInscripcion']);
     Route::post('evento-inscripciones/{eventoInscripcion}/comprobantes', [EventEconomiaController::class, 'storeComprobante']);

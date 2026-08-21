@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -13,17 +13,43 @@ import Tag from 'primevue/tag'
 import ToggleSwitch from 'primevue/toggleswitch'
 import AppSearchField from '@/components/AppSearchField.vue'
 import PageLoader from '@/components/PageLoader.vue'
+import DataTable from 'primevue/datatable'
+import Column from 'primevue/column'
 import { usersService } from '@/services/usersService'
+import { organizacionesService } from '@/services/organizacionesService'
 import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
+import { useAuthStore } from '@/stores/auth'
 import type { User } from '@/modules/auth/types'
 import type { PaginationMeta } from '@/types/api'
+import {
+  TIPO_ASOCIACION,
+  TIPO_CLUB,
+  TIPO_DISTRITO,
+  TIPO_IGLESIA,
+  TIPO_UNION,
+  TIPOS_HIJO_CLUB,
+  type OrganizacionTreeNode,
+} from '@/modules/organizaciones/types'
 
 const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
 const { can } = usePermission()
+const auth = useAuthStore()
+
+const VIEW_STORAGE_KEY = 'pj.users.listView'
+const TABLE_PAGE_SIZE = 20
+const SEARCH_PAGE_SIZE = 9
+
+function readViewMode(): 'search' | 'table' {
+  try {
+    return localStorage.getItem(VIEW_STORAGE_KEY) === 'table' ? 'table' : 'search'
+  } catch {
+    return 'search'
+  }
+}
 
 usePageChrome(() => ({
   title: t('users.title'),
@@ -42,6 +68,14 @@ usePageChrome(() => ({
 
 const query = ref('')
 const statusFilter = ref<boolean | null>(null)
+const orgTree = ref<OrganizacionTreeNode[]>([])
+const orgFilters = reactive({
+  unionId: null as number | null,
+  asociacionId: null as number | null,
+  distritoId: null as number | null,
+  iglesiaId: null as number | null,
+  clubId: null as number | null,
+})
 const users = ref<User[]>([])
 const failedPhotos = ref(new Set<number>())
 const totalUsers = ref(0)
@@ -50,8 +84,11 @@ const loadingTotal = ref(true)
 const searched = ref(false)
 const pagination = ref<PaginationMeta | null>(null)
 const deleteTarget = ref<User | null>(null)
+const impersonateTarget = ref<User | null>(null)
 const deleting = ref(false)
-const perPage = 9
+const impersonating = ref(false)
+const viewMode = ref<'search' | 'table'>(readViewMode())
+const perPage = computed(() => (viewMode.value === 'table' ? TABLE_PAGE_SIZE : SEARCH_PAGE_SIZE))
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let requestSequence = 0
 
@@ -61,10 +98,203 @@ const statusOptions = [
   { label: t('common.inactive'), value: false },
 ]
 
+const CLUB_TIPOS = [TIPO_CLUB, ...TIPOS_HIJO_CLUB] as readonly number[]
+
+type OrgFilterLevel = 'union' | 'asociacion' | 'distrito' | 'iglesia' | 'club'
+
+const LEVEL_RANK: Record<OrgFilterLevel, number> = {
+  union: 1,
+  asociacion: 2,
+  distrito: 3,
+  iglesia: 4,
+  club: 5,
+}
+
+function rankOfTipo(tipoId: number | null | undefined): number | null {
+  if (!tipoId) return null
+  if (tipoId === TIPO_UNION) return LEVEL_RANK.union
+  if (tipoId === TIPO_ASOCIACION) return LEVEL_RANK.asociacion
+  if (tipoId === TIPO_DISTRITO) return LEVEL_RANK.distrito
+  if (tipoId === TIPO_IGLESIA) return LEVEL_RANK.iglesia
+  if (CLUB_TIPOS.includes(tipoId)) return LEVEL_RANK.club
+  return null
+}
+
+const canUseOrgFilters = computed(() => {
+  const user = auth.user
+  if (!user) return false
+  return Boolean(
+    user.is_super ||
+    user.is_admin ||
+    (user.roles ?? []).includes('super_admin') ||
+    (user.roles ?? []).includes('admin'),
+  )
+})
+
+const isPlatformScope = computed(() => {
+  if (!canUseOrgFilters.value) return false
+  const ctx = auth.contexto
+  return !ctx?.organizacion_id || Boolean(ctx.is_platform)
+})
+
+const scopeOrgId = computed(() => {
+  if (isPlatformScope.value) return null
+  return auth.contexto?.organizacion_id ?? null
+})
+
+function findOrgNode(nodes: OrganizacionTreeNode[], id: number | null): OrganizacionTreeNode | null {
+  if (!id) return null
+  for (const node of nodes) {
+    if (node.id === id) return node
+    const found = findOrgNode(node.children || [], id)
+    if (found) return found
+  }
+  return null
+}
+
+function optionsFromNodes(
+  nodes: OrganizacionTreeNode[],
+  tipoIds: readonly number[],
+): Array<{ id: number; nombre: string }> {
+  return nodes
+    .filter((node) => tipoIds.includes(node.tipo_organizacion_id))
+    .map((node) => ({ id: node.id, nombre: node.nombre }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+}
+
+const unionOptions = computed(() => optionsFromNodes(orgTree.value, [TIPO_UNION]))
+
+const asociacionOptions = computed(() => {
+  const parent = findOrgNode(orgTree.value, orgFilters.unionId)
+  return parent ? optionsFromNodes(parent.children || [], [TIPO_ASOCIACION]) : []
+})
+
+const distritoOptions = computed(() => {
+  const parent = findOrgNode(orgTree.value, orgFilters.asociacionId)
+  return parent ? optionsFromNodes(parent.children || [], [TIPO_DISTRITO]) : []
+})
+
+const iglesiaOptions = computed(() => {
+  const parent = findOrgNode(orgTree.value, orgFilters.distritoId)
+  return parent ? optionsFromNodes(parent.children || [], [TIPO_IGLESIA]) : []
+})
+
+const clubOptions = computed(() => {
+  const parent = findOrgNode(orgTree.value, orgFilters.iglesiaId)
+  return parent ? optionsFromNodes(parent.children || [], CLUB_TIPOS) : []
+})
+
+const scopeTipoId = computed(() => {
+  if (isPlatformScope.value) return null
+  return (
+    auth.contexto?.tipo_organizacion_id
+    ?? findOrgNode(orgTree.value, scopeOrgId.value)?.tipo_organizacion_id
+    ?? null
+  )
+})
+
+function isLevelImplicit(level: OrgFilterLevel): boolean {
+  if (isPlatformScope.value) return false
+  const scopeRank = rankOfTipo(scopeTipoId.value)
+  if (scopeRank === null) return false
+  return LEVEL_RANK[level] <= scopeRank
+}
+
+function applyScopeLocks(): void {
+  const id = scopeOrgId.value
+  const tipo = scopeTipoId.value
+  if (!id || !tipo) return
+  if (tipo === TIPO_UNION) orgFilters.unionId = id
+  else if (tipo === TIPO_ASOCIACION) orgFilters.asociacionId = id
+  else if (tipo === TIPO_DISTRITO) orgFilters.distritoId = id
+  else if (tipo === TIPO_IGLESIA) orgFilters.iglesiaId = id
+  else if (CLUB_TIPOS.includes(tipo)) orgFilters.clubId = id
+}
+
+const selectedOrganizacionId = computed(
+  () =>
+    orgFilters.clubId
+    ?? orgFilters.iglesiaId
+    ?? orgFilters.distritoId
+    ?? orgFilters.asociacionId
+    ?? orgFilters.unionId
+    ?? scopeOrgId.value,
+)
+
+const showUnionFilter = computed(
+  () => canUseOrgFilters.value && !isLevelImplicit('union') && unionOptions.value.length > 0,
+)
+const showAsociacionFilter = computed(
+  () =>
+    canUseOrgFilters.value &&
+    !isLevelImplicit('asociacion') &&
+    Boolean(orgFilters.unionId) &&
+    asociacionOptions.value.length > 0,
+)
+const showDistritoFilter = computed(
+  () =>
+    canUseOrgFilters.value &&
+    !isLevelImplicit('distrito') &&
+    Boolean(orgFilters.asociacionId) &&
+    distritoOptions.value.length > 0,
+)
+const showIglesiaFilter = computed(
+  () =>
+    canUseOrgFilters.value &&
+    !isLevelImplicit('iglesia') &&
+    Boolean(orgFilters.distritoId) &&
+    iglesiaOptions.value.length > 0,
+)
+const showClubFilter = computed(
+  () =>
+    canUseOrgFilters.value &&
+    !isLevelImplicit('club') &&
+    Boolean(orgFilters.iglesiaId) &&
+    clubOptions.value.length > 0,
+)
+
+const scopeLabel = computed(() => {
+  if (!canUseOrgFilters.value || isPlatformScope.value) return ''
+  const name = auth.contexto?.organizacion_nombre?.trim()
+  return name ? t('users.filterScope', { org: name }) : ''
+})
+
+function clearBelow(level: Exclude<OrgFilterLevel, 'club'>): void {
+  const below: Record<Exclude<OrgFilterLevel, 'club'>, OrgFilterLevel[]> = {
+    union: ['asociacion', 'distrito', 'iglesia', 'club'],
+    asociacion: ['distrito', 'iglesia', 'club'],
+    distrito: ['iglesia', 'club'],
+    iglesia: ['club'],
+  }
+  for (const next of below[level]) {
+    if (isLevelImplicit(next)) continue
+    if (next === 'asociacion') orgFilters.asociacionId = null
+    if (next === 'distrito') orgFilters.distritoId = null
+    if (next === 'iglesia') orgFilters.iglesiaId = null
+    if (next === 'club') orgFilters.clubId = null
+  }
+}
+
+async function loadOrgTree(): Promise<void> {
+  try {
+    orgTree.value = await organizacionesService.tree()
+    applyScopeLocks()
+  } catch {
+    orgTree.value = []
+  }
+}
+
 const deleteDialogVisible = computed({
   get: () => deleteTarget.value !== null,
   set: (value: boolean) => {
     if (!value) deleteTarget.value = null
+  },
+})
+
+const impersonateDialogVisible = computed({
+  get: () => impersonateTarget.value !== null,
+  set: (value: boolean) => {
+    if (!value) impersonateTarget.value = null
   },
 })
 
@@ -106,7 +336,11 @@ function identityOf(user: User): string {
 async function loadTotal(): Promise<void> {
   loadingTotal.value = true
   try {
-    const result = await usersService.list({ page: 1, per_page: 1 })
+    const result = await usersService.list({
+      page: 1,
+      per_page: 1,
+      organizacion_id: selectedOrganizacionId.value,
+    })
     totalUsers.value = result.pagination?.total ?? result.items.length
   } catch (error) {
     toast.add({
@@ -120,9 +354,19 @@ async function loadTotal(): Promise<void> {
   }
 }
 
+function canLoginAs(user: User): boolean {
+  if (auth.isImpersonating || !user.is_active || user.id === auth.user?.id) {
+    return false
+  }
+  if (user.is_super && !auth.user?.is_super) {
+    return false
+  }
+  return auth.canImpersonate || can('users.view') || can('users.update')
+}
+
 async function search(page = 1, showWarning = false): Promise<void> {
   const term = query.value.trim()
-  if (term.length < 2) {
+  if (viewMode.value === 'search' && term.length < 2) {
     users.value = []
     pagination.value = null
     searched.value = false
@@ -142,9 +386,10 @@ async function search(page = 1, showWarning = false): Promise<void> {
   try {
     const result = await usersService.list({
       page,
-      per_page: perPage,
-      search: term,
+      per_page: perPage.value,
+      search: term || undefined,
       is_active: statusFilter.value,
+      organizacion_id: selectedOrganizacionId.value,
     })
     if (sequence !== requestSequence) return
     users.value = result.items
@@ -165,7 +410,7 @@ async function search(page = 1, showWarning = false): Promise<void> {
 
 function scheduleSearch(): void {
   if (debounceTimer) clearTimeout(debounceTimer)
-  if (query.value.trim().length < 2) {
+  if (viewMode.value === 'search' && query.value.trim().length < 2) {
     requestSequence += 1
     loading.value = false
     users.value = []
@@ -227,13 +472,67 @@ async function confirmDelete(): Promise<void> {
   }
 }
 
+async function confirmImpersonate(): Promise<void> {
+  if (!impersonateTarget.value) return
+  impersonating.value = true
+  try {
+    await auth.impersonate(impersonateTarget.value.id)
+    impersonateTarget.value = null
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('users.impersonateSuccess'),
+      life: 2500,
+    })
+    await router.push({ name: 'dashboard' })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: getApiErrorMessage(error),
+      life: 4000,
+    })
+  } finally {
+    impersonating.value = false
+  }
+}
+
 watch(query, scheduleSearch)
 watch(statusFilter, () => {
-  if (query.value.trim().length >= 2) void search(1)
+  if (viewMode.value === 'table' || query.value.trim().length >= 2) void search(1)
+})
+watch(selectedOrganizacionId, () => {
+  if (viewMode.value === 'table' || query.value.trim().length >= 2) {
+    void search(1)
+    return
+  }
+  void loadTotal()
+})
+watch(viewMode, (mode) => {
+  try {
+    localStorage.setItem(VIEW_STORAGE_KEY, mode)
+  } catch {
+    /* ignore */
+  }
+  if (mode === 'table') {
+    void search(1)
+    return
+  }
+  if (query.value.trim().length >= 2) {
+    void search(1)
+    return
+  }
+  users.value = []
+  pagination.value = null
+  searched.value = false
 })
 
-onMounted(() => {
+onMounted(async () => {
+  await loadOrgTree()
   void loadTotal()
+  if (viewMode.value === 'table') {
+    void search(1)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -256,7 +555,8 @@ onBeforeUnmount(() => {
       />
     </header>
 
-    <div class="search-panel pj-panel">
+    <div class="users-layout">
+    <aside class="search-panel pj-panel">
       <div class="search-panel__icon"><i class="pi pi-users" /></div>
       <div class="search-panel__content">
         <label for="users-search">{{ t('users.searchLabel') }}</label>
@@ -277,17 +577,96 @@ onBeforeUnmount(() => {
             class="users-filter"
             fluid
           />
+          <p v-if="scopeLabel" class="users-filter-scope">{{ scopeLabel }}</p>
+          <Select
+            v-if="showUnionFilter"
+            v-model="orgFilters.unionId"
+            :options="unionOptions"
+            option-label="nombre"
+            option-value="id"
+            show-clear
+            :placeholder="t('users.filterUnion')"
+            class="users-filter"
+            fluid
+            @update:model-value="clearBelow('union')"
+          />
+          <Select
+            v-if="showAsociacionFilter"
+            v-model="orgFilters.asociacionId"
+            :options="asociacionOptions"
+            option-label="nombre"
+            option-value="id"
+            show-clear
+            :placeholder="t('users.filterAsociacion')"
+            class="users-filter"
+            fluid
+            @update:model-value="clearBelow('asociacion')"
+          />
+          <Select
+            v-if="showDistritoFilter"
+            v-model="orgFilters.distritoId"
+            :options="distritoOptions"
+            option-label="nombre"
+            option-value="id"
+            show-clear
+            :placeholder="t('users.filterDistrito')"
+            class="users-filter"
+            fluid
+            @update:model-value="clearBelow('distrito')"
+          />
+          <Select
+            v-if="showIglesiaFilter"
+            v-model="orgFilters.iglesiaId"
+            :options="iglesiaOptions"
+            option-label="nombre"
+            option-value="id"
+            show-clear
+            :placeholder="t('users.filterIglesia')"
+            class="users-filter"
+            fluid
+            @update:model-value="clearBelow('iglesia')"
+          />
+          <Select
+            v-if="showClubFilter"
+            v-model="orgFilters.clubId"
+            :options="clubOptions"
+            option-label="nombre"
+            option-value="id"
+            show-clear
+            :placeholder="t('users.filterClub')"
+            class="users-filter"
+            fluid
+          />
+          <div class="users-views" role="group" :aria-label="t('users.viewMode')">
+            <Button
+              type="button"
+              size="small"
+              icon="pi pi-search"
+              :outlined="viewMode !== 'search'"
+              :label="t('users.viewSearch')"
+              @click="viewMode = 'search'"
+            />
+            <Button
+              type="button"
+              size="small"
+              icon="pi pi-th-large"
+              :outlined="viewMode !== 'table'"
+              :label="t('users.viewTable')"
+              @click="viewMode = 'table'"
+            />
+          </div>
         </div>
         <small class="search-panel__hint">
           <i class="pi pi-info-circle" />
-          {{ t('users.liveSearchHint') }}
+          {{ viewMode === 'table' ? t('users.tableHint') : t('users.liveSearchHint') }}
         </small>
       </div>
-    </div>
+    </aside>
 
-    <PageLoader v-if="loadingTotal && !searched" :label="t('common.loading')" />
+    <div class="users-main">
+    <PageLoader v-if="(loadingTotal && !searched && viewMode === 'search') || (loading && viewMode === 'table' && !users.length)" :label="t('common.loading')" />
 
-    <article v-else-if="!searched" class="total-card pj-panel">
+    <article v-else-if="viewMode === 'search' && !searched" class="total-card pj-panel">
       <div class="search-panel__icon"><i class="pi pi-id-card" /></div>
       <div>
         <strong>{{ t('users.totalUsers', { count: totalUsers }) }}</strong>
@@ -299,7 +678,7 @@ onBeforeUnmount(() => {
       {{ t('users.empty') }}
     </Message>
 
-    <div v-if="users.length" class="users-grid">
+    <div v-if="users.length && viewMode === 'search'" class="users-grid">
       <article
         v-for="user in users"
         :key="user.id"
@@ -364,6 +743,14 @@ onBeforeUnmount(() => {
               @click="router.push({ name: 'users.edit', params: { id: user.id } })"
             />
             <Button
+              v-if="canLoginAs(user)"
+              size="small"
+              outlined
+              icon="pi pi-sign-in"
+              :label="t('users.impersonate')"
+              @click="impersonateTarget = user"
+            />
+            <Button
               v-if="can('users.delete')"
               text
               rounded
@@ -377,6 +764,84 @@ onBeforeUnmount(() => {
       </article>
     </div>
 
+    <div v-if="viewMode === 'table' && (users.length || searched)" class="pj-panel users-table">
+      <DataTable :value="users" data-key="id" striped-rows>
+        <template #empty>
+          <p class="pj-muted">{{ t('users.empty') }}</p>
+        </template>
+        <Column :header="t('users.name')" style="min-width: 16rem">
+          <template #body="{ data }">
+            <div class="table-user">
+              <img
+                v-if="photoOf(data)"
+                :src="photoOf(data)!"
+                :alt="data.name"
+                class="user-card__photo"
+                @error="onPhotoError(data.id)"
+              />
+              <Avatar
+                v-else
+                :label="data.name?.charAt(0)?.toUpperCase()"
+                shape="circle"
+              />
+              <div>
+                <strong>{{ data.name }}</strong>
+                <small>{{ identityOf(data) }}</small>
+              </div>
+            </div>
+          </template>
+        </Column>
+        <Column :header="t('users.email')" field="email" />
+        <Column :header="t('users.roles')">
+          <template #body="{ data }">
+            <div v-if="data.roles?.length" class="roles-wrap">
+              <Tag v-for="role in data.roles" :key="role.id" :value="roleLabel(role)" severity="info" />
+            </div>
+            <span v-else class="pj-muted">—</span>
+          </template>
+        </Column>
+        <Column :header="t('users.status')" style="width: 8rem">
+          <template #body="{ data }">
+            <Tag
+              :value="data.is_active ? t('common.active') : t('common.inactive')"
+              :severity="data.is_active ? 'success' : 'secondary'"
+            />
+          </template>
+        </Column>
+        <Column :header="t('common.actions')" style="width: 16rem">
+          <template #body="{ data }">
+            <div class="actions">
+              <Button
+                v-if="can('users.update')"
+                text
+                rounded
+                icon="pi pi-pencil"
+                :aria-label="t('common.edit')"
+                @click="router.push({ name: 'users.edit', params: { id: data.id } })"
+              />
+              <Button
+                v-if="canLoginAs(data)"
+                size="small"
+                outlined
+                icon="pi pi-sign-in"
+                :label="t('users.impersonate')"
+                @click="impersonateTarget = data"
+              />
+              <Button
+                v-if="can('users.delete')"
+                text
+                rounded
+                severity="danger"
+                icon="pi pi-trash"
+                :aria-label="t('common.delete')"
+                @click="deleteTarget = data"
+              />
+            </div>
+          </template>
+        </Column>
+      </DataTable>
+    </div>
+
     <footer v-if="pagination && pagination.total > 0" class="results-footer">
       <span class="pj-muted">{{ rangeLabel }}</span>
       <Paginator
@@ -387,6 +852,8 @@ onBeforeUnmount(() => {
         @page="onPage"
       />
     </footer>
+    </div>
+    </div>
 
     <Dialog
       v-model:visible="deleteDialogVisible"
@@ -401,21 +868,50 @@ onBeforeUnmount(() => {
         <Button :label="t('common.delete')" severity="danger" :loading="deleting" @click="confirmDelete" />
       </template>
     </Dialog>
+
+    <Dialog
+      v-model:visible="impersonateDialogVisible"
+      modal
+      :header="t('users.impersonate')"
+      :style="{ width: 'min(92vw, 460px)' }"
+      :closable="!impersonating"
+    >
+      <p>{{ t('users.impersonateConfirm', { name: impersonateTarget?.name || '' }) }}</p>
+      <template #footer>
+        <Button :label="t('common.cancel')" text :disabled="impersonating" @click="impersonateTarget = null" />
+        <Button
+          :label="t('users.impersonate')"
+          icon="pi pi-sign-in"
+          :loading="impersonating"
+          @click="confirmImpersonate"
+        />
+      </template>
+    </Dialog>
   </section>
 </template>
 
 <style scoped>
 .users-page {
-  max-width: 72rem;
+  max-width: 92rem;
   margin: 0 auto;
+}
+
+.users-layout {
+  display: grid;
+  grid-template-columns: minmax(16.5rem, 20rem) minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
 }
 
 .search-panel {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 1rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   padding: 1.15rem;
+  position: sticky;
+  top: 1rem;
 }
 
 .search-panel__icon {
@@ -442,11 +938,55 @@ onBeforeUnmount(() => {
 
 .search-panel__controls {
   display: flex;
+  flex-direction: column;
   gap: 0.65rem;
 }
 
 .users-filter {
-  min-width: 10rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.users-filter-scope {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--p-text-muted-color);
+}
+
+.users-views {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.users-table {
+  margin-top: 0;
+  padding: 0.5rem;
+}
+
+.users-main {
+  min-width: 0;
+}
+
+.table-user {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.table-user strong,
+.table-user small {
+  display: block;
+}
+
+.table-user small {
+  color: var(--pj-text-muted);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .search-panel__hint {
@@ -585,23 +1125,19 @@ onBeforeUnmount(() => {
   padding: 0.5rem 0;
 }
 
-@media (max-width: 640px) {
-  .search-panel__icon {
-    display: none;
+@media (max-width: 960px) {
+  .users-layout {
+    grid-template-columns: 1fr;
   }
 
   .search-panel {
-    flex-direction: column;
-    align-items: stretch;
+    position: static;
   }
+}
 
-  .search-panel__controls {
-    flex-direction: column;
-  }
-
-  .users-filter {
-    min-width: 0;
-    width: 100%;
+@media (max-width: 640px) {
+  .search-panel__icon {
+    display: none;
   }
 
   .user-card__header {

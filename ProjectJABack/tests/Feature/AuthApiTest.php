@@ -132,4 +132,51 @@ class AuthApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.email', $user->email);
     }
+
+    public function test_admin_can_impersonate_and_return(): void
+    {
+        $admin = User::factory()->create(['email' => 'admin@test.local']);
+        $admin->forceFill(['is_admin' => true])->save();
+        $admin->clearPermissionCache();
+
+        $target = User::factory()->create([
+            'email' => 'pastor@test.local',
+            'is_active' => true,
+        ]);
+
+        Sanctum::actingAs($admin);
+        $this->postJson("/api/v1/auth/impersonate/{$target->id}")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.user.id', $target->id)
+            ->assertJsonPath('data.user.impersonated', true)
+            ->assertJsonPath('data.user.impersonator.id', $admin->id)
+            ->assertJsonStructure(['data' => ['token', 'user']]);
+
+        Sanctum::actingAs($target, ['impersonator:'.$admin->id]);
+        $this->postJson('/api/v1/auth/stop-impersonation')
+            ->assertOk()
+            ->assertJsonPath('data.user.id', $admin->id)
+            ->assertJsonPath('data.user.impersonated', false)
+            ->assertJsonStructure(['data' => ['token', 'user']]);
+    }
+
+    public function test_non_admin_cannot_impersonate(): void
+    {
+        $actor = User::factory()->create();
+        $target = User::factory()->create(['is_active' => true]);
+
+        Sanctum::actingAs($actor);
+        $this->postJson("/api/v1/auth/impersonate/{$target->id}")->assertForbidden();
+    }
+
+    public function test_admin_cannot_impersonate_self(): void
+    {
+        $admin = User::factory()->create();
+        $admin->forceFill(['is_admin' => true])->save();
+        $admin->clearPermissionCache();
+
+        Sanctum::actingAs($admin);
+        $this->postJson("/api/v1/auth/impersonate/{$admin->id}")->assertForbidden();
+    }
 }

@@ -144,6 +144,24 @@ final class EventParticipationController
         return ApiResponse::success(null, 'Evidencia eliminada');
     }
 
+    public function activityRoster(Request $request, Event $event): JsonResponse
+    {
+        return ApiResponse::success($this->service->activityRoster($request->user(), $event));
+    }
+
+    public function syncActivityRoster(Request $request, Event $event): JsonResponse
+    {
+        $data = $request->validate([
+            'persona_ids' => ['required', 'array'],
+            'persona_ids.*' => ['integer', 'exists:personas,id'],
+        ]);
+
+        return ApiResponse::success(
+            $this->service->syncActivityRoster($request->user(), $event, $data['persona_ids']),
+            'Integrantes inscritos',
+        );
+    }
+
     public function storeDirectorObservacion(Request $request, Event $event): JsonResponse
     {
         $data = $request->validate([

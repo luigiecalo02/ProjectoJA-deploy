@@ -16,6 +16,7 @@ export const usersService = {
         per_page: params.per_page,
         q: params.search || undefined,
         is_active: params.is_active === null ? undefined : params.is_active,
+        organizacion_id: params.organizacion_id || undefined,
       },
     })
     return {

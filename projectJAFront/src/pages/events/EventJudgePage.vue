@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import InputNumber from 'primevue/inputnumber'
+import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import PageLoader from '@/components/PageLoader.vue'
 import EventSearchPanel from '@/components/events/EventSearchPanel.vue'
@@ -13,6 +14,7 @@ import EventJudgeTreeNodes from '@/components/events/EventJudgeTreeNodes.vue'
 import EventJudgeActivityCard from '@/components/events/EventJudgeActivityCard.vue'
 import { eventsService } from '@/services/eventsService'
 import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
+import { extractBannerHeroVars } from '@/utils/dominantColor'
 import { getApiErrorMessage } from '@/services/api'
 import type {
   EventoEvidenciaItem,
@@ -44,6 +46,11 @@ const clubFilter = ref<ClubFilter>('pendientes')
 const search = ref('')
 const observaciones = ref('')
 const genericScore = ref<number | null>(null)
+const puestoEntrega = ref('')
+const durMin = ref(0)
+const durSec = ref(0)
+const durCs = ref(0)
+const resultadoObtenido = ref<number | null>(null)
 const criterioScores = ref<Record<number, number>>({})
 const selectedEvidenceId = ref<number | null>(null)
 const expandedTreeIds = ref<Set<number>>(new Set())
@@ -51,10 +58,38 @@ const treeInitialized = ref(false)
 const drawerVisible = ref(false)
 
 const eventId = computed(() => Number(route.params.id))
+const bannerUrl = computed(() => resolveAssetUrl(board.value?.evento.banner_url))
+const logoUrl = computed(() => resolveAssetUrl(board.value?.evento.image_url))
+const heroCoverUrl = computed(() => bannerUrl.value || logoUrl.value)
+const showEventLogo = computed(() => Boolean(logoUrl.value && bannerUrl.value))
+const heroTheme = ref<Record<string, string>>({})
+let heroThemeSequence = 0
 const heroStyle = computed(() => {
-  const url = resolveAssetUrl(board.value?.evento.image_url)
-  return url ? { '--hero-image': toCssImageUrl(url) } : undefined
+  const url = heroCoverUrl.value
+  if (!url) return undefined
+  return {
+    '--hero-image': toCssImageUrl(url),
+    ...heroTheme.value,
+  }
 })
+
+watch(
+  heroCoverUrl,
+  async (url) => {
+    heroTheme.value = {}
+    if (!url) return
+    const sequence = ++heroThemeSequence
+    try {
+      const vars = await extractBannerHeroVars(url)
+      if (sequence !== heroThemeSequence) return
+      heroTheme.value = vars
+    } catch {
+      if (sequence !== heroThemeSequence) return
+      heroTheme.value = {}
+    }
+  },
+  { immediate: true },
+)
 
 const subevento = computed<JudgeSubevento | null>(() => board.value?.subevento ?? null)
 const actividad = computed<JudgeSubevento | null>(() => board.value?.actividad ?? board.value?.subevento ?? null)
@@ -363,10 +398,36 @@ async function onTreeNodeSelect(node: JudgeTreeNode): Promise<void> {
 
 const hasCriteria = computed(() => (actividad.value?.criterios?.length ?? 0) > 0)
 
+const resultadoEsperado = computed(() => actividad.value?.resultado_esperado ?? null)
+const scoreByParticipation = computed(() => Boolean(actividad.value?.puntaje_por_participar))
+
+function formatDuration(min: number, sec: number, cs: number): string {
+  const m = Math.max(0, Math.floor(Number(min) || 0))
+  const s = Math.min(59, Math.max(0, Math.floor(Number(sec) || 0)))
+  const c = Math.min(99, Math.max(0, Math.floor(Number(cs) || 0)))
+  return `${m}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`
+}
+
+function parseDuration(value: string | null | undefined): { min: number; sec: number; cs: number } {
+  const match = /^(\d{1,3}):([0-5]\d)\.(\d{2})$/.exec((value || '').trim())
+  if (!match) return { min: 0, sec: 0, cs: 0 }
+  return { min: Number(match[1]), sec: Number(match[2]), cs: Number(match[3]) }
+}
+
+const tiempoEntrega = computed(() => formatDuration(durMin.value, durSec.value, durCs.value))
+
 const scoredTotal = computed(() => {
   if (!actividad.value) return 0
+  if (scoreByParticipation.value) {
+    return Number(actividad.value.puntaje_maximo ?? 0)
+  }
   if (hasCriteria.value) {
     return actividad.value.criterios.reduce((sum, c) => sum + (Number(criterioScores.value[c.id]) || 0), 0)
+  }
+  const expected = resultadoEsperado.value
+  if (expected != null && expected > 0 && resultadoObtenido.value != null) {
+    const max = Number(actividad.value.puntaje_maximo ?? 0)
+    return Math.round((resultadoObtenido.value / expected) * max * 100) / 100
   }
   return Number(genericScore.value) || 0
 })
@@ -411,6 +472,13 @@ function hydrateForm(club: JudgeClub | null): void {
   }
   criterioScores.value = map
   genericScore.value = club?.calificacion ? Number(club.calificacion.puntaje_obtenido) : null
+  puestoEntrega.value = club?.calificacion?.puesto_entrega || ''
+  const duration = parseDuration(club?.calificacion?.tiempo_entrega)
+  durMin.value = duration.min
+  durSec.value = duration.sec
+  durCs.value = duration.cs
+  resultadoObtenido.value =
+    club?.calificacion?.resultado_obtenido != null ? Number(club.calificacion.resultado_obtenido) : null
   selectedEvidenceId.value = club?.evidencias?.[0]?.id ?? null
 }
 
@@ -526,6 +594,30 @@ function evidenceLabel(ev: EventoEvidenciaItem): string {
   return ev.titulo || ev.tipo || t('events.evidenceTitle')
 }
 
+function scorePayload() {
+  const activity = actividad.value
+  const orgId = selectedOrgId.value
+  if (!activity || !orgId) {
+    throw new Error('Actividad u organización no seleccionada')
+  }
+  return {
+    organizacion_id: orgId,
+    observaciones: observaciones.value || null,
+    puntaje_obtenido: scoredTotal.value,
+    criterios:
+      hasCriteria.value && !scoreByParticipation.value
+        ? activity.criterios.map((c) => ({
+            criterio_evaluacion_id: c.id,
+            puntos: Number(criterioScores.value[c.id]) || 0,
+          }))
+        : undefined,
+    puesto_entrega: activity.requiere_puesto_entrega ? puestoEntrega.value.trim() || null : null,
+    tiempo_entrega: activity.requiere_tiempo_entrega ? tiempoEntrega.value : null,
+    resultado_obtenido:
+      resultadoEsperado.value != null ? resultadoObtenido.value : null,
+  }
+}
+
 async function saveAndMaybeNext(goNext: boolean): Promise<void> {
   if (!actividad.value || !selectedOrgId.value) return
   if (!canScoreActivity.value) {
@@ -575,17 +667,7 @@ async function saveAndMaybeNext(goNext: boolean): Promise<void> {
 
   saving.value = true
   try {
-    await eventsService.saveCalificacion(actividad.value.id, {
-      organizacion_id: selectedOrgId.value,
-      observaciones: observaciones.value || null,
-      puntaje_obtenido: hasCriteria.value ? scoredTotal.value : (genericScore.value ?? 0),
-      criterios: hasCriteria.value
-        ? actividad.value.criterios.map((c) => ({
-            criterio_evaluacion_id: c.id,
-            puntos: Number(criterioScores.value[c.id]) || 0,
-          }))
-        : undefined,
-    })
+    await eventsService.saveCalificacion(actividad.value.id, scorePayload())
     toast.add({
       severity: 'success',
       summary: t('common.success'),
@@ -624,17 +706,7 @@ async function saveJudgeObservacion(): Promise<void> {
   if (!actividad.value || !selectedOrgId.value) return
   saving.value = true
   try {
-    await eventsService.saveCalificacion(actividad.value.id, {
-      organizacion_id: selectedOrgId.value,
-      observaciones: observaciones.value || null,
-      puntaje_obtenido: hasCriteria.value ? scoredTotal.value : (genericScore.value ?? 0),
-      criterios: hasCriteria.value
-        ? actividad.value.criterios.map((c) => ({
-            criterio_evaluacion_id: c.id,
-            puntos: Number(criterioScores.value[c.id]) || 0,
-          }))
-        : undefined,
-    })
+    await eventsService.saveCalificacion(actividad.value.id, scorePayload())
     toast.add({
       severity: 'success',
       summary: t('common.success'),
@@ -689,19 +761,30 @@ onMounted(() => {
     <template v-else-if="board">
       <div
         class="judge-top"
-        :class="{ 'has-cover': Boolean(board.evento.image_url) }"
+        :class="{
+          'has-cover': Boolean(heroCoverUrl),
+          'has-logo': showEventLogo,
+        }"
         :style="heroStyle"
       >
-        <div>
-          <Button
-            type="button"
-            text
-            icon="pi pi-arrow-left"
-            :label="t('events.backToEvents')"
-            @click="router.push({ name: 'events' })"
+        <div class="judge-top__intro">
+          <img
+            v-if="showEventLogo && logoUrl"
+            class="judge-top__logo"
+            :src="logoUrl"
+            :alt="board.evento.name"
           />
-          <h1>{{ t('events.judgeTitle') }}</h1>
-          <p class="pj-muted">{{ board.evento.name }}</p>
+          <div>
+            <Button
+              type="button"
+              text
+              icon="pi pi-arrow-left"
+              :label="t('events.backToEvents')"
+              @click="router.push({ name: 'events' })"
+            />
+            <h1>{{ t('events.judgeTitle') }}</h1>
+            <p class="pj-muted">{{ board.evento.name }}</p>
+          </div>
         </div>
 
         <div class="judge-top__meta">
@@ -953,17 +1036,89 @@ onMounted(() => {
             :subeventos="activityChildNodes"
             :evidencia-by-id="clubEvidencias"
             :has-club-selected="!!selectedOrgId"
+            :show-participantes="
+              actividad.participantes_min != null ||
+              actividad.participantes_max != null ||
+              Boolean(actividad.permite_inscribir_no_participantes) ||
+              Boolean(selectedActivityClub?.participantes?.length)
+            "
             @select-subevento="onTreeNodeSelect"
             @update:judge-observacion="observaciones = $event"
             @save-judge-obs="saveJudgeObservacion"
           >
+            <template #participantes>
+              <p v-if="!selectedActivityClub?.participantes?.length" class="pj-muted">
+                {{ t('events.activityRosterJudgeEmpty') }}
+              </p>
+              <ul v-else class="judge-roster">
+                <li v-for="row in selectedActivityClub.participantes" :key="row.id">
+                  <strong>{{ row.nombre }}</strong>
+                  <small v-if="row.sexo === 'M'">{{ t('events.activityRosterMale') }}</small>
+                  <small v-else-if="row.sexo === 'F'">{{ t('events.activityRosterFemale') }}</small>
+                </li>
+              </ul>
+            </template>
             <template #calificacion>
               <template v-if="selectedActivityClub">
                 <div class="workspace">
                   <section class="score-panel">
                     <h3>{{ t('events.criteriaTitle') }}</h3>
 
-                    <template v-if="hasCriteria">
+                    <p v-if="scoreByParticipation" class="pj-muted">
+                      {{ t('events.judgeParticipationScoreHint') }}
+                    </p>
+
+                    <div
+                      v-if="
+                        actividad.requiere_puesto_entrega ||
+                        actividad.requiere_tiempo_entrega ||
+                        resultadoEsperado != null
+                      "
+                      class="grading-extras"
+                    >
+                      <div v-if="actividad.requiere_puesto_entrega" class="field">
+                        <label>{{ t('events.judgePuestoEntrega') }}</label>
+                        <InputText v-model="puestoEntrega" class="w-full" />
+                      </div>
+                      <div v-if="actividad.requiere_tiempo_entrega" class="field">
+                        <label>{{ t('events.judgeTiempoEntrega') }}</label>
+                        <div class="duration-input">
+                          <div>
+                            <InputNumber v-model="durMin" :min="0" :max="999" input-class="w-full" />
+                            <small>{{ t('events.judgeTiempoMin') }}</small>
+                          </div>
+                          <span>:</span>
+                          <div>
+                            <InputNumber v-model="durSec" :min="0" :max="59" input-class="w-full" />
+                            <small>{{ t('events.judgeTiempoSec') }}</small>
+                          </div>
+                          <span>.</span>
+                          <div>
+                            <InputNumber v-model="durCs" :min="0" :max="99" input-class="w-full" />
+                            <small>{{ t('events.judgeTiempoCs') }}</small>
+                          </div>
+                        </div>
+                      </div>
+                      <div v-if="resultadoEsperado != null" class="field">
+                        <label>{{ t('events.judgeResultadoObtenido') }}</label>
+                        <InputNumber
+                          v-model="resultadoObtenido"
+                          :min="0"
+                          :max="resultadoEsperado"
+                          input-class="w-full"
+                        />
+                        <small class="pj-muted">
+                          {{
+                            t('events.judgeResultadoOf', {
+                              got: resultadoObtenido ?? 0,
+                              expected: resultadoEsperado,
+                            })
+                          }}
+                        </small>
+                      </div>
+                    </div>
+
+                    <template v-if="!scoreByParticipation && hasCriteria">
                       <div class="criteria-table">
                         <div class="criteria-row criteria-row--head">
                           <span>{{ t('events.criteriaTitle') }}</span>
@@ -992,7 +1147,7 @@ onMounted(() => {
                       </div>
                     </template>
 
-                    <div v-else class="generic-score">
+                    <div v-else-if="!scoreByParticipation && resultadoEsperado == null" class="generic-score">
                       <p class="pj-muted">{{ t('events.criteriaGenericHint') }}</p>
                       <label>{{ t('events.judgeScoreObtained') }}</label>
                       <InputNumber
@@ -1170,17 +1325,85 @@ onMounted(() => {
   isolation: isolate;
 }
 
+.judge-top__intro {
+  display: flex;
+  align-items: center;
+  gap: 0.95rem;
+  min-width: 0;
+}
+
+.judge-top__logo {
+  width: 4.5rem;
+  height: 4.5rem;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 0.9rem;
+  border: 3px solid #fff;
+  background: #fff;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.28);
+}
+
+.judge-top.has-cover.has-logo {
+  overflow: visible;
+  margin-bottom: 2.4rem;
+}
+
+.judge-top.has-cover.has-logo .judge-top__intro {
+  align-items: flex-end;
+}
+
+.judge-top.has-cover.has-logo .judge-top__logo {
+  position: relative;
+  z-index: 2;
+  margin-bottom: -2.4rem;
+}
+
 .judge-top.has-cover {
-  color: #fff;
+  min-height: 7.25rem;
+  color: var(--hero-text, #fff);
   background-image:
-    linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%),
+    var(--hero-overlay, linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%)),
     var(--hero-image);
   background-size: cover;
   background-position: center;
 }
 
 .judge-top.has-cover .pj-muted {
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--hero-muted, rgba(255, 255, 255, 0.82));
+}
+
+.judge-top.has-cover :deep(.p-button.p-button-text) {
+  color: var(--hero-text, #fff);
+}
+
+.judge-top.has-cover :deep(.p-button.p-button-text:hover) {
+  background: color-mix(in srgb, var(--hero-text, #fff) 12%, transparent);
+}
+
+.judge-top.has-cover :deep(.p-button.p-button-outlined) {
+  color: var(--hero-btn-text, #fff);
+  background: var(--hero-btn-bg, rgba(15, 23, 42, 0.35));
+  border-color: var(--hero-btn-border, rgba(255, 255, 255, 0.38));
+}
+
+.judge-top.has-cover :deep(.p-button.p-button-outlined:hover) {
+  background: color-mix(in srgb, var(--hero-btn-bg, rgba(15, 23, 42, 0.35)) 80%, #fff);
+}
+
+.judge-top.has-cover .progress-pill,
+.judge-top.has-cover .max-chip {
+  color: var(--hero-chip-text, #fff);
+  background: var(--hero-chip-bg, rgba(15, 23, 42, 0.48));
+  border-color: var(--hero-chip-border, rgba(255, 255, 255, 0.28));
+}
+
+.judge-top.has-cover .progress-pill span,
+.judge-top.has-cover .max-chip span {
+  color: var(--hero-chip-muted, rgba(255, 255, 255, 0.78));
+}
+
+.judge-top.has-cover h1 {
+  text-shadow: 0 1px 12px color-mix(in srgb, var(--hero-chip-bg, rgba(15, 23, 42, 0.5)) 70%, transparent);
 }
 
 .judge-top h1 {
@@ -1851,6 +2074,61 @@ onMounted(() => {
   gap: 0.35rem;
   font-weight: 650;
   color: #1d4ed8;
+}
+
+.grading-extras {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.grading-extras .field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.duration-input {
+  display: flex;
+  align-items: end;
+  gap: 0.4rem;
+}
+
+.duration-input > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 4.5rem;
+}
+
+.duration-input span {
+  padding-bottom: 1.15rem;
+  font-weight: 700;
+}
+
+.duration-input small {
+  color: var(--pj-text-muted, #64748b);
+  font-size: 0.72rem;
+}
+
+.judge-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.judge-roster li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
+}
+
+.judge-roster small {
+  color: var(--pj-text-muted, #64748b);
 }
 
 .empty {

@@ -20,11 +20,12 @@ import EventCabanasStep from '@/components/events/EventCabanasStep.vue'
 import CategoriaSubeventosAdminDrawer from '@/components/events/CategoriaSubeventosAdminDrawer.vue'
 import CriteriosEvaluacionAdminDrawer from '@/components/events/CriteriosEvaluacionAdminDrawer.vue'
 import { eventsService } from '@/services/eventsService'
-import { optimizeImageFile } from '@/utils/optimizeImage'
 import MediaCoverUpload from '@/components/media/MediaCoverUpload.vue'
+import MediaProfileUpload from '@/components/media/MediaProfileUpload.vue'
+import EventBannerCard from '@/components/events/EventBannerCard.vue'
 import { clubsService } from '@/services/clubsService'
 import { organizacionesService } from '@/services/organizacionesService'
-import { getApiErrorMessage } from '@/services/api'
+import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { usePageChrome } from '@/composables/usePageChrome'
 import type { OrganizacionTreeNode, TipoOrganizacion } from '@/modules/organizaciones/types'
 import {
@@ -176,6 +177,7 @@ const form = reactive({
   puntos_inscripcion_a_tiempo: null as number | null,
   puntos_inscripcion_fuera_tiempo: null as number | null,
   image_url: null as string | null,
+  banner_url: null as string | null,
 })
 
 const terrenoSummary = ref<{ terrenoNombre: string | null; lotes: number; capacidad: number }>({
@@ -250,8 +252,12 @@ usePageChrome(() => ({
     },
   ],
 }))
-const imagePreview = computed(() => pendingPreview.value || form.image_url)
-const bannerPreview = computed(() => pendingBannerPreview.value)
+const imagePreview = computed(
+  () => pendingPreview.value || resolveFileUrl(form.image_url) || form.image_url,
+)
+const bannerPreview = computed(
+  () => pendingBannerPreview.value || resolveFileUrl(form.banner_url) || form.banner_url,
+)
 const descCount = computed(() => form.descripcion.length)
 const descMax = 200
 
@@ -270,9 +276,13 @@ const previewCupo = computed(() => {
   return t('events.wizard.previewPending')
 })
 
-const previewScore = computed(() => {
-  if (!form.es_calificable) return '—'
-  return form.puntaje_maximo != null ? String(form.puntaje_maximo) : t('events.wizard.previewPending')
+const previewEnrollment = computed(() => {
+  if (!form.requiere_pago || form.precio == null) return '—'
+  return Number(form.precio).toLocaleString('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    maximumFractionDigits: 0,
+  })
 })
 
 const tips = computed(() => [
@@ -323,20 +333,53 @@ function syncTipoIdsFromAudience(): void {
     .filter((id): id is number => id != null)
 }
 
-function toggleAudience(key: ClubAudienceKey): void {
-  if (key === 'libre') {
-    clubAudience.value = ['libre']
-    syncTipoIdsFromAudience()
+function currentAudiencia(): Exclude<ClubAudienceKey, never> {
+  return clubAudience.value.includes('libre') || !clubAudience.value.length
+    ? 'libre'
+    : clubAudience.value[0]
+}
+
+function applyAudienceFromEvent(event: {
+  tipo_organizacion_ids?: number[]
+  tipos_organizacion?: Array<{ id: number; nombre: string }>
+}): void {
+  form.tipo_organizacion_ids = [...(event.tipo_organizacion_ids || [])]
+  if (event.tipos_organizacion?.length) {
+    const keys: ClubAudienceKey[] = []
+    for (const tipo of event.tipos_organizacion) {
+      const name = (tipo.nombre || '').toLowerCase()
+      if (name.includes('conquistador') || tipo.id === TIPO_CONQUISTADORES) keys.push('conquistadores')
+      else if (name.includes('aventurero') || tipo.id === TIPO_AVENTUREROS) keys.push('aventureros')
+      else if (name.includes('guía') || name.includes('guia') || tipo.id === TIPO_GUIAS_MAYORES) {
+        keys.push('guias_mayores')
+      }
+    }
+    clubAudience.value = keys.length ? [...new Set(keys)] : ['libre']
     return
   }
-  const withoutLibre = clubAudience.value.filter((k) => k !== 'libre')
-  if (withoutLibre.includes(key)) {
-    const next = withoutLibre.filter((k) => k !== key)
-    clubAudience.value = next.length ? next : ['libre']
+  clubAudience.value = audienceFromTipoIds(form.tipo_organizacion_ids)
+}
+
+function toggleAudience(key: ClubAudienceKey): void {
+  if (key === 'libre' || clubAudience.value.includes(key)) {
+    clubAudience.value = ['libre']
   } else {
-    clubAudience.value = [...withoutLibre, key]
+    clubAudience.value = [key]
   }
   syncTipoIdsFromAudience()
+  if (persistedId.value) {
+    void persistAudience()
+  }
+}
+
+async function persistAudience(): Promise<void> {
+  if (!persistedId.value) return
+  try {
+    const saved = await persistEvent(form.estado === 'publicado' ? 'publicado' : 'borrador')
+    applyAudienceFromEvent(saved)
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error)
+  }
 }
 
 function audienceFromTipoIds(ids: number[]): ClubAudienceKey[] {
@@ -419,21 +462,47 @@ function revokeUrl(url: string | null): void {
   if (url) URL.revokeObjectURL(url)
 }
 
+function persistedMediaUrl(url: string | null | undefined): string | null {
+  if (!url || url.startsWith('blob:') || url.startsWith('data:')) return null
+  return url
+}
+
+function applyServerMedia(event: ClubEvent): void {
+  if (event.image_url) form.image_url = event.image_url
+  if (event.banner_url) form.banner_url = event.banner_url
+}
+
+async function persistPickedMedia(): Promise<void> {
+  if (!persistedId.value) {
+    await persistEvent(form.estado === 'publicado' ? 'publicado' : 'borrador')
+    return
+  }
+  if (pendingImage.value) await uploadPendingImage(persistedId.value)
+  if (pendingBanner.value) await uploadPendingBanner(persistedId.value)
+}
+
 async function onPickImage(file: File): Promise<void> {
   if (!file) return
   pendingImage.value = file
   revokeUrl(pendingPreview.value)
   pendingPreview.value = URL.createObjectURL(file)
+  try {
+    await persistPickedMedia()
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error)
+  }
 }
 
-async function onPickBanner(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
+async function onPickBanner(file: File): Promise<void> {
   if (!file) return
-  pendingBanner.value = await optimizeImageFile(file)
+  pendingBanner.value = file
   revokeUrl(pendingBannerPreview.value)
-  pendingBannerPreview.value = URL.createObjectURL(pendingBanner.value)
-  input.value = ''
+  pendingBannerPreview.value = URL.createObjectURL(file)
+  try {
+    await persistPickedMedia()
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error)
+  }
 }
 
 function buildPayload(estado: string): EventFormPayload {
@@ -456,6 +525,7 @@ function buildPayload(estado: string): EventFormPayload {
     tipo_evento_id: null,
     organizacion_ids: [...form.organizacion_ids],
     tipo_organizacion_ids: [...form.tipo_organizacion_ids],
+    audiencia: currentAudiencia(),
     es_en_sitio: form.es_en_sitio,
     es_calificable: form.es_calificable,
     puntaje_maximo: form.es_calificable ? form.puntaje_maximo : null,
@@ -510,6 +580,12 @@ function buildPayload(estado: string): EventFormPayload {
       : null,
     puntos_inscripcion_a_tiempo: form.puntos_inscripcion_a_tiempo,
     puntos_inscripcion_fuera_tiempo: form.puntos_inscripcion_fuera_tiempo,
+    ...(persistedMediaUrl(form.image_url)
+      ? { image_url: persistedMediaUrl(form.image_url) }
+      : {}),
+    ...(persistedMediaUrl(form.banner_url)
+      ? { banner_url: persistedMediaUrl(form.banner_url) }
+      : {}),
   }
 }
 
@@ -518,10 +594,24 @@ async function uploadPendingImage(id: number): Promise<void> {
   uploading.value = true
   try {
     const updated = await eventsService.uploadImage(id, pendingImage.value)
-    form.image_url = updated.image_url
-    pendingImage.value = null
-    revokeUrl(pendingPreview.value)
-    pendingPreview.value = null
+    applyServerMedia(updated)
+    if (updated.image_url) {
+      pendingImage.value = null
+    }
+  } finally {
+    uploading.value = false
+  }
+}
+
+async function uploadPendingBanner(id: number): Promise<void> {
+  if (!pendingBanner.value) return
+  uploading.value = true
+  try {
+    const updated = await eventsService.uploadBanner(id, pendingBanner.value)
+    applyServerMedia(updated)
+    if (updated.banner_url) {
+      pendingBanner.value = null
+    }
   } finally {
     uploading.value = false
   }
@@ -529,17 +619,25 @@ async function uploadPendingImage(id: number): Promise<void> {
 
 async function persistEvent(estado: string): Promise<ClubEvent> {
   const payload = buildPayload(estado)
+  const hadPendingMedia = Boolean(pendingImage.value || pendingBanner.value)
   let saved: ClubEvent
   if (persistedId.value) {
     saved = await eventsService.update(persistedId.value, payload)
     if (pendingImage.value) await uploadPendingImage(persistedId.value)
+    if (pendingBanner.value) await uploadPendingBanner(persistedId.value)
   } else {
     saved = await eventsService.create(payload)
     persistedId.value = saved.id
     if (pendingImage.value) await uploadPendingImage(saved.id)
+    if (pendingBanner.value) await uploadPendingBanner(saved.id)
     await router.replace({ name: 'events.edit', params: { id: saved.id } })
   }
 
+  if (hadPendingMedia && persistedId.value) {
+    saved = await eventsService.get(persistedId.value)
+  }
+  applyServerMedia(saved)
+  applyAudienceFromEvent(saved)
   if (!form.starts_at && saved.starts_at) form.starts_at = dateOnly(saved.starts_at)
   if (!form.ends_at && saved.ends_at) form.ends_at = dateOnly(saved.ends_at)
   form.estado = saved.estado || estado
@@ -744,8 +842,7 @@ async function loadEvent(): Promise<void> {
   form.visibilidad = event.visibilidad ?? 'organizacion'
   form.organizacion_id = event.organizacion_id ?? null
   form.organizacion_ids = [...(event.organizacion_ids || [])]
-  form.tipo_organizacion_ids = [...(event.tipo_organizacion_ids || [])]
-  clubAudience.value = audienceFromTipoIds(form.tipo_organizacion_ids)
+  applyAudienceFromEvent(event)
   form.es_en_sitio = event.es_en_sitio ?? true
   form.es_calificable = event.es_calificable ?? false
   form.puntaje_maximo = event.puntaje_maximo ?? null
@@ -790,6 +887,7 @@ async function loadEvent(): Promise<void> {
   form.puntos_inscripcion_a_tiempo = event.puntos_inscripcion_a_tiempo ?? null
   form.puntos_inscripcion_fuera_tiempo = event.puntos_inscripcion_fuera_tiempo ?? null
   form.image_url = event.image_url
+  form.banner_url = event.banner_url ?? null
 }
 
 onMounted(async () => {
@@ -877,6 +975,31 @@ onBeforeUnmount(() => {
             <h2>{{ t('events.wizard.stepBasic') }}</h2>
           </div>
 
+          <div class="media-uploads">
+            <div class="field">
+              <MediaProfileUpload
+                :src="imagePreview"
+                :title="t('events.wizard.eventLogo')"
+                :subtitle="t('events.wizard.eventLogoHint')"
+                :meta="t('events.wizard.imageHint')"
+                hint=""
+                :busy="uploading"
+                @select="onPickImage"
+              />
+            </div>
+
+            <div class="field">
+              <MediaCoverUpload
+                :src="bannerPreview"
+                :title="t('events.wizard.eventBanner')"
+                :subtitle="t('events.wizard.bannerHint')"
+                meta=""
+                :busy="uploading"
+                @select="onPickBanner"
+              />
+            </div>
+          </div>
+
           <div class="field">
             <label for="name">{{ t('events.name') }}</label>
             <InputText
@@ -903,34 +1026,6 @@ onBeforeUnmount(() => {
               :placeholder="t('events.wizard.shortDescriptionPlaceholder')"
               auto-resize
             />
-          </div>
-
-          <div class="media-uploads">
-            <div class="field">
-              <MediaCoverUpload
-                :src="imagePreview"
-                :title="t('events.wizard.eventImage')"
-                :subtitle="t('media.eventCoverSubtitle')"
-                @select="onPickImage"
-              />
-            </div>
-
-            <div class="field">
-              <label>{{ t('events.wizard.eventBanner') }}</label>
-              <label
-                class="dropzone dropzone--compact dropzone--banner"
-                :class="{ 'has-preview': !!bannerPreview }"
-              >
-                <input type="file" accept="image/*" class="sr-only" @change="onPickBanner" />
-                <img v-if="bannerPreview" :src="bannerPreview" alt="Banner" />
-                <div v-else class="dropzone__empty">
-                  <i class="pi pi-image" />
-                  <strong>{{ t('events.wizard.dropBanner') }}</strong>
-                  <span>{{ t('events.wizard.bannerHint') }}</span>
-                </div>
-              </label>
-              <small class="pj-muted">{{ t('events.wizard.bannerSoon') }}</small>
-            </div>
           </div>
 
           <section class="basic-config-section">
@@ -1661,47 +1756,22 @@ onBeforeUnmount(() => {
             <i :class="previewVisible ? 'pi pi-chevron-right' : 'pi pi-chevron-left'" />
           </button>
 
-          <article v-show="previewVisible" class="event-preview-card">
-            <div class="event-preview-card__media">
-              <img
-                v-if="imagePreview"
-                :src="imagePreview"
-                :alt="form.name || t('events.image')"
-              />
-              <div v-else class="event-preview-card__placeholder">
-                <i class="pi pi-camera" />
-              </div>
-              <span class="event-preview-card__status">
-                {{ form.estado === 'publicado' ? t('events.estadoPublicado') : t('events.estadoBorrador') }}
-              </span>
-            </div>
-            <div class="event-preview-card__body">
-              <h3>{{ form.name || t('events.wizard.previewTitle') }}</h3>
-              <span class="event-preview-card__type event-preview-card__type--audience">
-                {{ audienceLabel }}
-              </span>
-              <p class="event-preview-card__meta">
-                <i class="pi pi-calendar" /> {{ previewDates }}
-              </p>
-              <p class="event-preview-card__meta">
-                <i class="pi pi-map-marker" />
-                {{ form.lugar || t('events.wizard.previewPlace') }}
-              </p>
-              <p class="event-preview-card__desc">
-                {{ form.descripcion || t('events.wizard.previewDesc') }}
-              </p>
-              <div class="event-preview-card__stats">
-                <div>
-                  <span>{{ t('events.wizard.participants') }}</span>
-                  <strong>{{ previewCupo }}</strong>
-                </div>
-                <div>
-                  <span>{{ t('events.wizard.maxScore') }}</span>
-                  <strong>{{ previewScore }}</strong>
-                </div>
-              </div>
-            </div>
-          </article>
+          <EventBannerCard
+            v-show="previewVisible"
+            :name="form.name || t('events.wizard.previewTitle')"
+            :banner-url="bannerPreview"
+            :logo-url="imagePreview"
+            :status-label="form.estado === 'publicado' ? t('events.estadoPublicado') : t('events.estadoBorrador')"
+            :status-css="form.estado === 'publicado' ? 'status--publicado' : 'status--borrador'"
+            :audience-label="audienceLabel"
+            :dates-label="previewDates"
+            :place-label="form.lugar || t('events.wizard.previewPlace')"
+            :description="form.descripcion || t('events.wizard.previewDesc')"
+            :cupo-label="previewCupo"
+            :score-label="previewEnrollment"
+            :cupo-caption="t('events.wizard.participants')"
+            :score-caption="t('events.enrollmentValue')"
+          />
         </aside>
       </div>
 

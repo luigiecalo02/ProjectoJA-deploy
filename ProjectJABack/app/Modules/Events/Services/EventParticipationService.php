@@ -4,12 +4,16 @@ namespace App\Modules\Events\Services;
 
 use App\Models\User;
 use App\Modules\Clubs\Models\Club;
+use App\Modules\Clubs\Models\Persona;
 use App\Modules\Events\Models\Event;
+use App\Modules\Events\Models\EventoActividadParticipante;
 use App\Modules\Events\Models\EventoCalificacion;
 use App\Modules\Events\Models\EventoCalificacionObsDirector;
 use App\Modules\Events\Models\EventoEvidencia;
 use App\Modules\Events\Models\EventoInscripcion;
+use App\Modules\Events\Models\EventoInscripcionPersona;
 use App\Modules\Organizations\Models\Organizacion;
+use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\ImageOptimizer;
@@ -221,7 +225,8 @@ final class EventParticipationService
             ->get()
             ->groupBy('evento_id');
 
-        $tree = $this->mapNode($root, $calificaciones, $evidencias, true);
+        $locked = $this->directorModificationsLocked($root);
+        $tree = $this->mapNode($root, $calificaciones, $evidencias, true, $locked);
         $progreso = $this->buildProgress($root, $calificaciones);
 
         $clubLogo = Club::query()
@@ -248,6 +253,7 @@ final class EventParticipationService
                 'logo_url' => $clubLogo ?: null,
             ],
             'progreso' => $progreso,
+            'modificacion_bloqueada' => $locked,
         ];
     }
 
@@ -267,6 +273,8 @@ final class EventParticipationService
         if (! $actor->can('view', $root)) {
             throw new AccessDeniedHttpException('No puedes ver este evento.');
         }
+
+        $this->assertDirectorCanModify($subevento);
 
         if (! $subevento->requiere_evidencia) {
             throw ValidationException::withMessages([
@@ -437,6 +445,11 @@ final class EventParticipationService
             throw new AccessDeniedHttpException('No puedes eliminar esta evidencia.');
         }
 
+        $actividad = Event::query()->find($evidencia->evento_id);
+        if ($actividad) {
+            $this->assertDirectorCanModify($actividad);
+        }
+
         $evidencia->delete();
     }
 
@@ -535,10 +548,10 @@ final class EventParticipationService
      * @param  Collection<int, Collection<int, EventoEvidencia>>  $evidencias
      * @return array<string, mixed>
      */
-    private function mapNode(Event $event, $calificaciones, $evidencias, bool $isRoot): array
+    private function mapNode(Event $event, $calificaciones, $evidencias, bool $isRoot, bool $modificacionBloqueada): array
     {
         $hijos = ($event->hijos ?? collect())
-            ->map(fn (Event $hijo) => $this->mapNode($hijo, $calificaciones, $evidencias, false))
+            ->map(fn (Event $hijo) => $this->mapNode($hijo, $calificaciones, $evidencias, false, $modificacionBloqueada))
             ->values()
             ->all();
 
@@ -562,6 +575,7 @@ final class EventParticipationService
             'es_calificable' => (bool) $event->es_calificable,
             'puntaje_maximo' => $event->puntaje_maximo !== null ? (float) $event->puntaje_maximo : null,
             'puntaje_desde_hijos' => (bool) $event->puntaje_desde_hijos,
+            'puntaje_por_participar' => (bool) $event->puntaje_por_participar,
             'requiere_evidencia' => (bool) $event->requiere_evidencia,
             'tipos_evidencia' => array_values($event->tipos_evidencia ?? []),
             'maneja_fecha_fin' => (bool) $event->maneja_fecha_fin,
@@ -573,8 +587,17 @@ final class EventParticipationService
             'tiempo_estimado_minutos' => $event->tiempo_estimado_minutos !== null
                 ? (int) $event->tiempo_estimado_minutos
                 : null,
+            'requiere_puesto_entrega' => (bool) $event->requiere_puesto_entrega,
+            'requiere_tiempo_entrega' => (bool) $event->requiere_tiempo_entrega,
+            'resultado_esperado' => $event->resultado_esperado !== null ? (int) $event->resultado_esperado : null,
             'participantes_min' => $event->participantes_min !== null ? (int) $event->participantes_min : null,
             'participantes_max' => $event->participantes_max !== null ? (int) $event->participantes_max : null,
+            'permite_inscribir_no_participantes' => (bool) $event->permite_inscribir_no_participantes,
+            'participantes_genero' => $event->participantes_genero,
+            'participantes_min_m' => $event->participantes_min_m !== null ? (int) $event->participantes_min_m : null,
+            'participantes_max_m' => $event->participantes_max_m !== null ? (int) $event->participantes_max_m : null,
+            'participantes_min_f' => $event->participantes_min_f !== null ? (int) $event->participantes_min_f : null,
+            'participantes_max_f' => $event->participantes_max_f !== null ? (int) $event->participantes_max_f : null,
             'es_conjunto' => (bool) $event->es_conjunto,
             'nivel_conjunto' => $event->nivel_conjunto,
             'requiere_pago' => (bool) $event->requiere_pago,
@@ -620,6 +643,7 @@ final class EventParticipationService
                 : [],
             'calificacion' => $calificacion,
             'evidencias' => $evs->map(fn (EventoEvidencia $e) => $this->evidenciaPayload($e))->values()->all(),
+            'modificacion_bloqueada' => $modificacionBloqueada,
             'is_root' => $isRoot,
             'hijos' => $hijos,
         ];
@@ -812,5 +836,284 @@ final class EventParticipationService
             'estado' => $e->estado,
             'created_at' => $e->created_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function activityRoster(User $actor, Event $actividad): array
+    {
+        $ctx = $this->assertClubDirectorContext($actor);
+        $root = $this->resolveRoot($actividad);
+        if (! $actor->can('view', $root)) {
+            throw new AccessDeniedHttpException('No puedes ver este evento.');
+        }
+        if (! $this->controlsParticipants($actividad)) {
+            throw ValidationException::withMessages([
+                'actividad' => ['Esta actividad no tiene control de participantes.'],
+            ]);
+        }
+
+        $orgId = $ctx['organizacion_id'];
+        $selectedIds = EventoActividadParticipante::query()
+            ->where('evento_id', $actividad->id)
+            ->where('organizacion_id', $orgId)
+            ->pluck('persona_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $candidatos = $this->eligibleActivityMembers($root, $actividad, $orgId);
+        $locked = $this->directorModificationsLocked($root) || $actividad->locksDirectorModifications();
+
+        return [
+            'actividad' => $this->activityRosterConfig($actividad),
+            'seleccionados' => $selectedIds,
+            'bloqueada' => $locked,
+            'candidatos' => $candidatos->map(function (array $row) use ($selectedIds) {
+                $row['seleccionado'] = in_array((int) $row['id'], $selectedIds, true);
+
+                return $row;
+            })->values()->all(),
+        ];
+    }
+
+    /**
+     * @param  list<int>  $personaIds
+     * @return array<string, mixed>
+     */
+    public function syncActivityRoster(User $actor, Event $actividad, array $personaIds): array
+    {
+        $ctx = $this->assertClubDirectorContext($actor);
+        $root = $this->resolveRoot($actividad);
+        if (! $actor->can('view', $root)) {
+            throw new AccessDeniedHttpException('No puedes ver este evento.');
+        }
+        if (! $this->controlsParticipants($actividad)) {
+            throw ValidationException::withMessages([
+                'actividad' => ['Esta actividad no tiene control de participantes.'],
+            ]);
+        }
+
+        $this->assertDirectorCanModify($actividad);
+
+        $orgId = $ctx['organizacion_id'];
+        $personaIds = array_values(array_unique(array_map('intval', $personaIds)));
+        $eligible = $this->eligibleActivityMembers($root, $actividad, $orgId)->keyBy('id');
+
+        foreach ($personaIds as $personaId) {
+            if (! $eligible->has($personaId)) {
+                throw ValidationException::withMessages([
+                    'persona_ids' => ['Hay integrantes que no puedes inscribir en esta actividad.'],
+                ]);
+            }
+        }
+
+        $this->assertRosterCounts($actividad, $personaIds, $eligible);
+
+        DB::transaction(function () use ($actividad, $orgId, $personaIds, $actor) {
+            EventoActividadParticipante::query()
+                ->where('evento_id', $actividad->id)
+                ->where('organizacion_id', $orgId)
+                ->whereNotIn('persona_id', $personaIds === [] ? [0] : $personaIds)
+                ->delete();
+
+            foreach ($personaIds as $personaId) {
+                EventoActividadParticipante::query()->updateOrCreate(
+                    [
+                        'evento_id' => $actividad->id,
+                        'organizacion_id' => $orgId,
+                        'persona_id' => $personaId,
+                    ],
+                    ['inscrito_por' => $actor->id],
+                );
+            }
+        });
+
+        return $this->activityRoster($actor, $actividad);
+    }
+
+    private function controlsParticipants(Event $actividad): bool
+    {
+        return $actividad->participantes_min !== null
+            || $actividad->participantes_max !== null
+            || (bool) $actividad->permite_inscribir_no_participantes
+            || $actividad->participantes_genero !== null
+            || $actividad->participantes_min_m !== null
+            || $actividad->participantes_max_m !== null
+            || $actividad->participantes_min_f !== null
+            || $actividad->participantes_max_f !== null;
+    }
+
+    /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function eligibleActivityMembers(Event $root, Event $actividad, int $organizacionId): Collection
+    {
+        $personaIds = PersonaOrganizacion::query()
+            ->where('organizacion_id', $organizacionId)
+            ->where('estado', true)
+            ->pluck('persona_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $inscritosEvento = [];
+        $inscripcion = $this->findRootInscripcion($root, $organizacionId);
+        if ($inscripcion) {
+            $inscritosEvento = EventoInscripcionPersona::query()
+                ->where('inscripcion_id', $inscripcion->id)
+                ->whereIn('tipo', [
+                    EventoInscripcionPersona::TIPO_MIEMBRO,
+                    EventoInscripcionPersona::TIPO_DIRECTIVA,
+                ])
+                ->where('estado', '!=', EventoInscripcionPersona::ESTADO_CANCELADA)
+                ->pluck('persona_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        }
+
+        $allowNonEnrolled = (bool) $actividad->permite_inscribir_no_participantes;
+        $genero = $actividad->participantes_genero;
+
+        return Persona::query()
+            ->whereIn('id', $personaIds === [] ? [0] : $personaIds)
+            ->orderBy('apellido1')
+            ->orderBy('nombre1')
+            ->get()
+            ->map(function (Persona $persona) use ($inscritosEvento, $allowNonEnrolled, $genero) {
+                $sexo = $this->normalizeSexo($persona->sexo);
+                $inscrito = in_array((int) $persona->id, $inscritosEvento, true);
+                $eligible = $allowNonEnrolled || $inscrito;
+                if ($genero === 'M' && $sexo !== 'M') {
+                    $eligible = false;
+                }
+                if ($genero === 'F' && $sexo !== 'F') {
+                    $eligible = false;
+                }
+
+                return [
+                    'id' => (int) $persona->id,
+                    'nombre' => $persona->full_name,
+                    'sexo' => $sexo,
+                    'inscrito_evento' => $inscrito,
+                    'elegible' => $eligible,
+                ];
+            })
+            ->filter(fn (array $row) => $row['elegible'])
+            ->values();
+    }
+
+    /**
+     * @param  list<int>  $personaIds
+     * @param  Collection<int, array<string, mixed>>  $eligible
+     */
+    private function assertRosterCounts(Event $actividad, array $personaIds, Collection $eligible): void
+    {
+        $selected = $eligible->only($personaIds);
+        $count = count($personaIds);
+        $countM = $selected->where('sexo', 'M')->count();
+        $countF = $selected->where('sexo', 'F')->count();
+        $genero = $actividad->participantes_genero;
+
+        if ($genero === 'M' && $countF > 0) {
+            throw ValidationException::withMessages([
+                'persona_ids' => ['Esta actividad solo admite integrantes masculinos.'],
+            ]);
+        }
+        if ($genero === 'F' && $countM > 0) {
+            throw ValidationException::withMessages([
+                'persona_ids' => ['Esta actividad solo admite integrantes femeninos.'],
+            ]);
+        }
+
+        if ($genero === 'mixto') {
+            $minM = $actividad->participantes_min_m !== null ? (int) $actividad->participantes_min_m : 0;
+            $maxM = $actividad->participantes_max_m !== null ? (int) $actividad->participantes_max_m : null;
+            $minF = $actividad->participantes_min_f !== null ? (int) $actividad->participantes_min_f : 0;
+            $maxF = $actividad->participantes_max_f !== null ? (int) $actividad->participantes_max_f : null;
+            if ($minM > 0 && $countM < $minM) {
+                throw ValidationException::withMessages([
+                    'persona_ids' => ["Debes inscribir al menos {$minM} integrantes masculinos."],
+                ]);
+            }
+            if ($maxM !== null && $countM > $maxM) {
+                throw ValidationException::withMessages([
+                    'persona_ids' => ["No puedes inscribir más de {$maxM} integrantes masculinos."],
+                ]);
+            }
+            if ($minF > 0 && $countF < $minF) {
+                throw ValidationException::withMessages([
+                    'persona_ids' => ["Debes inscribir al menos {$minF} integrantes femeninos."],
+                ]);
+            }
+            if ($maxF !== null && $countF > $maxF) {
+                throw ValidationException::withMessages([
+                    'persona_ids' => ["No puedes inscribir más de {$maxF} integrantes femeninos."],
+                ]);
+            }
+
+            return;
+        }
+
+        $min = $actividad->participantes_min !== null ? (int) $actividad->participantes_min : 0;
+        $max = $actividad->participantes_max !== null ? (int) $actividad->participantes_max : null;
+        if ($min > 0 && $count < $min) {
+            throw ValidationException::withMessages([
+                'persona_ids' => ["Debes inscribir al menos {$min} integrantes."],
+            ]);
+        }
+        if ($max !== null && $count > $max) {
+            throw ValidationException::withMessages([
+                'persona_ids' => ["No puedes inscribir más de {$max} integrantes."],
+            ]);
+        }
+    }
+
+    private function assertDirectorCanModify(Event $actividad): void
+    {
+        $root = $this->resolveRoot($actividad);
+        if ($this->directorModificationsLocked($root) || $actividad->locksDirectorModifications()) {
+            throw ValidationException::withMessages([
+                'evento' => ['El evento está en proceso. Ya no puedes modificar la participación.'],
+            ]);
+        }
+    }
+
+    private function directorModificationsLocked(Event $root): bool
+    {
+        return $root->locksDirectorModifications();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function activityRosterConfig(Event $actividad): array
+    {
+        return [
+            'id' => (int) $actividad->id,
+            'name' => $actividad->name,
+            'participantes_min' => $actividad->participantes_min !== null ? (int) $actividad->participantes_min : null,
+            'participantes_max' => $actividad->participantes_max !== null ? (int) $actividad->participantes_max : null,
+            'permite_inscribir_no_participantes' => (bool) $actividad->permite_inscribir_no_participantes,
+            'participantes_genero' => $actividad->participantes_genero,
+            'participantes_min_m' => $actividad->participantes_min_m !== null ? (int) $actividad->participantes_min_m : null,
+            'participantes_max_m' => $actividad->participantes_max_m !== null ? (int) $actividad->participantes_max_m : null,
+            'participantes_min_f' => $actividad->participantes_min_f !== null ? (int) $actividad->participantes_min_f : null,
+            'participantes_max_f' => $actividad->participantes_max_f !== null ? (int) $actividad->participantes_max_f : null,
+        ];
+    }
+
+    private function normalizeSexo(?string $sexo): ?string
+    {
+        $value = strtoupper(trim((string) $sexo));
+        if (in_array($value, ['M', 'MASCULINO', 'HOMBRE'], true)) {
+            return 'M';
+        }
+        if (in_array($value, ['F', 'FEMENINO', 'MUJER'], true)) {
+            return 'F';
+        }
+
+        return null;
     }
 }

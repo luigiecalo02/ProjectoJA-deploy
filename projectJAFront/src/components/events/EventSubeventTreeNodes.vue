@@ -81,7 +81,6 @@ function dropClassFor(itemId: number): string {
         @dragover="emit('dragOver', node, $event)"
         @drop="emit('drop', node, $event)"
       >
-        <i class="pi pi-bars sub-tree__handle" />
         <span class="sub-tree__orden">{{ node.orden ?? 0 }}</span>
         <button
           v-if="hasChildren(node)"
@@ -109,18 +108,6 @@ function dropClassFor(itemId: number): string {
           <strong>{{ node.name }}</strong>
           <small v-if="node.descripcion">{{ node.descripcion }}</small>
         </div>
-
-        <span v-if="node.tipo_evento" class="sub-tree__pill">{{ node.tipo_evento.nombre }}</span>
-        <span
-          v-if="node.categoria_subevento"
-          class="sub-tree__pill"
-          :style="{
-            color: node.categoria_subevento.color || undefined,
-            borderColor: node.categoria_subevento.color || undefined,
-          }"
-        >
-          {{ node.categoria_subevento.nombre }}
-        </span>
 
         <span class="sub-tree__score">{{ Number(node.puntaje_maximo || 0) }} pts</span>
 
@@ -331,12 +318,6 @@ function dropClassFor(itemId: number): string {
   cursor: pointer;
 }
 
-.sub-tree__handle {
-  color: var(--pj-text-muted);
-  font-size: 0.8rem;
-  flex-shrink: 0;
-}
-
 .sub-tree__orden {
   min-width: 1.35rem;
   font-size: 0.75rem;
@@ -387,15 +368,6 @@ function dropClassFor(itemId: number): string {
   text-overflow: ellipsis;
 }
 
-.sub-tree__pill {
-  font-size: 0.7rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--pj-border) 80%, transparent);
-  color: var(--pj-text-muted);
-  white-space: nowrap;
-}
-
 .sub-tree__score {
   font-size: 0.75rem;
   color: var(--pj-text-muted);
@@ -427,7 +399,6 @@ function dropClassFor(itemId: number): string {
 }
 
 @media (max-width: 900px) {
-  .sub-tree__pill,
   .sub-tree__score,
   .sub-tree__status {
     display: none;

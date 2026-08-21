@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Clubs\Models\Club;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Events\Models\Event;
+use App\Modules\Events\Models\EventoInscripcion;
 use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
@@ -100,6 +101,33 @@ class EventsApiTest extends TestCase
             ->assertJsonPath('success', true);
 
         $this->assertNotNull($event->fresh()->image_url);
+    }
+
+    public function test_admin_can_upload_event_banner(): void
+    {
+        Storage::fake('public');
+        $admin = $this->admin();
+        Sanctum::actingAs($admin);
+
+        $event = Event::query()->create([
+            'name' => 'Con banner',
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDays(2),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_BORRADOR,
+        ]);
+
+        $file = UploadedFile::fake()->image('banner.jpg', 1920, 600);
+
+        $this->post("/api/v1/events/{$event->id}/banner", [
+            'image' => $file,
+        ], [
+            'Accept' => 'application/json',
+        ])->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertNotNull($event->fresh()->banner_url);
     }
 
     public function test_child_event_must_be_within_parent_when_es_en_sitio(): void
@@ -258,6 +286,75 @@ class EventsApiTest extends TestCase
 
         $event = Event::query()->with('tiposOrganizacion')->findOrFail($eventId);
 
+        $aventUser = $this->userInOrg($clubAventOrg->id);
+        $conqUser = $this->userInOrg($clubConqOrg->id);
+
+        $this->assertTrue($event->isVisibleTo($aventUser));
+        $this->assertFalse($event->isVisibleTo($conqUser));
+    }
+
+    public function test_changing_audience_hides_event_but_keeps_inscriptions(): void
+    {
+        $asociacion = $this->createOrg('Asociación Audiencia', null, Organizacion::TIPO_ASOCIACION);
+        $iglesia = $this->createOrg('Iglesia Audiencia', $asociacion->id, Organizacion::TIPO_IGLESIA);
+        $clubAventOrg = $this->createOrg('Club Aventureros Audiencia', $iglesia->id, Organizacion::TIPO_CLUB);
+        $clubConqOrg = $this->createOrg('Club Conquistadores Audiencia', $iglesia->id, Organizacion::TIPO_CLUB);
+
+        Club::query()->create([
+            'organizacion_id' => $clubAventOrg->id,
+            'nombre' => 'Aventureros Audiencia',
+            'tipos' => ['aventureros'],
+            'is_active' => true,
+        ]);
+        Club::query()->create([
+            'organizacion_id' => $clubConqOrg->id,
+            'nombre' => 'Conquistadores Audiencia',
+            'tipos' => ['conquistadores'],
+            'is_active' => true,
+        ]);
+
+        $tipoAventureros = TipoOrganizacion::query()
+            ->where('nombre', 'like', '%Aventurer%')
+            ->value('id');
+        $tipoConquistadores = TipoOrganizacion::query()
+            ->where('nombre', 'like', '%Conquistador%')
+            ->value('id');
+        $this->assertNotNull($tipoAventureros);
+        $this->assertNotNull($tipoConquistadores);
+
+        Sanctum::actingAs($this->admin());
+        $eventId = $this->postJson('/api/v1/events', [
+            'name' => 'Cambio de audiencia',
+            'starts_at' => '2026-09-01 08:00:00',
+            'ends_at' => '2026-09-02 18:00:00',
+            'organizacion_id' => $asociacion->id,
+            'organizacion_ids' => [$asociacion->id],
+            'tipo_organizacion_ids' => [(int) $tipoConquistadores],
+            'visibilidad' => Event::VISIBILIDAD_PUBLICO,
+            'estado' => 'publicado',
+            'is_active' => true,
+        ])->assertCreated()->json('data.id');
+
+        $inscripcion = EventoInscripcion::query()->create([
+            'evento_id' => $eventId,
+            'tipo' => 'club',
+            'organizacion_id' => $clubConqOrg->id,
+            'estado' => EventoInscripcion::ESTADO_APROBADA,
+        ]);
+
+        $this->putJson('/api/v1/events/'.$eventId, [
+            'tipo_organizacion_ids' => [(int) $tipoAventureros],
+        ])->assertOk()
+            ->assertJsonPath('data.tipo_organizacion_ids.0', (int) $tipoAventureros);
+
+        $this->assertDatabaseHas('evento_inscripcion', [
+            'id' => $inscripcion->id,
+            'evento_id' => $eventId,
+            'organizacion_id' => $clubConqOrg->id,
+            'estado' => EventoInscripcion::ESTADO_APROBADA,
+        ]);
+
+        $event = Event::query()->with('tiposOrganizacion')->findOrFail($eventId);
         $aventUser = $this->userInOrg($clubAventOrg->id);
         $conqUser = $this->userInOrg($clubConqOrg->id);
 
