@@ -92,6 +92,82 @@ final class OrganizationAccessService
     }
 
     /**
+     * Iglesia padre del club activo (si el contexto es un club).
+     */
+    public function parentChurchOrganizationId(User $actor): ?int
+    {
+        $clubOrgId = $this->activeClubOrganizationId($actor);
+        if ($clubOrgId === null) {
+            return null;
+        }
+
+        $parentId = Organizacion::query()
+            ->where('id', $clubOrgId)
+            ->value('organizacion_padre_id');
+
+        if (! $parentId) {
+            return null;
+        }
+
+        return (int) $parentId;
+    }
+
+    /**
+     * Clubes hermanos (mismo padre) excluyendo el club activo.
+     *
+     * @return list<int>
+     */
+    public function siblingClubOrganizationIds(User $actor): array
+    {
+        $parentId = $this->parentChurchOrganizationId($actor);
+        $currentClubId = $this->activeClubOrganizationId($actor);
+        if ($parentId === null) {
+            return [];
+        }
+
+        return Organizacion::query()
+            ->where('organizacion_padre_id', $parentId)
+            ->where('tipo_organizacion_id', Organizacion::TIPO_CLUB)
+            ->when($currentClubId !== null, fn ($q) => $q->where('id', '!=', $currentClubId))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Pool de Personas (no integrantes del club activo): iglesia padre + clubes hermanos.
+     *
+     * @return list<int>
+     */
+    public function personaPoolOrganizationIds(User $actor): array
+    {
+        $parentId = $this->parentChurchOrganizationId($actor);
+        $ids = $this->siblingClubOrganizationIds($actor);
+        if ($parentId !== null) {
+            $ids[] = $parentId;
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * Orgs que el actor puede ver al consultar una persona (club + iglesia + hermanos).
+     *
+     * @return list<int>
+     */
+    public function personaAccessibleOrganizationIds(User $actor): array
+    {
+        $ids = $this->accessibleOrganizationIds($actor);
+        $clubId = $this->activeClubOrganizationId($actor);
+        if ($clubId !== null) {
+            $ids = array_merge($ids, $this->personaPoolOrganizationIds($actor), [$clubId]);
+        }
+
+        return array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    /**
      * Organizaciones usadas para listar personas según el contexto activo.
      * - Contexto tipo Club: solo esa organización.
      * - Otro contexto: org activa + descendientes.
@@ -251,11 +327,15 @@ final class OrganizationAccessService
      *
      * @return list<int>
      */
-    public function assignableOrganizationIdsForPersona(User $actor): array
+    public function assignableOrganizationIdsForPersona(User $actor, bool $soloTipoClub = false): array
     {
         $activeClubOrgId = $this->activeClubOrganizationId($actor);
         if ($activeClubOrgId !== null) {
-            return [$activeClubOrgId];
+            if ($soloTipoClub) {
+                return [$activeClubOrgId];
+            }
+
+            return $this->personaPoolOrganizationIds($actor);
         }
 
         if ($this->bypassesOrganizationScope($actor)) {
@@ -300,11 +380,17 @@ final class OrganizationAccessService
      *
      * @return list<int>
      */
-    public function defaultPersonaOrganizationIds(User $actor): array
+    public function defaultPersonaOrganizationIds(User $actor, bool $soloTipoClub = false): array
     {
         $activeClubOrgId = $this->activeClubOrganizationId($actor);
         if ($activeClubOrgId !== null) {
-            return [$activeClubOrgId];
+            if ($soloTipoClub) {
+                return [$activeClubOrgId];
+            }
+
+            $parentId = $this->parentChurchOrganizationId($actor);
+
+            return $parentId !== null ? [$parentId] : [];
         }
 
         if ($this->bypassesOrganizationScope($actor)) {

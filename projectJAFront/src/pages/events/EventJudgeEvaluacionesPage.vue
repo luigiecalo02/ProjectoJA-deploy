@@ -208,15 +208,7 @@ onMounted(() => {
         :src="logoUrl"
         :alt="data?.evento.name || t('events.judgeEvalTitle')"
       />
-      <div>
-        <Button
-          type="button"
-          text
-          icon="pi pi-arrow-left"
-          :label="t('events.judgeEvalBack')"
-          class="eval-back"
-          @click="router.push({ name: 'events.judge', params: { id: eventId } })"
-        />
+      <div class="eval-hero__text">
         <p class="eval-kicker">{{ t('events.judgeEvalKicker') }}</p>
         <h1>{{ data?.evento.name || t('events.judgeEvalTitle') }}</h1>
         <p class="pj-muted">{{ t('events.judgeEvalSubtitle') }}</p>
@@ -525,7 +517,7 @@ onMounted(() => {
   gap: 1rem;
   padding: 1.15rem 1.3rem;
   border-radius: 16px;
-  overflow: hidden;
+  overflow: visible;
   isolation: isolate;
   background:
     linear-gradient(135deg, color-mix(in srgb, #0f766e 16%, transparent), transparent 55%),
@@ -544,7 +536,24 @@ onMounted(() => {
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.28);
 }
 
+.eval-hero__text {
+  min-width: 0;
+}
+
+.eval-hero.has-cover.has-logo {
+  overflow: visible;
+  margin-bottom: 2.4rem;
+  align-items: flex-end;
+}
+
+.eval-hero.has-cover.has-logo .eval-hero__logo {
+  position: relative;
+  z-index: 2;
+  margin-bottom: -2.4rem;
+}
+
 .eval-hero.has-cover {
+  min-height: 7.25rem;
   color: var(--hero-text, #fff);
   background-image:
     var(--hero-overlay, linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%)),
@@ -559,16 +568,8 @@ onMounted(() => {
   color: var(--hero-muted, rgba(255, 255, 255, 0.86));
 }
 
-.eval-hero.has-cover :deep(.p-button.p-button-text) {
-  color: var(--hero-text, #fff);
-}
-
-.eval-back {
-  margin-left: -0.5rem;
-}
-
 .eval-kicker {
-  margin: 0.35rem 0 0.1rem;
+  margin: 0 0 0.1rem;
   font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;

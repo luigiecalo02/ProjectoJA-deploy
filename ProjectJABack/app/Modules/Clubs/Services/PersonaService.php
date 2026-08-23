@@ -31,7 +31,7 @@ final class PersonaService
             return true;
         }
 
-        $orgIds = $this->orgAccess->accessibleOrganizationIds($actor);
+        $orgIds = $this->orgAccess->personaAccessibleOrganizationIds($actor);
         if ($orgIds === []) {
             return false;
         }
@@ -43,6 +43,20 @@ final class PersonaService
     }
 
     /**
+     * Alcance del directorio: integrantes = club activo; personas = iglesia padre + hermanos.
+     *
+     * @return list<int>|null
+     */
+    private function personaDirectoryOrganizationIds(User $actor, bool $soloTipoClub): ?array
+    {
+        if ($this->orgAccess->activeClubOrganizationId($actor) !== null && ! $soloTipoClub) {
+            return $this->orgAccess->personaPoolOrganizationIds($actor);
+        }
+
+        return $this->orgAccess->personaListOrganizationIds($actor);
+    }
+
+    /**
      * Opciones de organización asociadas al alcance del actor.
      * Con $soloTipoClub=true solo retorna organizaciones tipo Club (vista Integrantes).
      *
@@ -50,7 +64,7 @@ final class PersonaService
      */
     public function organizacionOptions(User $actor, bool $soloTipoClub = false): array
     {
-        $assignableIds = $this->orgAccess->assignableOrganizationIdsForPersona($actor);
+        $assignableIds = $this->orgAccess->assignableOrganizationIdsForPersona($actor, $soloTipoClub);
         $mode = $this->orgAccess->bypassesOrganizationScope($actor)
             ? 'admin'
             : 'parent';
@@ -98,7 +112,7 @@ final class PersonaService
 
         $optionIds = $orgs->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
         $defaultIds = array_values(array_intersect(
-            $this->orgAccess->defaultPersonaOrganizationIds($actor),
+            $this->orgAccess->defaultPersonaOrganizationIds($actor, $soloTipoClub),
             $optionIds,
         ));
 
@@ -146,6 +160,12 @@ final class PersonaService
                 'organizaciones.organizacion:id,nombre,codigo,organizacion_padre_id,tipo_organizacion_id',
             ]);
 
+        $soloTipoClub = array_key_exists('solo_tipo_club', $filters)
+            && $filters['solo_tipo_club'] !== null
+            && $filters['solo_tipo_club'] !== ''
+            && filter_var($filters['solo_tipo_club'], FILTER_VALIDATE_BOOLEAN);
+        $activeClubOrgId = $this->orgAccess->activeClubOrganizationId($actor);
+
         $familyOrgIds = null;
         if (! empty($filters['organizacion_padre_id'])) {
             $padreId = (int) $filters['organizacion_padre_id'];
@@ -162,21 +182,20 @@ final class PersonaService
                 || $this->orgAccess->canAccessOrganization($actor, $padreId);
 
             if (! $canSeeFamily) {
-                $scopeOrgIds = $this->orgAccess->personaListOrganizationIds($actor) ?? [];
+                $scopeOrgIds = $this->personaDirectoryOrganizationIds($actor, $soloTipoClub) ?? [];
                 $canSeeFamily = $familyOrgIds !== [] && array_intersect($scopeOrgIds, $familyOrgIds) !== [];
             }
 
             if (! $canSeeFamily || $familyOrgIds === []) {
                 $query->whereRaw('1 = 0');
             } else {
-                // Personas de la iglesia y de clubes hermanos (mismo padre).
                 $query->whereHas(
                     'organizaciones',
                     fn ($q) => $q->whereIn('organizacion_id', $familyOrgIds)->where('estado', true)
                 );
             }
         } else {
-            $scopeOrgIds = $this->orgAccess->personaListOrganizationIds($actor);
+            $scopeOrgIds = $this->personaDirectoryOrganizationIds($actor, $soloTipoClub);
             if ($scopeOrgIds !== null) {
                 if ($scopeOrgIds === []) {
                     $query->whereRaw('1 = 0');
@@ -189,6 +208,13 @@ final class PersonaService
             }
         }
 
+        if ($activeClubOrgId !== null && ! $soloTipoClub) {
+            $query->whereDoesntHave(
+                'organizaciones',
+                fn ($q) => $q->where('organizacion_id', $activeClubOrgId)->where('estado', true)
+            );
+        }
+
         if (! empty($filters['organizacion_id'])) {
             $filterOrgId = (int) $filters['organizacion_id'];
             $query->whereHas(
@@ -197,12 +223,7 @@ final class PersonaService
             );
         }
 
-        // Solo personas con membresía activa en organizaciones tipo Club (hijas del alcance).
-        if (array_key_exists('solo_tipo_club', $filters)
-            && $filters['solo_tipo_club'] !== null
-            && $filters['solo_tipo_club'] !== ''
-            && filter_var($filters['solo_tipo_club'], FILTER_VALIDATE_BOOLEAN)
-        ) {
+        if ($soloTipoClub) {
             $query->whereHas(
                 'organizaciones',
                 function ($q) {
@@ -255,7 +276,8 @@ final class PersonaService
     {
         $clubIds = $this->normalizeIds($data['club_ids'] ?? null);
         $orgIds = $this->normalizeIds($data['organizacion_ids'] ?? null);
-        unset($data['club_ids'], $data['organizacion_ids']);
+        $soloTipoClub = filter_var($data['solo_tipo_club'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        unset($data['club_ids'], $data['organizacion_ids'], $data['solo_tipo_club']);
 
         // Integrantes de club: la persona queda ligada a la org tipo Club del club.
         if ($clubIds !== []) {
@@ -270,17 +292,12 @@ final class PersonaService
 
             if ($orgFromClubs !== []) {
                 $orgIds = $orgFromClubs;
+                $soloTipoClub = true;
             }
         }
 
-        $activeClubOrgId = $this->orgAccess->activeClubOrganizationId($actor);
-
         if ($orgIds === []) {
-            if ($activeClubOrgId !== null) {
-                $orgIds = [$activeClubOrgId];
-            } elseif ($this->orgAccess->shouldScopeByOrganization($actor)) {
-                $orgIds = $this->orgAccess->defaultPersonaOrganizationIds($actor);
-            }
+            $orgIds = $this->orgAccess->defaultPersonaOrganizationIds($actor, $soloTipoClub);
         }
 
         if ($orgIds === []) {
@@ -289,13 +306,8 @@ final class PersonaService
             ]);
         }
 
-        // Fuera de alta como integrante: en contexto Club solo esa organización.
-        if ($clubIds === [] && $activeClubOrgId !== null && ! $actor->isPlatformAdmin()) {
-            $orgIds = [$activeClubOrgId];
-        }
-
         if ($this->orgAccess->shouldScopeByOrganization($actor)) {
-            $this->assertActorCanAssignOrgs($actor, $orgIds);
+            $this->assertActorCanAssignOrgs($actor, $orgIds, null, $soloTipoClub);
         } else {
             $this->assertOrgsExist($orgIds);
         }
@@ -331,7 +343,8 @@ final class PersonaService
         $hasOrgs = array_key_exists('organizacion_ids', $data);
         $clubIds = $hasClubs ? $this->normalizeIds($data['club_ids']) : null;
         $orgIds = $hasOrgs ? $this->normalizeIds($data['organizacion_ids']) : null;
-        unset($data['club_ids'], $data['organizacion_ids']);
+        $soloTipoClub = filter_var($data['solo_tipo_club'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        unset($data['club_ids'], $data['organizacion_ids'], $data['solo_tipo_club']);
 
         if ($hasClubs && ! $hasOrgs && ($clubIds ?? []) !== []) {
             $orgIds = Club::query()
@@ -348,7 +361,7 @@ final class PersonaService
         if ($hasOrgs && $this->orgAccess->shouldScopeByOrganization($actor)) {
             if (($orgIds ?? []) === []) {
                 // Vacío solo es válido si ya hay orgs activas fuera del alcance (se preservan).
-                $assignable = $this->orgAccess->assignableOrganizationIdsForPersona($actor);
+                $assignable = $this->orgAccess->assignableOrganizationIdsForPersona($actor, $soloTipoClub);
                 $hasProtected = PersonaOrganizacion::query()
                     ->where('persona_id', $persona->id)
                     ->where('estado', true)
@@ -364,7 +377,7 @@ final class PersonaService
                     ]);
                 }
             } else {
-                $this->assertActorCanAssignOrgs($actor, $orgIds ?? [], $persona);
+                $this->assertActorCanAssignOrgs($actor, $orgIds ?? [], $persona, $soloTipoClub);
             }
         } elseif ($hasOrgs && ($orgIds ?? []) !== []) {
             $this->assertOrgsExist($orgIds ?? []);
@@ -378,12 +391,12 @@ final class PersonaService
             }
         }
 
-        return DB::transaction(function () use ($persona, $data, $hasOrgs, $orgIds, $actor) {
+        return DB::transaction(function () use ($persona, $data, $hasOrgs, $orgIds, $actor, $soloTipoClub) {
             $old = $persona->toArray();
             $persona->update($data);
 
             if ($hasOrgs) {
-                $this->syncOrganizaciones($persona, $orgIds ?? [], $actor);
+                $this->syncOrganizaciones($persona, $orgIds ?? [], $actor, $soloTipoClub);
             }
 
             $this->auditLogger->log('personas', 'update', $old, $persona->fresh(['organizaciones'])->toArray(), $persona);
@@ -403,13 +416,17 @@ final class PersonaService
     /**
      * @param  list<int>  $orgIds
      */
-    private function syncOrganizaciones(Persona $persona, array $orgIds, ?User $actor = null): void
-    {
+    private function syncOrganizaciones(
+        Persona $persona,
+        array $orgIds,
+        ?User $actor = null,
+        bool $soloTipoClub = false,
+    ): void {
         $orgIds = array_values(array_unique($orgIds));
         $assignable = null;
 
         if ($actor && $this->orgAccess->shouldScopeByOrganization($actor)) {
-            $assignable = $this->orgAccess->assignableOrganizationIdsForPersona($actor);
+            $assignable = $this->orgAccess->assignableOrganizationIdsForPersona($actor, $soloTipoClub);
             $existingActive = PersonaOrganizacion::query()
                 ->where('persona_id', $persona->id)
                 ->where('estado', true)
@@ -502,9 +519,13 @@ final class PersonaService
     /**
      * @param  list<int>  $orgIds
      */
-    private function assertActorCanAssignOrgs(User $actor, array $orgIds, ?Persona $persona = null): void
-    {
-        $allowed = $this->orgAccess->assignableOrganizationIdsForPersona($actor);
+    private function assertActorCanAssignOrgs(
+        User $actor,
+        array $orgIds,
+        ?Persona $persona = null,
+        bool $soloTipoClub = false,
+    ): void {
+        $allowed = $this->orgAccess->assignableOrganizationIdsForPersona($actor, $soloTipoClub);
 
         // En edición se permiten orgs ya asociadas fuera de alcance (solo lectura).
         if ($persona) {

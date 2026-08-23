@@ -18,6 +18,7 @@ import {
   TIPO_UNION,
   TIPOS_HIJO_CLUB,
 } from '@/modules/organizaciones/types'
+import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
 
 export type EventAudienceKey = 'libre' | 'conquistadores' | 'aventureros' | 'guias_mayores'
 type SelectionMode = 'hierarchy' | 'manual'
@@ -84,11 +85,8 @@ function clubMatchesAudience(node: OrganizacionTreeNode): boolean {
     return club.tipos.some((tipo) => ministries.includes(tipo))
   }
 
-  const tipo = node.tipo_organizacion_id
-  if (ministries.includes('conquistadores') && tipo === 7) return true
-  if (ministries.includes('aventureros') && tipo === 6) return true
-  if (ministries.includes('guias_mayores') && tipo === 8) return true
-  return false
+  const key = audienceKeyFromTipo(node.tipo_organizacion_id, node.tipo_nombre)
+  return key !== null && ministries.includes(key)
 }
 
 function findNode(nodes: OrganizacionTreeNode[], id: number): OrganizacionTreeNode | null {

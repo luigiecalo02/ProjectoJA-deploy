@@ -247,6 +247,33 @@ function findTreeNode(nodes: JudgeTreeNode[], id: number): JudgeTreeNode | null 
   return null
 }
 
+function findTreeParent(
+  nodes: JudgeTreeNode[],
+  id: number,
+  parent: JudgeTreeNode | null = null,
+): JudgeTreeNode | null | undefined {
+  for (const node of nodes) {
+    if (node.id === id) return parent
+    const found = findTreeParent(node.hijos ?? [], id, node)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+
+const parentEventName = computed(() => {
+  const actId = actividad.value?.id
+  if (!actId) return board.value?.evento.name || ''
+
+  const treeParent = findTreeParent(judgeTree.value, actId)
+  if (treeParent?.name) return treeParent.name
+
+  if (subevento.value && subevento.value.id !== actId) return subevento.value.name
+
+  const rootName = board.value?.evento.name
+  if (rootName && rootName !== actividad.value?.name) return rootName
+  return ''
+})
+
 /** Hijos del evento padre actual (rama seleccionada o actividad con hijos). */
 const activityChildNodes = computed(() => {
   const tree = judgeTree.value
@@ -802,20 +829,20 @@ onMounted(() => {
             :src="logoUrl"
             :alt="board.evento.name"
           />
-          <div>
-            <Button
-              type="button"
-              text
-              icon="pi pi-arrow-left"
-              :label="t('events.backToEvents')"
-              @click="router.push({ name: 'events' })"
-            />
-            <h1>{{ t('events.judgeTitle') }}</h1>
-            <p class="pj-muted">{{ board.evento.name }}</p>
-          </div>
+          <h1>{{ board.evento.name }}</h1>
         </div>
 
         <div class="judge-top__meta">
+          <div class="judge-top__stats">
+            <div class="progress-pill">
+              <strong>{{ board.progreso.evaluados }}/{{ board.progreso.total }}</strong>
+              <span>{{ t('events.judgeProgress', { pct: board.progreso.pct }) }}</span>
+            </div>
+            <div v-if="actividad" class="max-chip">
+              <span>{{ t('events.maxScoreLabel') }}</span>
+              <strong>{{ actividad.puntaje_maximo ?? '—' }} pts</strong>
+            </div>
+          </div>
           <Button
             type="button"
             outlined
@@ -828,14 +855,6 @@ onMounted(() => {
               })
             "
           />
-          <div class="progress-pill">
-            <strong>{{ board.progreso.evaluados }}/{{ board.progreso.total }}</strong>
-            <span>{{ t('events.judgeProgress', { pct: board.progreso.pct }) }}</span>
-          </div>
-          <div v-if="actividad" class="max-chip">
-            <span>{{ t('events.maxScoreLabel') }}</span>
-            <strong>{{ actividad.puntaje_maximo ?? '—' }} pts</strong>
-          </div>
         </div>
       </div>
 
@@ -1003,10 +1022,20 @@ onMounted(() => {
         :position="drawerPosition"
       >
         <template #header>
-          <strong>{{ t('events.judgeGradingClub') }}</strong>
-          <small v-if="selectedClub">{{ selectedClub.nombre }}</small>
-          <small v-else>{{ t('events.judgeSelectClub') }}</small>
-          <small v-if="actividad" class="drawer-event-line">{{ actividad.name }}</small>
+          <div class="drawer-club-head">
+            <div class="club-item__avatar lg">
+              <img
+                v-if="selectedClub?.logo_url"
+                :src="selectedClub.logo_url"
+                :alt="selectedClub.nombre"
+              />
+              <i v-else class="pi pi-building" />
+            </div>
+            <div class="drawer-club-head__text">
+              <strong>{{ selectedClub?.nombre || t('events.judgeSelectClub') }}</strong>
+              <small v-if="actividad" class="drawer-event-line">{{ actividad.name }}</small>
+            </div>
+          </div>
         </template>
 
         <div v-if="loading" class="drawer-loading">
@@ -1016,42 +1045,31 @@ onMounted(() => {
 
         <template v-else-if="actividad">
           <section class="club-switcher">
-            <div class="club-switcher__who">
-              <div class="club-item__avatar lg">
-                <img
-                  v-if="selectedClub?.logo_url"
-                  :src="selectedClub.logo_url"
-                  :alt="selectedClub.nombre"
-                />
-                <i v-else class="pi pi-building" />
-              </div>
-              <div class="club-switcher__meta">
-                <span class="club-switcher__label">{{ t('events.judgeGradingClub') }}</span>
-                <strong>{{ selectedClub?.nombre || t('events.judgeSelectClub') }}</strong>
-                <div v-if="selectedClub" class="club-switcher__tags">
-                  <span class="status-badge" :class="clubStatusMeta(selectedClub.estado).css">
-                    {{ clubStatusMeta(selectedClub.estado).label }}
-                  </span>
-                  <span class="club-switcher__score">
-                    {{
-                      selectedActivityClub?.puntaje_obtenido != null
-                        ? selectedActivityClub.puntaje_obtenido
-                        : '—'
-                    }}
-                    /
-                    {{
-                      selectedActivityClub?.puntaje_maximo ??
-                      actividad.puntaje_maximo ??
-                      '—'
-                    }}
-                    pts
-                  </span>
-                </div>
-              </div>
+            <div v-if="selectedClub" class="club-switcher__tags">
+              <span class="status-badge" :class="clubStatusMeta(selectedClub.estado).css">
+                {{ clubStatusMeta(selectedClub.estado).label }}
+              </span>
+              <span class="club-switcher__score">
+                {{
+                  selectedActivityClub?.puntaje_obtenido != null
+                    ? selectedActivityClub.puntaje_obtenido
+                    : '—'
+                }}
+                /
+                {{
+                  selectedActivityClub?.puntaje_maximo ??
+                  actividad.puntaje_maximo ??
+                  '—'
+                }}
+                pts
+              </span>
             </div>
 
             <div class="club-switcher__nav">
-              <span v-if="clubNavLabel" class="club-switcher__count">{{ clubNavLabel }}</span>
+              <span v-if="parentEventName || clubNavLabel" class="club-switcher__count">
+                <span v-if="parentEventName" class="club-switcher__parent">{{ parentEventName }}</span>
+                <span v-if="clubNavLabel" class="club-switcher__index">{{ clubNavLabel }}</span>
+              </span>
               <Select
                 :model-value="selectedOrgId"
                 :options="drawerClubs"
@@ -1350,7 +1368,7 @@ onMounted(() => {
             type="button"
             outlined
             icon="pi pi-save"
-            :label="t('events.judgeSave')"
+            :label="t('common.save')"
             :loading="saving"
             :disabled="!selectedOrgId || !actividad || !canScoreActivity"
             @click="saveAndMaybeNext(false)"
@@ -1384,7 +1402,7 @@ onMounted(() => {
   flex-wrap: wrap;
   padding: 1.1rem 1.2rem;
   border-radius: 16px;
-  overflow: hidden;
+  overflow: visible;
   isolation: isolate;
 }
 
@@ -1393,6 +1411,7 @@ onMounted(() => {
   align-items: center;
   gap: 0.95rem;
   min-width: 0;
+  flex: 1;
 }
 
 .judge-top__logo {
@@ -1409,10 +1428,12 @@ onMounted(() => {
 .judge-top.has-cover.has-logo {
   overflow: visible;
   margin-bottom: 2.4rem;
+  align-items: flex-end;
 }
 
 .judge-top.has-cover.has-logo .judge-top__intro {
   align-items: flex-end;
+  align-self: flex-end;
 }
 
 .judge-top.has-cover.has-logo .judge-top__logo {
@@ -1433,14 +1454,6 @@ onMounted(() => {
 
 .judge-top.has-cover .pj-muted {
   color: var(--hero-muted, rgba(255, 255, 255, 0.82));
-}
-
-.judge-top.has-cover :deep(.p-button.p-button-text) {
-  color: var(--hero-text, #fff);
-}
-
-.judge-top.has-cover :deep(.p-button.p-button-text:hover) {
-  background: color-mix(in srgb, var(--hero-text, #fff) 12%, transparent);
 }
 
 .judge-top.has-cover :deep(.p-button.p-button-outlined) {
@@ -1472,14 +1485,29 @@ onMounted(() => {
 .judge-top h1 {
   margin: 0.15rem 0 0.2rem;
   font-size: 1.45rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.judge-top__meta,
-.judge-toolbar {
+.judge-top.has-cover.has-logo .judge-top__meta {
+  align-self: flex-start;
+}
+
+.judge-top__meta {
   display: flex;
-  gap: 0.85rem;
+  flex-direction: column;
   align-items: flex-end;
+  gap: 0.55rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.judge-top__stats {
+  display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
 }
 
 .judge-toolbar .field {
@@ -1578,13 +1606,42 @@ onMounted(() => {
   font-size: 0.9rem;
 }
 
+.drawer-club-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.drawer-club-head .club-item__avatar {
+  background: rgb(255 255 255 / 0.16);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.28);
+}
+
+.drawer-club-head__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.drawer-club-head__text strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .drawer-event-line {
   opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .club-switcher {
   display: grid;
-  gap: 0.85rem;
+  gap: 0.65rem;
   padding: 0.85rem;
   margin-bottom: 0.35rem;
   border-radius: 14px;
@@ -1593,35 +1650,6 @@ onMounted(() => {
   position: sticky;
   top: 0;
   z-index: 2;
-}
-
-.club-switcher__who {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  min-width: 0;
-}
-
-.club-switcher__meta {
-  display: grid;
-  gap: 0.2rem;
-  min-width: 0;
-}
-
-.club-switcher__label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--pj-text-muted, #64748b);
-}
-
-.club-switcher__meta strong {
-  font-size: 1.15rem;
-  line-height: 1.25;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .club-switcher__tags {
@@ -1644,10 +1672,27 @@ onMounted(() => {
 }
 
 .club-switcher__count {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.55rem;
+  min-width: 0;
   font-size: 0.78rem;
   font-weight: 700;
   color: #1d4ed8;
+}
+
+.club-switcher__parent {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.club-switcher__index {
+  flex-shrink: 0;
+  white-space: nowrap;
+  opacity: 0.8;
 }
 
 .club-switcher__select {

@@ -22,12 +22,10 @@ import { useAuthStore } from '@/stores/auth'
 import type { ClubEvent } from '@/modules/events/types'
 import type { PaginationMeta } from '@/types/api'
 import {
-  TIPO_AVENTUREROS,
   TIPO_CLUB,
-  TIPO_CONQUISTADORES,
-  TIPO_GUIAS_MAYORES,
   TIPOS_HIJO_CLUB,
 } from '@/modules/organizaciones/types'
+import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -308,14 +306,14 @@ function audienceBadges(event: ClubEvent): Array<{ key: string; label: string; c
     return [{ key: 'libre', label: t('events.audienceLibre'), css: 'badge--all' }]
   }
   return tipos.map((tipo) => {
-    const name = (tipo.nombre || '').toLowerCase()
-    if (tipo.id === TIPO_CONQUISTADORES || name.includes('conquistador')) {
+    const key = audienceKeyFromTipo(tipo.id, tipo.nombre)
+    if (key === 'conquistadores') {
       return { key: `c-${tipo.id}`, label: t('events.audienceConquistadores'), css: 'badge--conquistadores' }
     }
-    if (tipo.id === TIPO_AVENTUREROS || name.includes('aventurero')) {
+    if (key === 'aventureros') {
       return { key: `a-${tipo.id}`, label: t('events.audienceAventureros'), css: 'badge--aventureros' }
     }
-    if (tipo.id === TIPO_GUIAS_MAYORES || name.includes('guía') || name.includes('guia')) {
+    if (key === 'guias_mayores') {
       return { key: `g-${tipo.id}`, label: t('events.audienceGuias'), css: 'badge--guias' }
     }
     return { key: `t-${tipo.id}`, label: tipo.nombre, css: 'badge--default' }

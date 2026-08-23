@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -23,6 +24,9 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+
+const isMobile = useMediaQuery('(max-width: 900px)')
+const detailSheetVisible = ref(false)
 
 const loading = ref(true)
 const saving = ref(false)
@@ -145,7 +149,7 @@ async function loadList(): Promise<void> {
   loading.value = true
   try {
     inscripciones.value = await eventsService.inscripcionesRevision(eventId.value)
-    if (inscripciones.value.length && !selectedId.value) {
+    if (inscripciones.value.length && !selectedId.value && !isMobile.value) {
       await selectInscripcion(inscripciones.value[0].id)
     }
   } catch (error) {
@@ -160,8 +164,13 @@ async function loadList(): Promise<void> {
   }
 }
 
+function closeDetailSheet(): void {
+  detailSheetVisible.value = false
+}
+
 async function selectInscripcion(id: number): Promise<void> {
   selectedId.value = id
+  if (isMobile.value) detailSheetVisible.value = true
   try {
     detail.value = await eventsService.getInscripcion(id)
     revisionObservacion.value = detail.value.observacion_revision ?? ''
@@ -243,6 +252,10 @@ async function updateInscripcionEstado(estado: EventoInscripcionEstado): Promise
   }
 }
 
+watch(isMobile, (mobile) => {
+  if (!mobile) detailSheetVisible.value = false
+})
+
 onMounted(() => {
   void loadList()
 })
@@ -311,7 +324,30 @@ onMounted(() => {
         </button>
       </aside>
 
-      <main v-if="detail" class="revision-detail">
+      <div
+        v-if="isMobile && detailSheetVisible"
+        class="revision-sheet-backdrop"
+        @click="closeDetailSheet"
+      />
+
+      <main
+        v-if="detail"
+        class="revision-detail"
+        :class="{
+          'is-sheet': isMobile,
+          'is-sheet-open': isMobile && detailSheetVisible,
+        }"
+      >
+        <div v-if="isMobile" class="revision-sheet__handle" aria-hidden="true" />
+        <button
+          v-if="isMobile"
+          type="button"
+          class="revision-sheet__close"
+          :aria-label="t('common.close')"
+          @click="closeDetailSheet"
+        >
+          <i class="pi pi-times" />
+        </button>
         <header class="revision-detail__head">
           <div class="club-identity">
             <span class="club-logo">
@@ -607,6 +643,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.revision-page {
+  --revision-sheet-gap: calc(4.75rem + env(safe-area-inset-top, 0px));
+}
+
 .revision-page .pj-page__header > div {
   display: flex;
   flex-direction: column;
@@ -1291,14 +1331,86 @@ onMounted(() => {
   text-align: center;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 900px) {
   .revision-layout {
-    grid-template-columns: 1fr;
+    display: block;
   }
 
   .revision-list {
     position: static;
-    max-height: 18rem;
+    max-height: none;
+  }
+
+  .revision-empty-detail {
+    display: none;
+  }
+
+  .revision-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1080;
+    background: rgb(15 23 42 / 0.38);
+  }
+
+  .revision-detail.is-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1081;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: calc(100dvh - var(--revision-sheet-gap));
+    max-height: calc(100dvh - var(--revision-sheet-gap));
+    margin: 0;
+    padding: 0.55rem 1.05rem calc(1rem + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -10px 32px rgb(15 23 42 / 0.22);
+    transform: translateY(110%);
+    transition: transform 0.28s ease;
+    pointer-events: none;
+  }
+
+  .revision-detail.is-sheet-open {
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .revision-detail.is-sheet .revision-detail__head {
+    flex-shrink: 0;
+    padding-right: 2.4rem;
+  }
+
+  .revision-sheet__handle {
+    width: 2.6rem;
+    height: 0.28rem;
+    margin: 0.15rem auto 0.45rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--pj-border, #cbd5e1) 80%, #94a3b8);
+    flex-shrink: 0;
+  }
+
+  .revision-sheet__close {
+    position: absolute;
+    top: 0.85rem;
+    right: 0.75rem;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: color-mix(in srgb, #1e3a8a 10%, transparent);
+    color: #1e3a8a;
+    cursor: pointer;
+    flex-shrink: 0;
   }
 
   .summary-strip {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -40,6 +41,9 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+
+const isMobile = useMediaQuery('(max-width: 900px)')
+const detailSheetVisible = ref(false)
 
 const loading = ref(true)
 const saving = ref(false)
@@ -451,6 +455,7 @@ async function load(keepSelection = false): Promise<void> {
 
 function selectNode(node: ParticipationNode): void {
   selectedId.value = node.id
+  if (isMobile.value) detailSheetVisible.value = true
   const latest = node.evidencias?.[0]
   const defaultTipo = node.tipos_evidencia?.[0] || 'link'
   evidenceForm.value = {
@@ -662,6 +667,10 @@ async function removeEvidence(item: EventoEvidenciaItem): Promise<void> {
 onMounted(() => {
   void load()
 })
+
+watch(isMobile, (mobile) => {
+  if (!mobile) detailSheetVisible.value = false
+})
 </script>
 
 <template>
@@ -776,7 +785,29 @@ onMounted(() => {
           <p v-if="!flatNodes.length" class="pj-muted empty">{{ t('events.wizard.subeventsEmpty') }}</p>
         </aside>
 
-        <main class="panel panel--detail">
+        <div
+          v-if="isMobile && detailSheetVisible"
+          class="detail-sheet-backdrop"
+          @click="detailSheetVisible = false"
+        />
+
+        <main
+          class="panel panel--detail"
+          :class="{
+            'is-sheet': isMobile,
+            'is-sheet-open': isMobile && detailSheetVisible,
+          }"
+        >
+          <div v-if="isMobile" class="detail-sheet__handle" aria-hidden="true" />
+          <button
+            v-if="isMobile"
+            type="button"
+            class="detail-sheet__close"
+            :aria-label="t('common.close')"
+            @click="detailSheetVisible = false"
+          >
+            <i class="pi pi-times" />
+          </button>
           <template v-if="selected">
             <header class="detail-head">
               <div class="detail-head__main">
@@ -1161,6 +1192,7 @@ onMounted(() => {
 
 <style scoped>
 .participate-page {
+  --participate-sheet-gap: calc(4.75rem + env(safe-area-inset-top, 0px));
   gap: 1rem;
 }
 
@@ -1951,6 +1983,85 @@ onMounted(() => {
 
   .participate-layout {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .participate-layout {
+    display: block;
+  }
+
+  .panel,
+  .panel--list {
+    min-height: 0;
+  }
+
+  .detail-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1080;
+    background: rgb(15 23 42 / 0.38);
+  }
+
+  .panel--detail.is-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1081;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: calc(100dvh - var(--participate-sheet-gap));
+    max-height: calc(100dvh - var(--participate-sheet-gap));
+    margin: 0;
+    padding: 0.55rem 1.05rem calc(1rem + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -10px 32px rgb(15 23 42 / 0.22);
+    transform: translateY(110%);
+    transition: transform 0.28s ease;
+    pointer-events: none;
+  }
+
+  .panel--detail.is-sheet-open {
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .panel--detail.is-sheet .detail-head {
+    flex-shrink: 0;
+    padding-right: 2.4rem;
+  }
+
+  .detail-sheet__handle {
+    width: 2.6rem;
+    height: 0.28rem;
+    margin: 0.15rem auto 0.45rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--pj-border, #cbd5e1) 80%, #94a3b8);
+    flex-shrink: 0;
+  }
+
+  .detail-sheet__close {
+    position: absolute;
+    top: 0.85rem;
+    right: 0.75rem;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: color-mix(in srgb, #1e3a8a 10%, transparent);
+    color: #1e3a8a;
+    cursor: pointer;
+    flex-shrink: 0;
   }
 }
 

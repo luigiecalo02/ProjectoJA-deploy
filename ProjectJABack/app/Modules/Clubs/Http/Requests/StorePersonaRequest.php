@@ -36,6 +36,7 @@ class StorePersonaRequest extends FormRequest
             'club_ids.*' => ['integer', 'exists:clubes,id'],
             'organizacion_ids' => ['nullable', 'array'],
             'organizacion_ids.*' => ['integer', 'exists:organizacion,id', 'distinct'],
+            'solo_tipo_club' => ['sometimes', 'boolean'],
         ];
     }
 

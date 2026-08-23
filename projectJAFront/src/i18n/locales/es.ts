@@ -1555,8 +1555,8 @@ export default {
   },
   personas: {
     title: 'Personas',
-    subtitle: 'Gestiona el registro de personas e integrantes',
-    subtitleScoped: 'Personas de {org}',
+    subtitle: 'Personas de la iglesia padre y de los clubes hermanos',
+    subtitleScoped: 'Personas de la iglesia padre y clubes hermanos de {org}',
     new: 'Nueva persona',
     edit: 'Editar persona',
     formHint: 'Completa los datos de identificación y contacto',
@@ -1593,7 +1593,8 @@ export default {
     organizacionRequired: 'Debes asociar la persona al menos a una organización',
     noOrganizaciones: 'Sin organización asociada',
     organizacionLeafHint: 'Tu organización es de última generación: se asocia automáticamente.',
-    organizacionParentHint: 'Puedes asociar la persona a cualquier organización de tu alcance.',
+    organizacionParentHint:
+      'Solo puedes asociar la persona a la iglesia padre o a un club hermano. Quien esté en este club se registra como integrante.',
     organizacionAdminHint: 'Selecciona una o más organizaciones para la persona.',
     organizacionFueraAlcance: 'Fuera de tu alcance',
     organizacionFueraAlcanceHint:

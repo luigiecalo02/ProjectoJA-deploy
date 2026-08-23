@@ -132,6 +132,7 @@ export interface PersonaFormPayload {
   direccion_actual?: string | null
   club_ids?: number[]
   organizacion_ids?: number[]
+  solo_tipo_club?: boolean
 }
 
 export interface PersonaOrganizacionOption {

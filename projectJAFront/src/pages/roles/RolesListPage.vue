@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -19,6 +20,7 @@ const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
 const { can } = usePermission()
+const isMobile = useMediaQuery('(max-width: 899px)')
 
 usePageChrome(() => ({
   title: t('roles.title'),
@@ -124,32 +126,32 @@ onMounted(() => {
               </span>
               <div>
                 <strong>{{ data.display_name }}</strong>
-                <span class="pj-muted">{{ data.name }}</span>
+                <span v-if="!isMobile" class="pj-muted">{{ data.name }}</span>
               </div>
             </div>
           </template>
         </Column>
 
-        <Column :header="t('roles.description')">
+        <Column v-if="!isMobile" :header="t('roles.description')">
           <template #body="{ data }">
             <span>{{ data.description || '—' }}</span>
           </template>
         </Column>
 
-        <Column :header="t('roles.usersCount')" style="width: 7rem">
+        <Column v-if="!isMobile" :header="t('roles.usersCount')" style="width: 7rem">
           <template #body="{ data }">
             {{ data.users_count }}
           </template>
         </Column>
 
-        <Column :header="t('roles.permissionsCount')" style="width: 8rem">
+        <Column v-if="!isMobile" :header="t('roles.permissionsCount')" style="width: 8rem">
           <template #body="{ data }">
             <span v-if="data.is_super">{{ t('roles.allPermissions') }}</span>
             <span v-else>{{ data.permissions_count }}</span>
           </template>
         </Column>
 
-        <Column :header="t('roles.type')" style="width: 10rem">
+        <Column :header="t('roles.type')" :style="isMobile ? 'width: auto' : 'width: 10rem'">
           <template #body="{ data }">
             <Tag v-if="data.is_super" severity="danger" :value="t('roles.super')" />
             <Tag v-else-if="data.is_system" severity="info" :value="t('roles.system')" />
@@ -157,7 +159,7 @@ onMounted(() => {
           </template>
         </Column>
 
-        <Column :header="t('common.actions')" style="width: 9rem">
+        <Column :header="t('common.actions')" :style="isMobile ? 'width: 5.5rem' : 'width: 9rem'">
           <template #body="{ data }">
             <div class="actions">
               <Button
@@ -232,5 +234,11 @@ onMounted(() => {
 .actions {
   display: flex;
   gap: 0.15rem;
+}
+
+@media (max-width: 899px) {
+  .role-name strong {
+    overflow-wrap: anywhere;
+  }
 }
 </style>

@@ -143,7 +143,7 @@ const rootStyle = computed(() => {
 
 .stack-drawer-panel__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
   margin: 0;

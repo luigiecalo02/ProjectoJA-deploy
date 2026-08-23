@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
-import Button from 'primevue/button'
 import Select from 'primevue/select'
 import PageLoader from '@/components/PageLoader.vue'
 import EventSearchPanel from '@/components/events/EventSearchPanel.vue'
 import { eventsService } from '@/services/eventsService'
 import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
+import { extractBannerHeroVars } from '@/utils/dominantColor'
 import { getApiErrorMessage } from '@/services/api'
 import type {
   EventStandingsSort,
@@ -18,7 +18,6 @@ import type {
 
 const { t } = useI18n()
 const route = useRoute()
-const router = useRouter()
 const toast = useToast()
 
 const loading = ref(true)
@@ -33,10 +32,34 @@ const bannerUrl = computed(() => resolveAssetUrl(data.value?.evento.banner_url))
 const logoUrl = computed(() => resolveAssetUrl(data.value?.evento.image_url))
 const heroCoverUrl = computed(() => bannerUrl.value || logoUrl.value)
 const showEventLogo = computed(() => Boolean(logoUrl.value && bannerUrl.value))
+const heroTheme = ref<Record<string, string>>({})
+let heroThemeSequence = 0
 const heroStyle = computed(() => {
   const url = heroCoverUrl.value
-  return url ? { '--hero-image': toCssImageUrl(url) } : undefined
+  if (!url) return undefined
+  return {
+    '--hero-image': toCssImageUrl(url),
+    ...heroTheme.value,
+  }
 })
+
+watch(
+  heroCoverUrl,
+  async (url) => {
+    heroTheme.value = {}
+    if (!url) return
+    const sequence = ++heroThemeSequence
+    try {
+      const vars = await extractBannerHeroVars(url)
+      if (sequence !== heroThemeSequence) return
+      heroTheme.value = vars
+    } catch {
+      if (sequence !== heroThemeSequence) return
+      heroTheme.value = {}
+    }
+  },
+  { immediate: true },
+)
 
 const sortOptions = computed(() => [
   { value: 'puesto' as const, label: t('events.standingsSortPuesto') },
@@ -256,14 +279,6 @@ onMounted(() => {
           :alt="data?.evento.name || t('events.standingsTreeTitle')"
         />
         <div class="standings-hero__copy">
-          <Button
-            type="button"
-            text
-            icon="pi pi-arrow-left"
-            :label="t('common.back')"
-            class="standings-back"
-            @click="router.push({ name: 'events' })"
-          />
           <p class="standings-kicker">{{ t('events.standingsTreeKicker') }}</p>
           <h1 class="pj-page__title standings-title">
             {{ data?.evento.name || t('events.standingsTreeTitle') }}
@@ -382,14 +397,14 @@ onMounted(() => {
                   <span class="place" :class="podiumClass(row.puesto)">{{ row.puesto }}</span>
                 </td>
                 <td class="sticky sticky-club">
-                  <div class="club-cell">
+                  <div class="club-cell" :title="row.nombre">
                     <span v-if="row.logo_url" class="club-cell__logo">
                       <img :src="row.logo_url" :alt="row.nombre" />
                     </span>
-                    <span v-else class="club-cell__fallback">
+                    <span v-else class="club-cell__fallback" :title="row.nombre">
                       <i class="pi pi-flag" />
                     </span>
-                    <div>
+                    <div class="club-cell__meta">
                       <strong>{{ row.nombre }}</strong>
                       <small v-if="clubLocationLabel(row)" class="pj-muted">
                         {{ clubLocationLabel(row) }}
@@ -434,7 +449,7 @@ onMounted(() => {
   flex-wrap: wrap;
   padding: 1.25rem 1.35rem;
   border-radius: 16px;
-  overflow: hidden;
+  overflow: visible;
   isolation: isolate;
   background:
     linear-gradient(135deg, color-mix(in srgb, #0f766e 18%, transparent), transparent 55%),
@@ -444,9 +459,9 @@ onMounted(() => {
 
 .standings-hero.has-cover {
   min-height: 11rem;
-  color: #fff;
+  color: var(--hero-text, #fff);
   background-image:
-    linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%),
+    var(--hero-overlay, linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%)),
     var(--hero-image);
   background-size: cover;
   background-position: center;
@@ -455,21 +470,22 @@ onMounted(() => {
 
 .standings-hero.has-cover .pj-muted,
 .standings-hero.has-cover .standings-kicker {
-  color: rgba(255, 255, 255, 0.86);
+  color: var(--hero-muted, rgba(255, 255, 255, 0.86));
 }
 
 .standings-hero.has-cover .standings-summary > div {
-  background: color-mix(in srgb, #07122a 45%, transparent);
-  border-color: rgba(255, 255, 255, 0.18);
-  color: #fff;
+  background: var(--hero-chip-bg, color-mix(in srgb, #07122a 45%, transparent));
+  border-color: var(--hero-chip-border, rgba(255, 255, 255, 0.18));
+  color: var(--hero-chip-text, #fff);
 }
 
 .standings-hero.has-cover .standings-summary span {
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--hero-chip-muted, rgba(255, 255, 255, 0.78));
 }
 
-.standings-hero.has-cover :deep(.standings-back) {
-  color: #fff;
+.standings-hero.has-cover .standings-title {
+  color: var(--hero-text, #fff);
+  text-shadow: 0 1px 12px color-mix(in srgb, var(--hero-chip-bg, rgba(15, 23, 42, 0.5)) 70%, transparent);
 }
 
 .standings-hero__intro {
@@ -491,6 +507,7 @@ onMounted(() => {
 }
 
 .standings-hero.has-cover.has-logo {
+  position: relative;
   overflow: visible;
   margin-bottom: 2.4rem;
 }
@@ -499,18 +516,26 @@ onMounted(() => {
   align-items: flex-end;
 }
 
-.standings-hero.has-cover.has-logo .standings-hero__logo {
-  position: relative;
-  z-index: 2;
-  margin-bottom: -2.4rem;
+.standings-hero.has-cover.has-logo .standings-hero__copy {
+  padding-left: calc(4.5rem + 0.95rem);
 }
 
-.standings-back {
-  margin-left: -0.5rem;
+.standings-hero.has-cover.has-logo .standings-hero__logo {
+  position: absolute;
+  left: 1.35rem;
+  bottom: 0;
+  z-index: 2;
+  margin: 0;
+  transform: translateY(50%);
+}
+
+.standings-hero.has-cover.has-logo .standings-summary {
+  align-self: flex-start;
+  margin-left: auto;
 }
 
 .standings-kicker {
-  margin: 0.35rem 0 0.15rem;
+  margin: 0 0 0.15rem;
   font-size: 0.78rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -529,6 +554,9 @@ onMounted(() => {
   display: flex;
   gap: 1rem;
   flex-wrap: wrap;
+  margin-left: auto;
+  justify-content: flex-end;
+  width: auto;
 }
 
 .standings-summary > div {
@@ -548,6 +576,16 @@ onMounted(() => {
 .standings-summary span {
   font-size: 0.75rem;
   color: var(--pj-text-muted, #64748b);
+}
+
+@media (max-width: 899px) {
+  .standings-hero.pj-page__header {
+    align-items: stretch;
+  }
+
+  .standings-summary {
+    align-self: flex-end;
+  }
 }
 
 .standings-toolbar {
@@ -757,19 +795,36 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .sticky-inscripcion,
-  .sticky-pct {
+  .sticky-club {
     left: 4.5rem;
+    min-width: 3.4rem;
+    max-width: 3.4rem;
+    width: 3.4rem;
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
+  }
+
+  .sticky-club .club-cell {
+    justify-content: center;
+  }
+
+  .sticky-club .club-cell__meta {
+    display: none;
+  }
+
+  .tree-table thead .sticky-club {
+    font-size: 0;
+    color: transparent;
+  }
+
+  .sticky-inscripcion {
+    left: 7.9rem;
     box-shadow: none;
   }
 
   .sticky-pct {
-    left: 11rem;
-  }
-
-  .tree-table thead .sticky-club,
-  .tree-table tbody .sticky-club {
-    display: none;
+    left: 14.4rem;
+    box-shadow: 4px 0 8px -6px rgba(15, 23, 42, 0.25);
   }
 }
 </style>

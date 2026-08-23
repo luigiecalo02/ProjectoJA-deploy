@@ -33,6 +33,7 @@ import {
   TIPO_CONQUISTADORES,
   TIPO_GUIAS_MAYORES,
 } from '@/modules/organizaciones/types'
+import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
 import type { Club } from '@/modules/clubs/types'
 import type {
   ClubEvent,
@@ -345,15 +346,9 @@ function applyAudienceFromEvent(event: {
 }): void {
   form.tipo_organizacion_ids = [...(event.tipo_organizacion_ids || [])]
   if (event.tipos_organizacion?.length) {
-    const keys: ClubAudienceKey[] = []
-    for (const tipo of event.tipos_organizacion) {
-      const name = (tipo.nombre || '').toLowerCase()
-      if (name.includes('conquistador') || tipo.id === TIPO_CONQUISTADORES) keys.push('conquistadores')
-      else if (name.includes('aventurero') || tipo.id === TIPO_AVENTUREROS) keys.push('aventureros')
-      else if (name.includes('guía') || name.includes('guia') || tipo.id === TIPO_GUIAS_MAYORES) {
-        keys.push('guias_mayores')
-      }
-    }
+    const keys = event.tipos_organizacion
+      .map((tipo) => audienceKeyFromTipo(tipo.id, tipo.nombre))
+      .filter((key): key is Exclude<ClubAudienceKey, 'libre'> => key != null)
     clubAudience.value = keys.length ? [...new Set(keys)] : ['libre']
     return
   }
@@ -384,16 +379,12 @@ async function persistAudience(): Promise<void> {
 
 function audienceFromTipoIds(ids: number[]): ClubAudienceKey[] {
   if (!ids.length) return ['libre']
-  const keys: ClubAudienceKey[] = []
-  for (const id of ids) {
-    const tipo = tipoOptions.value.find((item) => item.id === id)
-    const name = (tipo?.nombre || '').toLowerCase()
-    if (id === TIPO_CONQUISTADORES || name.includes('conquistador')) keys.push('conquistadores')
-    else if (id === TIPO_AVENTUREROS || name.includes('aventurero')) keys.push('aventureros')
-    else if (id === TIPO_GUIAS_MAYORES || name.includes('guía') || name.includes('guia')) {
-      keys.push('guias_mayores')
-    }
-  }
+  const keys = ids
+    .map((id) => {
+      const tipo = tipoOptions.value.find((item) => item.id === id)
+      return audienceKeyFromTipo(id, tipo?.nombre)
+    })
+    .filter((key): key is Exclude<ClubAudienceKey, 'libre'> => key != null)
   return keys.length ? [...new Set(keys)] : ['libre']
 }
 

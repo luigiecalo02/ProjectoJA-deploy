@@ -212,6 +212,7 @@ async function submit(): Promise<void> {
       direccion_actual: form.direccion_actual.trim() || null,
       // Incluye orgs bloqueadas para que el backend las preserve.
       organizacion_ids: [...new Set([...lockedOrgIds.value, ...form.organizacion_ids])],
+      solo_tipo_club: isIntegrantes.value,
     }
 
     if (isEdit.value) {
