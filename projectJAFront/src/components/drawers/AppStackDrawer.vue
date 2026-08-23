@@ -10,12 +10,14 @@ const props = withDefaults(
     title?: string
     subtitle?: string
     blockScroll?: boolean
+    position?: 'right' | 'bottom'
   }>(),
   {
     level: 1,
     title: '',
     subtitle: '',
     blockScroll: true,
+    position: 'right',
   },
 )
 
@@ -24,34 +26,54 @@ const emit = defineEmits<{
 }>()
 
 const theme = computed(() => stackDrawerThemes[props.level])
+const isBottom = computed(() => props.position === 'bottom')
 
 const drawerVisible = computed({
   get: () => props.visible,
   set: (value: boolean) => emit('update:visible', value),
+})
+
+const rootStyle = computed(() => {
+  const base = {
+    padding: '0',
+    border: 'none',
+    borderStyle: 'none',
+    borderWidth: '0',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+  } as const
+
+  if (isBottom.value) {
+    return {
+      ...base,
+      width: '100vw',
+      maxWidth: '100vw',
+      height: 'calc(100dvh - 4.75rem - env(safe-area-inset-top, 0px))',
+      maxHeight: 'calc(100dvh - 4.75rem - env(safe-area-inset-top, 0px))',
+      borderRadius: '18px 18px 0 0',
+    }
+  }
+
+  return {
+    ...base,
+    width: theme.value.width,
+    maxWidth: '100vw',
+    borderRadius: '0',
+  }
 })
 </script>
 
 <template>
   <Drawer
     v-model:visible="drawerVisible"
-    position="right"
+    :position="position"
     :block-scroll="blockScroll"
     append-to="body"
     :pt="{
       root: {
-        class: ['stack-drawer', theme.cssClass],
-        style: {
-          width: theme.width,
-          maxWidth: '100vw',
-          padding: '0',
-          borderRadius: '0',
-          border: 'none',
-          borderStyle: 'none',
-          borderWidth: '0',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-        },
+        class: ['stack-drawer', theme.cssClass, { 'stack-drawer--bottom': isBottom }],
+        style: rootStyle,
       },
     }"
   >
@@ -246,6 +268,16 @@ const drawerVisible = computed({
   .p-drawer.stack-drawer--l3,
   .p-drawer.stack-drawer--l4 {
     width: 100vw !important;
+  }
+
+  .p-drawer.stack-drawer--bottom {
+    width: 100vw !important;
+    height: calc(100dvh - 4.75rem - env(safe-area-inset-top, 0px)) !important;
+    max-height: calc(100dvh - 4.75rem - env(safe-area-inset-top, 0px)) !important;
+    top: auto !important;
+    bottom: 0 !important;
+    border-radius: 18px 18px 0 0 !important;
+    box-shadow: 0 -10px 32px rgb(15 23 42 / 0.22) !important;
   }
 }
 </style>

@@ -785,6 +785,8 @@ export default {
     judgePhaseEventsHintLocked: 'Cuando elijas un club, aquí verás sus eventos pendientes.',
     judgePhaseEventsHintSelected: 'Eventos de {club}',
     judgeSelectClubFirst: 'Selecciona primero un club para continuar',
+    judgeEventsSheetClose: 'Cerrar eventos',
+    judgeReopenEvents: 'Ver eventos de {club}',
     judgeClubPendingEvents: '{count} eventos pendientes',
     judgeClubNoPending: 'Sin pendientes',
     judgeFilterAll: 'Todos',

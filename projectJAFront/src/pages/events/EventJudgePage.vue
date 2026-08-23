@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -56,6 +57,9 @@ const selectedEvidenceId = ref<number | null>(null)
 const expandedTreeIds = ref<Set<number>>(new Set())
 const treeInitialized = ref(false)
 const drawerVisible = ref(false)
+const treeSheetVisible = ref(false)
+const isMobile = useMediaQuery('(max-width: 900px)')
+const drawerPosition = computed(() => (isMobile.value ? 'bottom' : 'right'))
 
 const eventId = computed(() => Number(route.params.id))
 const bannerUrl = computed(() => resolveAssetUrl(board.value?.evento.banner_url))
@@ -382,17 +386,22 @@ async function onTreeNodeSelect(node: JudgeTreeNode): Promise<void> {
 
   if (isLeafActivity || isSelfCalificable) {
     if (selectedSubeventoId.value === sel.id && selectedActividadId.value === node.id) {
-      drawerVisible.value = true
+      openGradingDrawer()
       return
     }
     selectedSubeventoId.value = sel.id
     selectedActividadId.value = node.id
     await load(true)
-    drawerVisible.value = true
+    openGradingDrawer()
     return
   }
 
   await onSubeventoChange(sel.id)
+  openGradingDrawer()
+}
+
+function openGradingDrawer(): void {
+  if (isMobile.value) treeSheetVisible.value = false
   drawerVisible.value = true
 }
 
@@ -529,7 +538,8 @@ async function load(keepClub = false): Promise<void> {
         const fromClubes = clubs.find((c) => c.organizacion_id === orgId)
         if (fromResumen || fromClubes) {
           selectedOrgId.value = orgId
-          drawerVisible.value = true
+          if (isMobile.value) treeSheetVisible.value = true
+          else drawerVisible.value = true
         }
       }
     }
@@ -561,6 +571,14 @@ function selectClub(club: JudgeClub | JudgeClubResumen): void {
   const keepDrawer = drawerVisible.value
   selectedOrgId.value = club.organizacion_id
   hydrateForm(activityClubForOrg(club.organizacion_id))
+  if (isMobile.value) {
+    if (keepDrawer && actividad.value) {
+      drawerVisible.value = true
+      return
+    }
+    treeSheetVisible.value = true
+    return
+  }
   if (keepDrawer && actividad.value) {
     drawerVisible.value = true
   }
@@ -749,6 +767,16 @@ watch(
   },
 )
 
+watch(isMobile, (mobile) => {
+  if (!mobile) treeSheetVisible.value = false
+})
+
+watch(drawerVisible, (open) => {
+  if (!open && isMobile.value && clubHasSelection.value) {
+    treeSheetVisible.value = true
+  }
+})
+
 onMounted(() => {
   load(false)
 })
@@ -892,7 +920,31 @@ onMounted(() => {
           <p v-if="!filteredClubs.length" class="pj-muted empty">{{ t('events.judgeClubsEmpty') }}</p>
         </aside>
 
-        <aside class="panel panel--tree" :class="{ 'is-locked': !clubHasSelection }">
+        <button
+          v-if="isMobile && clubHasSelection && !treeSheetVisible && !drawerVisible"
+          type="button"
+          class="tree-reopen"
+          @click="treeSheetVisible = true"
+        >
+          <i class="pi pi-sitemap" />
+          <span>{{ t('events.judgeReopenEvents', { club: selectedClub?.nombre || '' }) }}</span>
+        </button>
+
+        <div
+          v-if="isMobile && treeSheetVisible"
+          class="tree-sheet-backdrop"
+          @click="treeSheetVisible = false"
+        />
+
+        <aside
+          class="panel panel--tree"
+          :class="{
+            'is-locked': !clubHasSelection,
+            'is-sheet': isMobile,
+            'is-sheet-open': isMobile && treeSheetVisible,
+          }"
+        >
+          <div v-if="isMobile" class="tree-sheet__handle" aria-hidden="true" />
           <div class="tree-head">
             <div class="phase-chip">
               <span class="phase-chip__step" :class="{ 'is-ready': clubHasSelection }">2</span>
@@ -911,6 +963,15 @@ onMounted(() => {
                 </p>
               </div>
             </div>
+            <button
+              v-if="isMobile"
+              type="button"
+              class="tree-sheet__close"
+              :aria-label="t('events.judgeEventsSheetClose')"
+              @click="treeSheetVisible = false"
+            >
+              <i class="pi pi-times" />
+            </button>
           </div>
 
           <div v-if="!clubHasSelection" class="tree-lock">
@@ -939,6 +1000,7 @@ onMounted(() => {
         :title="drawerTitle"
         :subtitle="drawerSubtitle"
         :level="1"
+        :position="drawerPosition"
       >
         <template #header>
           <strong>{{ t('events.judgeGradingClub') }}</strong>
@@ -1309,6 +1371,7 @@ onMounted(() => {
 
 <style scoped>
 .judge-page {
+  --judge-sheet-gap: calc(4.75rem + env(safe-area-inset-top, 0px));
   display: grid;
   gap: 1rem;
 }
@@ -1599,13 +1662,20 @@ onMounted(() => {
 }
 
 .tree-head {
-  display: grid;
-  gap: 0.15rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.55rem;
   position: sticky;
   top: 0;
   background: inherit;
   z-index: 1;
   padding-bottom: 0.35rem;
+}
+
+.tree-head .phase-chip {
+  flex: 1;
+  min-width: 0;
 }
 
 .tree-head strong {
@@ -1795,6 +1865,7 @@ onMounted(() => {
 
 .tree-body {
   min-height: 0;
+  overflow: auto;
 }
 
 .status-badge {
@@ -2141,9 +2212,95 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .panel--list,
-  .panel--tree {
+  .panel--list {
     max-height: none;
+  }
+
+  .tree-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1080;
+    background: rgb(15 23 42 / 0.38);
+  }
+
+  .panel--tree.is-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1081;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: calc(100dvh - var(--judge-sheet-gap));
+    max-height: calc(100dvh - var(--judge-sheet-gap));
+    margin: 0;
+    padding: 0.55rem 0.9rem calc(0.9rem + env(safe-area-inset-bottom, 0px));
+    overflow: hidden;
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -10px 32px rgb(15 23 42 / 0.22);
+    transform: translateY(110%);
+    transition: transform 0.28s ease;
+    pointer-events: none;
+  }
+
+  .panel--tree.is-sheet-open {
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .panel--tree.is-sheet .tree-head {
+    flex-shrink: 0;
+  }
+
+  .panel--tree.is-sheet .tree-lock,
+  .panel--tree.is-sheet .tree-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .tree-sheet__handle {
+    width: 2.6rem;
+    height: 0.28rem;
+    margin: 0.15rem auto 0.45rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--pj-border, #cbd5e1) 80%, #94a3b8);
+    flex-shrink: 0;
+  }
+
+  .tree-sheet__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: color-mix(in srgb, #1e3a8a 10%, transparent);
+    color: #1e3a8a;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .tree-reopen {
+    position: sticky;
+    bottom: 0.65rem;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 0;
+    border-radius: 14px;
+    background: #1e3a8a;
+    color: #fff;
+    font-weight: 700;
+    box-shadow: 0 8px 22px rgb(30 58 138 / 0.28);
   }
 }
 </style>
