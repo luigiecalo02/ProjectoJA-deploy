@@ -6,6 +6,8 @@ export interface UserListParams {
   search?: string
   is_active?: boolean | null
   organizacion_id?: number | null
+  tipo_club?: 'aventureros' | 'conquistadores' | 'guias_mayores' | null
+  role?: string | null
 }
 
 export interface UserFormPayload {

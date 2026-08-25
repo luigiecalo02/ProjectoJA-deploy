@@ -26,6 +26,8 @@ import EventBannerCard from '@/components/events/EventBannerCard.vue'
 import { clubsService } from '@/services/clubsService'
 import { organizacionesService } from '@/services/organizacionesService'
 import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
+import { cuentasBancariasService } from '@/services/cuentasBancariasService'
+import { useAuthStore } from '@/stores/auth'
 import { usePageChrome } from '@/composables/usePageChrome'
 import type { OrganizacionTreeNode, TipoOrganizacion } from '@/modules/organizaciones/types'
 import {
@@ -35,6 +37,7 @@ import {
 } from '@/modules/organizaciones/types'
 import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
 import type { Club } from '@/modules/clubs/types'
+import type { CuentaBancaria } from '@/modules/settings/types'
 import type {
   ClubEvent,
   EventFormPayload,
@@ -70,6 +73,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const auth = useAuthStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -97,6 +101,13 @@ const previewVisible = ref(
 )
 
 const tiposSeguroOptions = ref<TipoSeguro[]>([])
+const cuentasBancarias = ref<CuentaBancaria[]>([])
+const cuentaBancariaOptions = computed(() =>
+  cuentasBancarias.value.map((item) => ({
+    label: `${item.nombre} · ${item.numero_cuenta}`,
+    value: item.id,
+  })),
+)
 const productosCatalog = ref<ProductoServicio[]>([])
 const serviceOffers = ref<
   Array<{
@@ -159,6 +170,7 @@ const form = reactive({
   descuentos_directiva: [] as EventoDescuentoDirectiva[],
   fecha_limite_pago: null as Date | null,
   metodo_pago: '' as string | null,
+  cuenta_bancaria_id: null as number | null,
   requiere_seguro: false,
   tipo_seguro_id: null as number | null,
   seguro_valor: null as number | null,
@@ -180,6 +192,10 @@ const form = reactive({
   image_url: null as string | null,
   banner_url: null as string | null,
 })
+
+const selectedCuentaBancaria = computed(
+  () => cuentasBancarias.value.find((item) => item.id === form.cuenta_bancaria_id) ?? null,
+)
 
 const terrenoSummary = ref<{ terrenoNombre: string | null; lotes: number; capacidad: number }>({
   terrenoNombre: null,
@@ -388,6 +404,13 @@ function audienceFromTipoIds(ids: number[]): ClubAudienceKey[] {
   return keys.length ? [...new Set(keys)] : ['libre']
 }
 
+function applyHomeOrganization(): void {
+  const homeId = auth.contexto?.organizacion_id ?? null
+  if (!homeId) return
+  if (form.organizacion_id == null) form.organizacion_id = homeId
+  if (form.organizacion_ids.length === 0) form.organizacion_ids = [homeId]
+}
+
 function flattenOrgs(nodes: OrganizacionTreeNode[], depth = 0): Array<{ id: number; label: string }> {
   const rows: Array<{ id: number; label: string }> = []
   for (const node of nodes) {
@@ -512,9 +535,14 @@ function buildPayload(estado: string): EventFormPayload {
     is_active: form.is_active,
     estado,
     visibilidad: form.visibilidad,
-    organizacion_id: form.organizacion_id,
+    organizacion_id: form.organizacion_id ?? auth.contexto?.organizacion_id ?? null,
     tipo_evento_id: null,
-    organizacion_ids: [...form.organizacion_ids],
+    organizacion_ids:
+      form.organizacion_ids.length > 0
+        ? [...form.organizacion_ids]
+        : auth.contexto?.organizacion_id
+          ? [auth.contexto.organizacion_id]
+          : [],
     tipo_organizacion_ids: [...form.tipo_organizacion_ids],
     audiencia: currentAudiencia(),
     es_en_sitio: form.es_en_sitio,
@@ -547,6 +575,7 @@ function buildPayload(estado: string): EventFormPayload {
     fecha_limite_pago:
       form.requiere_pago && form.fecha_limite_pago ? toApiDate(form.fecha_limite_pago) : null,
     metodo_pago: form.requiere_pago ? form.metodo_pago : null,
+    cuenta_bancaria_id: form.requiere_pago ? form.cuenta_bancaria_id : null,
     requiere_seguro: form.requiere_seguro,
     tipo_seguro_id: form.requiere_seguro ? form.tipo_seguro_id : null,
     seguro_valor: form.requiere_seguro ? form.seguro_valor : null,
@@ -740,12 +769,13 @@ watch(
 )
 
 async function loadCatalogs(): Promise<void> {
-  const [tree, tipos, clubsPage, tiposSeguro, productos] = await Promise.all([
+  const [tree, tipos, clubsPage, tiposSeguro, productos, cuentas] = await Promise.all([
     organizacionesService.tree(),
     organizacionesService.tipos(),
     clubsService.list({ per_page: 500, is_active: true }),
     eventsService.tiposSeguro(),
     eventsService.productosServicios(),
+    cuentasBancariasService.list({ activas: true }).catch(() => [] as CuentaBancaria[]),
   ])
   orgTree.value = tree
   orgOptions.value = flattenOrgs(tree)
@@ -753,6 +783,8 @@ async function loadCatalogs(): Promise<void> {
   clubsCatalog.value = clubsPage.items
   tiposSeguroOptions.value = tiposSeguro
   productosCatalog.value = productos
+  cuentasBancarias.value = cuentas
+  applyHomeOrganization()
 }
 
 async function loadServiceOffers(): Promise<void> {
@@ -857,6 +889,10 @@ async function loadEvent(): Promise<void> {
       : [...DEFAULT_DESCUENTOS_DIRECTIVA]
   form.fecha_limite_pago = dateOnly(event.fecha_limite_pago)
   form.metodo_pago = event.metodo_pago ?? null
+  form.cuenta_bancaria_id = event.cuenta_bancaria_id ?? null
+  if (event.cuenta_bancaria && !cuentasBancarias.value.some((item) => item.id === event.cuenta_bancaria?.id)) {
+    cuentasBancarias.value = [...cuentasBancarias.value, event.cuenta_bancaria]
+  }
   form.requiere_seguro = event.requiere_seguro ?? false
   form.tipo_seguro_id = event.tipo_seguro_id ?? null
   form.seguro_valor = event.seguro_valor ?? null
@@ -879,6 +915,7 @@ async function loadEvent(): Promise<void> {
   form.puntos_inscripcion_fuera_tiempo = event.puntos_inscripcion_fuera_tiempo ?? null
   form.image_url = event.image_url
   form.banner_url = event.banner_url ?? null
+  applyHomeOrganization()
 }
 
 onMounted(async () => {
@@ -1390,6 +1427,20 @@ onBeforeUnmount(() => {
               <label for="metodo_pago">{{ t('events.wizard.paymentMethod') }}</label>
               <InputText id="metodo_pago" v-model="form.metodo_pago" class="w-full" />
             </div>
+            <div class="field">
+              <label for="cuenta_bancaria_id">{{ t('events.bankAccount') }}</label>
+              <Select
+                input-id="cuenta_bancaria_id"
+                v-model="form.cuenta_bancaria_id"
+                :options="cuentaBancariaOptions"
+                option-label="label"
+                option-value="value"
+                class="w-full"
+                :placeholder="t('events.bankAccountPlaceholder')"
+                show-clear
+              />
+              <small class="pj-muted">{{ t('events.bankAccountHint') }}</small>
+            </div>
           </div>
 
         </div>
@@ -1668,6 +1719,10 @@ onBeforeUnmount(() => {
               <div>
                 <dt>{{ t('events.enrollmentRequires') }}</dt>
                 <dd>{{ form.requiere_pago ? t('common.yes') : t('common.no') }}</dd>
+              </div>
+              <div v-if="form.requiere_pago">
+                <dt>{{ t('events.bankAccount') }}</dt>
+                <dd>{{ selectedCuentaBancaria?.nombre || t('events.bankAccountEmpty') }}</dd>
               </div>
               <div>
                 <dt>{{ t('events.requiresInsurance') }}</dt>

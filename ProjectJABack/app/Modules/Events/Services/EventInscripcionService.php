@@ -18,6 +18,7 @@ use App\Modules\Events\Models\Seguro;
 use App\Modules\Cabanas\Services\AsignacionCamaService;
 use App\Modules\Events\Models\TipoSeguro;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
+use App\Modules\Settings\Services\CuentaBancariaService;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\ImageOptimizer;
 use Carbon\Carbon;
@@ -36,10 +37,17 @@ final class EventInscripcionService
         private readonly ClubService $clubService,
         private readonly AsignacionCamaService $asignacionesCama,
         private readonly ImageOptimizer $imageOptimizer,
+        private readonly CuentaBancariaService $cuentasBancarias,
     ) {}
 
     /** @param array<string, mixed> $data */
-    public function enrollClubWithRoster(User $actor, Event $event, array $data): EventoInscripcion
+    public function enrollClubWithRoster(
+        User $actor,
+        Event $event,
+        array $data,
+        ?UploadedFile $comprobante = null,
+        ?float $comprobanteValor = null,
+    ): EventoInscripcion
     {
         $ctx = $this->participation->assertClubDirectorContext($actor);
         $root = $this->resolveRoot($event);
@@ -115,7 +123,7 @@ final class EventInscripcionService
             ]);
         }
 
-        return DB::transaction(function () use ($actor, $root, $ctx, $participantes, $data) {
+        return DB::transaction(function () use ($actor, $root, $ctx, $participantes, $data, $comprobante, $comprobanteValor) {
             $existing = $this->participation->findRootInscripcion($root, $ctx['organizacion_id']);
             $snapshotAnterior = $existing
                 ? $this->historialService->snapshot($existing)
@@ -146,11 +154,18 @@ final class EventInscripcionService
                 $personaId = isset($row['persona_id']) ? (int) $row['persona_id'] : null;
                 $persona = $personaId ? Persona::query()->findOrFail($personaId) : null;
                 $participanteAnterior = $participantesAnteriores->get($row['ref']);
-                $descuentoSolicitado = $row['descuento_codigo']
-                    ?? $this->resolverCodigoDescuentoCargo(
-                        $root,
-                        $row['cargo_directiva'] ?? null,
-                    );
+                $esAcompanante = in_array($row['tipo'] ?? null, [
+                    EventoInscripcionPersona::TIPO_ACOMPANANTE,
+                    EventoInscripcionPersona::TIPO_ACOMPANANTE_MENOR,
+                    EventoInscripcionPersona::TIPO_VISITANTE_PASADIA,
+                ], true);
+                $descuentoSolicitado = $esAcompanante
+                    ? null
+                    : ($row['descuento_codigo']
+                        ?? $this->resolverCodigoDescuentoCargo(
+                            $root,
+                            $row['cargo_directiva'] ?? null,
+                        ));
                 [$descuentoCodigo, $descuentoNombre, $descuentoPorcentaje] =
                     $this->resolverDescuento($root, $descuentoSolicitado);
                 $valorBase = $this->resolverPrecioBase($root, (string) $row['tipo']);
@@ -248,7 +263,25 @@ final class EventInscripcionService
                 'seguros',
                 'reservas',
             ]);
+            $movimientoAnteriorId = $existing?->movimientos()->max('id');
             $this->historialService->registrarCambio($actualizada, $snapshotAnterior, $actor);
+            $movimiento = $actualizada->movimientos()->orderByDesc('id')->first();
+            $esNuevoMovimiento = $movimiento
+                && (int) $movimiento->id !== (int) $movimientoAnteriorId;
+            if ($esNuevoMovimiento && (float) $movimiento->valor_diferencia > 0) {
+                if (! $comprobante) {
+                    throw ValidationException::withMessages([
+                        'comprobante' => ['Debes subir el comprobante para registrar este cambio.'],
+                    ]);
+                }
+                $this->addComprobante(
+                    $actor,
+                    $actualizada,
+                    $comprobante,
+                    $comprobanteValor ?? (float) $movimiento->valor_diferencia,
+                    (int) $movimiento->id,
+                );
+            }
 
             return $actualizada->fresh([
                 'personas.persona',
@@ -303,6 +336,8 @@ final class EventInscripcionService
                 'descuentos_directiva' => $root->descuentos_directiva ?? [],
                 'requiere_seguro' => (bool) $root->requiere_seguro,
                 'seguro_valor' => $root->seguro_valor,
+                'metodo_pago' => $root->metodo_pago,
+                'cuenta_bancaria' => $this->cuentasBancarias->toPayload($root->cuentaBancaria),
             ],
             'miembros' => $personas->map(function (Persona $p) use ($batch, $cargosPorPersona) {
                 $c = $batch[(int) $p->id] ?? ['cubierta' => false, 'estado' => 'SIN_SEGURO', 'motivo' => null];

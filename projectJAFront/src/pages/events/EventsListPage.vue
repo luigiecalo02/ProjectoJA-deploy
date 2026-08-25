@@ -32,11 +32,12 @@ const router = useRouter()
 const toast = useToast()
 const { can } = usePermission()
 const auth = useAuthStore()
+const canCreateEvent = computed(() => can('events.create'))
 
 usePageChrome(() => ({
   title: t('events.title'),
   subtitle: t('events.subtitle'),
-  actions: can('events.create')
+  actions: canCreateEvent.value
     ? [
         {
           key: 'new',

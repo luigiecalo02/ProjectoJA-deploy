@@ -1,4 +1,5 @@
 import type { AsignacionCama } from '@/modules/cabanas/types'
+import type { CuentaBancaria } from '@/modules/settings/types'
 
 export interface EventOrganizacionRef {
   id: number
@@ -114,6 +115,7 @@ export interface ParticipationNode {
   reglas?: string | null
   estado?: string | null
   image_url?: string | null
+  banner_url?: string | null
   evento_padre_id?: number | null
   es_calificable: boolean
   puntaje_maximo?: number | null
@@ -624,6 +626,8 @@ export interface ClubEvent {
   descuentos_directiva?: EventoDescuentoDirectiva[]
   fecha_limite_pago?: string | null
   metodo_pago?: string | null
+  cuenta_bancaria_id?: number | null
+  cuenta_bancaria?: CuentaBancaria | null
   requiere_seguro?: boolean
   tipo_seguro_id?: number | null
   seguro_valor?: number | null
@@ -754,6 +758,7 @@ export interface EventFormPayload {
   descuentos_directiva?: EventoDescuentoDirectiva[] | null
   fecha_limite_pago?: string | null
   metodo_pago?: string | null
+  cuenta_bancaria_id?: number | null
   requiere_seguro?: boolean
   tipo_seguro_id?: number | null
   seguro_valor?: number | null
@@ -872,6 +877,8 @@ export interface RosterCobertura {
     descuentos_directiva?: EventoDescuentoDirectiva[]
     requiere_seguro: boolean
     seguro_valor?: number | null
+    metodo_pago?: string | null
+    cuenta_bancaria?: CuentaBancaria | null
   }
   miembros: RosterCoberturaMiembro[]
 }

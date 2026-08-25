@@ -16,6 +16,7 @@ use App\Modules\Events\Services\SeguroService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
@@ -208,9 +209,23 @@ final class EventEconomiaController
             'reservas.*.fecha_fin' => ['nullable', 'date'],
             'reservas.*.fecha' => ['nullable', 'date'],
             'reservas.*.cantidad' => ['nullable', 'integer', 'min:1'],
+            'comprobante' => ['nullable', 'file', 'max:10240', 'mimes:jpg,jpeg,png,webp,pdf'],
+            'comprobante_valor' => ['nullable', 'numeric', 'min:0'],
         ]);
+        $comprobante = $request->file('comprobante');
+        $comprobante = $comprobante instanceof UploadedFile ? $comprobante : null;
+        $comprobanteValor = $request->filled('comprobante_valor')
+            ? (float) $request->input('comprobante_valor')
+            : null;
+        unset($data['comprobante'], $data['comprobante_valor']);
 
-        $inscripcion = $this->inscripcionService->enrollClubWithRoster($request->user(), $event, $data);
+        $inscripcion = $this->inscripcionService->enrollClubWithRoster(
+            $request->user(),
+            $event,
+            $data,
+            $comprobante,
+            $comprobanteValor,
+        );
 
         return ApiResponse::success($this->inscripcionPayload($inscripcion), 'Inscripción registrada', Response::HTTP_CREATED);
     }

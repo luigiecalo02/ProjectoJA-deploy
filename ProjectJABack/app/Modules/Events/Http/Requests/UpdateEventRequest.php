@@ -97,6 +97,7 @@ class UpdateEventRequest extends FormRequest
             'descuentos_directiva.*.porcentaje' => ['required_with:descuentos_directiva', 'numeric', 'min:0', 'max:100'],
             'fecha_limite_pago' => ['nullable', 'date'],
             'metodo_pago' => ['nullable', 'string', 'max:64'],
+            'cuenta_bancaria_id' => ['nullable', 'integer', 'exists:cuentas_bancarias,id'],
             'requiere_seguro' => ['sometimes', 'boolean'],
             'tipo_seguro_id' => ['nullable', 'integer', 'exists:tipos_seguro,id'],
             'seguro_valor' => ['nullable', 'numeric', 'min:0'],

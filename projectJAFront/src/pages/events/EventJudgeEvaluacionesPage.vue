@@ -521,7 +521,7 @@ onMounted(() => {
   isolation: isolate;
   background:
     linear-gradient(135deg, color-mix(in srgb, #0f766e 16%, transparent), transparent 55%),
-    linear-gradient(180deg, #f8fafc, #fff);
+    linear-gradient(180deg, var(--pj-bg-muted), var(--pj-surface));
   border: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
 }
 
@@ -596,7 +596,7 @@ onMounted(() => {
   align-items: center;
   padding: 0.85rem 1rem;
   border-radius: 14px;
-  background: #fff;
+  background: var(--pj-surface);
   border: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
 }
 
@@ -790,7 +790,7 @@ onMounted(() => {
 .detail-score {
   padding: 0.85rem;
   border-radius: 12px;
-  background: color-mix(in srgb, #0f766e 8%, #fff);
+  background: color-mix(in srgb, #0f766e 8%, var(--pj-surface));
   border: 1px solid color-mix(in srgb, #0f766e 18%, transparent);
 }
 
@@ -829,7 +829,7 @@ onMounted(() => {
 .detail-section h3 {
   margin: 0 0 0.55rem;
   font-size: 0.82rem;
-  color: #334155;
+  color: var(--pj-text);
 }
 
 .breakdown,
@@ -848,7 +848,7 @@ onMounted(() => {
   padding: 0.55rem 0.6rem;
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--pj-border) 65%, transparent);
-  background: #fff;
+  background: var(--pj-surface);
 }
 
 .breakdown__main {
@@ -882,7 +882,7 @@ onMounted(() => {
   align-items: center;
   padding: 0.45rem 0.5rem;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--pj-bg, #f8fafc) 70%, #fff);
+  background: color-mix(in srgb, var(--pj-bg) 70%, var(--pj-surface));
 }
 
 .evidence-list i {
@@ -909,7 +909,7 @@ onMounted(() => {
 .obs-block {
   padding: 0.65rem 0.75rem;
   border-radius: 10px;
-  background: color-mix(in srgb, #2563eb 6%, #fff);
+  background: color-mix(in srgb, #2563eb 12%, var(--pj-surface));
   border: 1px solid color-mix(in srgb, #2563eb 14%, transparent);
   margin-bottom: 0.45rem;
 }
@@ -918,7 +918,7 @@ onMounted(() => {
   display: block;
   font-size: 0.75rem;
   margin-bottom: 0.25rem;
-  color: #334155;
+  color: var(--pj-text);
 }
 
 .obs-block p {

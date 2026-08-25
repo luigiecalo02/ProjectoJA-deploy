@@ -5,6 +5,7 @@ namespace App\Modules\Events\Models;
 use App\Models\User;
 use App\Modules\Events\Services\EventVisibilityService;
 use App\Modules\Organizations\Models\Organizacion;
+use App\Modules\Settings\Models\CuentaBancaria;
 use App\Modules\Organizations\Models\TipoOrganizacion;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -94,6 +95,7 @@ class Event extends Model
         'descuentos_directiva',
         'fecha_limite_pago',
         'metodo_pago',
+        'cuenta_bancaria_id',
         'requiere_seguro',
         'tipo_seguro_id',
         'seguro_valor',
@@ -373,6 +375,11 @@ class Event extends Model
     public function tipoEvento(): BelongsTo
     {
         return $this->belongsTo(TipoEvento::class, 'tipo_evento_id');
+    }
+
+    public function cuentaBancaria(): BelongsTo
+    {
+        return $this->belongsTo(CuentaBancaria::class, 'cuenta_bancaria_id');
     }
 
     public function categoriaSubevento(): BelongsTo

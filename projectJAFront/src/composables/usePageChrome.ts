@@ -28,6 +28,9 @@ const chrome = reactive({
   actions: [] as PageChromeAction[],
 })
 
+let chromeOwner = 0
+let activeChromeOwner = 0
+
 function apply(config: PageChromeConfig): void {
   chrome.title = config.title?.trim() || ''
   chrome.subtitle = config.subtitle?.trim() || ''
@@ -41,8 +44,18 @@ function resetPageChrome(): void {
 
 export function usePageChrome(config?: MaybeRefOrGetter<PageChromeConfig>) {
   if (config) {
-    watch(() => toValue(config), apply, { immediate: true, deep: true })
-    onUnmounted(resetPageChrome)
+    const owner = ++chromeOwner
+    activeChromeOwner = owner
+    watch(
+      () => toValue(config),
+      (next) => {
+        if (activeChromeOwner === owner) apply(next)
+      },
+      { immediate: true, deep: true },
+    )
+    onUnmounted(() => {
+      if (activeChromeOwner === owner) resetPageChrome()
+    })
   }
 
   return chrome

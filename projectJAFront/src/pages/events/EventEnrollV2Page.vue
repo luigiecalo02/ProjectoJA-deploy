@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -12,9 +13,18 @@ import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Select from 'primevue/select'
 import PageLoader from '@/components/PageLoader.vue'
+import AppStackDrawer from '@/components/drawers/AppStackDrawer.vue'
+import MediaDocumentsUpload from '@/components/media/MediaDocumentsUpload.vue'
 import ComprobanteComments from '@/components/events/ComprobanteComments.vue'
+import {
+  documentKindFromName,
+  formatFileSize,
+  type MediaDocumentItem,
+} from '@/modules/media/types'
 import { eventsService } from '@/services/eventsService'
-import { getApiErrorMessage } from '@/services/api'
+import { personasService } from '@/services/clubsService'
+import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
+import { useAuthStore } from '@/stores/auth'
 import type {
   EventoDescuentoDirectiva,
   EventoAcompanantePersona,
@@ -25,6 +35,7 @@ import type {
   EventoInscripcionMovimientoParticipante,
   EventoProductoServicioOferta,
   RosterCobertura,
+  RosterCoberturaMiembro,
 } from '@/modules/events/types'
 
 type Step = 'participantes' | 'resumen' | 'pago'
@@ -81,13 +92,15 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const auth = useAuthStore()
+const isMobile = useMediaQuery('(max-width: 900px)')
 
 const loading = ref(true)
 const saving = ref(false)
 const uploading = ref(false)
 const editingReceiptId = ref<number | null>(null)
-const receiptFileInputKey = ref(0)
 const currentStep = ref<Step>('participantes')
+const pendingEnrollment = ref(false)
 const roster = ref<RosterCobertura | null>(null)
 const offers = ref<EventoProductoServicioOferta[]>([])
 const members = ref<ParticipantDraft[]>([])
@@ -103,6 +116,22 @@ const companionSearchShell = ref<HTMLElement | null>(null)
 const companionCandidates = ref<EventoAcompanantePersona[]>([])
 const searchingCompanions = ref(false)
 const savingCompanion = ref(false)
+const clubMemberSheet = ref(false)
+const savingClubMember = ref(false)
+
+const clubMemberForm = reactive({
+  tipoIdentificacion: 'CC',
+  identificacion: '',
+  nombre1: '',
+  nombre2: '',
+  apellido1: '',
+  apellido2: '',
+  fechaNacimiento: null as string | null,
+  sexo: null as string | null,
+  telefono: '',
+  correo: '',
+  direccion: '',
+})
 
 const companionForm = reactive({
   tipoIdentificacion: 'CC',
@@ -127,10 +156,46 @@ const comprobanteForm = reactive({
 })
 
 const eventId = computed(() => Number(route.params.id))
+const clubOrganizacionId = computed(() => auth.contexto?.organizacion_id ?? null)
+const clubId = computed(() => auth.contexto?.club_id ?? null)
+const clubOrgName = computed(() => auth.contexto?.organizacion_nombre ?? '')
+const clubLogoUrl = computed(() => resolveFileUrl(auth.contexto?.club_logo_url))
+const bankAccount = computed(() => roster.value?.evento.cuenta_bancaria ?? null)
+const bankAccountQrUrl = computed(
+  () => resolveFileUrl(bankAccount.value?.qr_url) || bankAccount.value?.qr_url || null,
+)
+
+function bankAccountTipoLabel(tipo?: string | null): string {
+  if (!tipo) return '—'
+  const key = `settings.bankAccounts.tipos.${tipo}`
+  const label = t(key)
+  return label === key ? tipo : label
+}
+const receiptAccept = 'image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf'
+const receiptMaxBytes = 10 * 1024 * 1024
+const receiptDocumentItems = computed<MediaDocumentItem[]>(() => {
+  const file = comprobanteForm.archivo
+  if (!file) return []
+  return [{
+    id: 'pending-receipt',
+    name: file.name,
+    sizeLabel: formatFileSize(file.size),
+    kind: documentKindFromName(file.name),
+  }]
+})
 const isEnrollmentModification = computed(() => Boolean(inscripcion.value?.id))
 const activeOffers = computed(() => offers.value.filter((offer) => offer.activo && offer.id))
 const tableOffers = computed(() =>
   activeOffers.value.filter((offer) => offer.producto?.tipo !== 'PASADIA'),
+)
+const dayPassOffers = computed(() =>
+  activeOffers.value.filter((offer) => offer.producto?.tipo === 'PASADIA'),
+)
+const companionGuests = computed(() =>
+  companions.value.filter((companion) => companion.tipo !== 'visitante_pasadia'),
+)
+const dayPassVisitors = computed(() =>
+  companions.value.filter((companion) => companion.tipo === 'visitante_pasadia'),
 )
 const selectedParticipants = computed(() => [
   ...members.value.filter((member) => member.seleccionado),
@@ -219,7 +284,12 @@ function basePrice(participant: ParticipantDraft): number {
   }
 }
 
+function canSelectDiscount(participant: ParticipantDraft): boolean {
+  return participant.tipo === 'miembro' || participant.tipo === 'directiva'
+}
+
 function discountPercentage(participant: ParticipantDraft): number {
+  if (!canSelectDiscount(participant)) return 0
   const discount = descuentos.value.find((item) => item.codigo === participant.descuentoCodigo)
   return Math.max(0, Math.min(100, Number(discount?.porcentaje ?? 0)))
 }
@@ -447,6 +517,12 @@ const summaryAmountToPay = computed(() =>
   Math.max(0, summaryRows.value.reduce((sum, row) => sum + row.total, 0)),
 )
 
+const hasPendingEnrollmentSave = computed(() => {
+  if (!selectedParticipants.value.length) return false
+  if (!inscripcion.value?.id) return true
+  return summaryRows.value.length > 0
+})
+
 const paymentSummary = computed(() => {
   const total = Number(inscripcion.value?.total_declarado ?? totals.value.total)
   const totalConsignado = comprobantes.value
@@ -484,7 +560,6 @@ function movementPaymentState(movimiento: EventoInscripcionMovimiento | null) {
   }
 }
 
-const currentMovementPayment = computed(() => movementPaymentState(currentMovement.value))
 const paymentMovement = computed<EventoInscripcionMovimiento | null>(() => {
   return movementHistory.value.find((movement) => movementPaymentState(movement).saldo > 0) ?? null
 })
@@ -721,6 +796,126 @@ function removeCompanion(ref: string): void {
   }
 }
 
+function memberFromRoster(
+  member: RosterCoberturaMiembro,
+  seleccionado = false,
+): ParticipantDraft {
+  const participant: ParticipantDraft = {
+    ref: `persona:${member.id}`,
+    personaId: member.id,
+    tipo: member.cargo_directiva ? 'directiva' : 'miembro',
+    cargoDirectiva: member.cargo_directiva ?? null,
+    nombre: member.nombre,
+    identificacion: member.identificacion ?? '',
+    fechaNacimiento: member.fecha_nacimiento ?? null,
+    parentesco: '',
+    descuentoCodigo: null,
+    seleccionado,
+    cubierta: member.cobertura.cubierta || member.cobertura.estado === 'ASEGURADO',
+    coberturaEstado: member.cobertura.estado,
+    retainedInsuranceValue: 0,
+  }
+  if (participant.cargoDirectiva) onMemberRoleChange(participant)
+  return participant
+}
+
+function resetClubMemberForm(): void {
+  clubMemberForm.tipoIdentificacion = 'CC'
+  clubMemberForm.identificacion = ''
+  clubMemberForm.nombre1 = ''
+  clubMemberForm.nombre2 = ''
+  clubMemberForm.apellido1 = ''
+  clubMemberForm.apellido2 = ''
+  clubMemberForm.fechaNacimiento = null
+  clubMemberForm.sexo = null
+  clubMemberForm.telefono = ''
+  clubMemberForm.correo = ''
+  clubMemberForm.direccion = ''
+}
+
+function openClubMemberSheet(): void {
+  if (!clubOrganizacionId.value) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning'),
+      detail: t('events.enrollInscribeToClubLead'),
+      life: 3000,
+    })
+    return
+  }
+  resetClubMemberForm()
+  clubMemberSheet.value = true
+}
+
+async function createClubMember(): Promise<void> {
+  const organizacionId = clubOrganizacionId.value
+  if (!organizacionId) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning'),
+      detail: t('events.enrollInscribeToClubLead'),
+      life: 3000,
+    })
+    return
+  }
+  if (
+    !clubMemberForm.identificacion.trim()
+    || !clubMemberForm.nombre1.trim()
+    || !clubMemberForm.apellido1.trim()
+  ) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning'),
+      detail: t('validation.required'),
+      life: 3000,
+    })
+    return
+  }
+
+  savingClubMember.value = true
+  try {
+    await personasService.create({
+      tipo_identificacion: clubMemberForm.tipoIdentificacion,
+      identificacion: clubMemberForm.identificacion.trim(),
+      nombre1: clubMemberForm.nombre1.trim(),
+      nombre2: clubMemberForm.nombre2.trim() || null,
+      apellido1: clubMemberForm.apellido1.trim(),
+      apellido2: clubMemberForm.apellido2.trim() || null,
+      fecha_nacimiento: clubMemberForm.fechaNacimiento,
+      sexo: clubMemberForm.sexo,
+      telefono: clubMemberForm.telefono.trim() || null,
+      correo: clubMemberForm.correo.trim() || null,
+      direccion_actual: clubMemberForm.direccion.trim() || null,
+      club_ids: clubId.value ? [clubId.value] : undefined,
+      organizacion_ids: [organizacionId],
+    })
+    const rosterData = await eventsService.rosterCobertura(eventId.value)
+    roster.value = rosterData
+    const previous = new Map(members.value.map((member) => [member.personaId, member]))
+    members.value = rosterData.miembros.map((member) => {
+      const existing = previous.get(member.id)
+      return existing ?? memberFromRoster(member, true)
+    })
+    clubMemberSheet.value = false
+    resetClubMemberForm()
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('personas.createSuccess'),
+      life: 2500,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: getApiErrorMessage(error),
+      life: 4000,
+    })
+  } finally {
+    savingClubMember.value = false
+  }
+}
+
 function buildPayload() {
   return {
     participantes: selectedParticipants.value.map((participant) => ({
@@ -732,7 +927,7 @@ function buildPayload() {
       identificacion: participant.identificacion || undefined,
       fecha_nacimiento: participant.fechaNacimiento || undefined,
       parentesco: participant.parentesco || undefined,
-      descuento_codigo: participant.descuentoCodigo,
+      descuento_codigo: canSelectDiscount(participant) ? participant.descuentoCodigo : null,
     })),
     reservas: selectedParticipants.value.flatMap((participant) =>
       activeOffers.value.flatMap((offer) => {
@@ -777,7 +972,7 @@ function hydrateExistingEnrollment(existing: EventoInscripcion): void {
         identificacion: line.identificacion ?? '',
         fechaNacimiento: line.fecha_nacimiento ?? null,
         parentesco: line.parentesco ?? '',
-        descuentoCodigo: line.descuento_codigo ?? null,
+        descuentoCodigo: null,
         seleccionado: true,
         cubierta: Number(line.valor_seguro ?? 0) === 0,
         retainedInsuranceValue: Number(line.valor_seguro ?? 0),
@@ -805,25 +1000,7 @@ async function loadData(): Promise<void> {
     ])
     roster.value = rosterData
     offers.value = offersData
-    members.value = rosterData.miembros.map((member) => {
-      const participant: ParticipantDraft = {
-        ref: `persona:${member.id}`,
-        personaId: member.id,
-        tipo: member.cargo_directiva ? 'directiva' : 'miembro',
-        cargoDirectiva: member.cargo_directiva ?? null,
-        nombre: member.nombre,
-        identificacion: member.identificacion ?? '',
-        fechaNacimiento: member.fecha_nacimiento ?? null,
-        parentesco: '',
-        descuentoCodigo: null,
-        seleccionado: false,
-        cubierta: member.cobertura.cubierta || member.cobertura.estado === 'ASEGURADO',
-        coberturaEstado: member.cobertura.estado,
-        retainedInsuranceValue: 0,
-      }
-      if (participant.cargoDirectiva) onMemberRoleChange(participant)
-      return participant
-    })
+    members.value = rosterData.miembros.map((member) => memberFromRoster(member))
 
     const existingId = Number(route.query.inscripcion_id)
     if (Number.isFinite(existingId) && existingId > 0) {
@@ -846,6 +1023,21 @@ async function loadData(): Promise<void> {
   }
 }
 
+function preparePaymentStep(): void {
+  pendingEnrollment.value = hasPendingEnrollmentSave.value
+  if (pendingEnrollment.value) {
+    comprobanteForm.valor = summaryAmountToPay.value || null
+    comprobanteForm.archivo = null
+    editingReceiptId.value = null
+  }
+}
+
+function goToStep(step: Step): void {
+  if (step === 'pago' && !inscripcion.value && !hasPendingEnrollmentSave.value) return
+  if (step === 'pago') preparePaymentStep()
+  currentStep.value = step
+}
+
 function goNext(): void {
   if (currentStep.value === 'participantes') {
     if (!selectedParticipants.value.length) {
@@ -861,11 +1053,16 @@ function goNext(): void {
     return
   }
   if (currentStep.value === 'resumen') {
-    void submitEnroll()
+    if (isEnrollmentModification.value && !summaryRows.value.length) return
+    goToStep('pago')
   }
 }
 
 function goBack(): void {
+  if (currentStep.value === 'pago' && pendingEnrollment.value) {
+    currentStep.value = 'resumen'
+    return
+  }
   if (currentStep.value === 'pago' && inscripcion.value) {
     router.push({ name: 'events' })
     return
@@ -878,11 +1075,29 @@ function goBack(): void {
 }
 
 async function submitEnroll(): Promise<void> {
+  const amount = summaryAmountToPay.value
+  if (amount > 0 && (comprobanteForm.valor == null || !comprobanteForm.archivo)) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning'),
+      detail: t('events.comprobantesRequired'),
+      life: 3000,
+    })
+    return
+  }
   saving.value = true
   try {
-    const created = await eventsService.enroll(eventId.value, buildPayload())
+    const created = await eventsService.enroll(
+      eventId.value,
+      buildPayload(),
+      amount > 0 && comprobanteForm.archivo && comprobanteForm.valor != null
+        ? { valor: comprobanteForm.valor, archivo: comprobanteForm.archivo }
+        : null,
+    )
     inscripcion.value = created
     comprobantes.value = created.comprobantes ?? []
+    pendingEnrollment.value = false
+    comprobanteForm.archivo = null
     comprobanteForm.valor = suggestedPayment()
     currentStep.value = 'pago'
     toast.add({
@@ -903,8 +1118,12 @@ async function submitEnroll(): Promise<void> {
   }
 }
 
-function onPickComprobante(event: Event): void {
-  comprobanteForm.archivo = (event.target as HTMLInputElement).files?.[0] ?? null
+function onReceiptFiles(files: File[]): void {
+  comprobanteForm.archivo = files[0] ?? null
+}
+
+function clearReceiptFile(): void {
+  comprobanteForm.archivo = null
 }
 
 async function uploadComprobante(): Promise<void> {
@@ -948,7 +1167,6 @@ async function uploadComprobante(): Promise<void> {
     const wasReplacing = editingReceiptId.value !== null
     editingReceiptId.value = null
     comprobanteForm.archivo = null
-    receiptFileInputKey.value += 1
     comprobanteForm.valor = suggestedPayment()
     toast.add({
       severity: 'success',
@@ -975,13 +1193,11 @@ function startReplacingComprobante(receipt: EventoInscripcionComprobante): void 
   editingReceiptId.value = receipt.id
   comprobanteForm.valor = Number(receipt.valor)
   comprobanteForm.archivo = null
-  receiptFileInputKey.value += 1
 }
 
 function cancelReplacingComprobante(): void {
   editingReceiptId.value = null
   comprobanteForm.archivo = null
-  receiptFileInputKey.value += 1
   comprobanteForm.valor = suggestedPayment()
 }
 
@@ -1010,19 +1226,14 @@ onMounted(() => void loadData())
 <template>
   <section class="pj-page enroll-page">
     <header class="enroll-header">
-      <Button icon="pi pi-arrow-left" text rounded :aria-label="t('common.back')" @click="router.push({ name: 'events' })" />
-      <div>
-        <h1 class="pj-page__title">{{ t('events.enrollWizardTitle') }}</h1>
-        <p class="pj-page__subtitle">{{ roster?.evento.name }}</p>
-      </div>
       <nav class="enroll-stepper">
         <button
           v-for="(step, index) in steps"
           :key="step.key"
           type="button"
           :class="{ active: currentStep === step.key, done: index < stepIndex }"
-          :disabled="step.key === 'pago' && !inscripcion"
-          @click="currentStep = step.key"
+          :disabled="step.key === 'pago' && !inscripcion && !hasPendingEnrollmentSave"
+          @click="goToStep(step.key)"
         >
           <span>{{ index + 1 }}</span>
           {{ step.label }}
@@ -1045,14 +1256,24 @@ onMounted(() => void loadData())
         <main class="enroll-main">
           <section class="enroll-card">
             <div class="section-head">
-              <div>
-                <h2>{{ t('events.enrollSelectParticipants') }}</h2>
-                <p>{{ t('events.enrollParticipantsLead') }}</p>
+              <div class="section-head__title">
+                <img
+                  v-if="clubLogoUrl"
+                  class="club-logo-thumb"
+                  :src="clubLogoUrl"
+                  :alt="clubOrgName"
+                />
+                <div>
+                  <h2>{{ t('events.enrollSelectParticipants') }}</h2>
+                  <p>{{ t('events.enrollParticipantsLead') }}</p>
+                </div>
               </div>
-              <div class="section-actions">
-                <Button icon="pi pi-user-plus" outlined :label="t('events.enrollAddCompanion')" @click="openCompanionDialog('acompanante')" />
-                <Button icon="pi pi-ticket" :label="t('events.enrollAddDayPass')" @click="openCompanionDialog('pasadia')" />
-              </div>
+              <Button
+                icon="pi pi-user-plus"
+                outlined
+                :label="t('events.enrollInscribeToClub')"
+                @click="openClubMemberSheet"
+              />
             </div>
 
             <div class="table-scroll">
@@ -1121,13 +1342,9 @@ onMounted(() => void loadData())
             </div>
           </section>
 
-          <section v-if="companions.length" class="enroll-card">
+          <section v-if="companionGuests.length" class="enroll-card">
             <div class="section-head">
-              <h2>{{ t('events.enrollExternalPeopleAdded') }}</h2>
-              <div class="section-actions">
-                <Button icon="pi pi-user-plus" outlined size="small" :label="t('events.enrollAddCompanion')" @click="openCompanionDialog('acompanante')" />
-                <Button icon="pi pi-ticket" size="small" :label="t('events.enrollAddDayPass')" @click="openCompanionDialog('pasadia')" />
-              </div>
+              <h2>{{ t('events.enrollCompanions') }}</h2>
             </div>
             <div class="table-scroll">
               <table class="enroll-table">
@@ -1137,19 +1354,21 @@ onMounted(() => void loadData())
                     <th>{{ t('events.enrollType') }}</th>
                     <th>{{ t('events.insuranceTitle') }}</th>
                     <th>{{ t('events.enrollmentValue') }}</th>
-                    <th>{{ t('events.enrollDiscount') }}</th>
                     <th v-for="offer in tableOffers" :key="offer.id">{{ offer.producto?.nombre }}</th>
                     <th>{{ t('events.enrollTotal') }}</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="companion in companions" :key="companion.ref">
+                  <tr v-for="companion in companionGuests" :key="companion.ref">
                     <td>
                       <div class="participant-cell">
                         <div>
                           <strong>{{ companion.nombre }}</strong>
-                          <small>{{ companion.identificacion }} · {{ companion.parentesco }}</small>
+                          <small>
+                            {{ companion.identificacion }}
+                            <template v-if="companion.parentesco"> · {{ companion.parentesco }}</template>
+                          </small>
                         </div>
                       </div>
                     </td>
@@ -1161,7 +1380,6 @@ onMounted(() => void loadData())
                       <small>{{ money(insurancePrice(companion)) }}</small>
                     </td>
                     <td>{{ money(enrollmentPrice(companion)) }}</td>
-                    <td><Select v-model="companion.descuentoCodigo" :options="descuentoOptions" option-label="label" option-value="value" :disabled="companion.tipo === 'visitante_pasadia'" class="discount-select" /></td>
                     <td v-for="offer in tableOffers" :key="offer.id">
                       <div v-if="offer.id && canUseOffer(companion, offer)" class="service-cell">
                         <label class="service-toggle">
@@ -1180,13 +1398,80 @@ onMounted(() => void loadData())
               </table>
             </div>
           </section>
+
+          <section v-if="dayPassVisitors.length" class="enroll-card">
+            <div class="section-head">
+              <h2>{{ t('events.enrollDayPasses') }}</h2>
+            </div>
+            <div class="table-scroll">
+              <table class="enroll-table enroll-table--day-pass">
+                <thead>
+                  <tr>
+                    <th>{{ t('events.enrollParticipant') }}</th>
+                    <th>{{ t('events.insuranceTitle') }}</th>
+                    <th v-for="offer in dayPassOffers" :key="offer.id">{{ offer.producto?.nombre }}</th>
+                    <th>{{ t('events.enrollTotal') }}</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="visitor in dayPassVisitors" :key="visitor.ref">
+                    <td>
+                      <div class="participant-cell">
+                        <div>
+                          <strong>{{ visitor.nombre }}</strong>
+                          <small>{{ visitor.identificacion }}</small>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span class="status" :class="insuranceStatus(visitor).className">
+                        {{ insuranceStatus(visitor).label }}
+                      </span>
+                      <small>{{ money(insurancePrice(visitor)) }}</small>
+                    </td>
+                    <td v-for="offer in dayPassOffers" :key="offer.id">
+                      <div v-if="offer.id" class="service-cell service-cell--stack">
+                        <InputNumber
+                          v-model="serviceDraft(visitor.ref, offer.id).cantidad"
+                          :min="1"
+                          :suffix="serviceQuantitySuffix(offer)"
+                          show-buttons
+                          button-layout="horizontal"
+                          class="days-input"
+                          @update:model-value="serviceDraft(visitor.ref, offer.id).enabled = true"
+                        />
+                        <small>{{ money(serviceTotal(visitor, offer)) }}</small>
+                      </div>
+                    </td>
+                    <td><strong>{{ money(participantTotal(visitor)) }}</strong></td>
+                    <td><Button icon="pi pi-trash" text rounded severity="danger" @click="removeCompanion(visitor.ref)" /></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
         </main>
 
         <aside class="summary-card">
           <h2>{{ t('events.enrollSummary') }}</h2>
+          <div class="summary-actions">
+            <Button
+              icon="pi pi-user-plus"
+              outlined
+              :label="t('events.enrollCompanions')"
+              @click="openCompanionDialog('acompanante')"
+            />
+            <Button
+              icon="pi pi-ticket"
+              :label="t('events.enrollDayPasses')"
+              @click="openCompanionDialog('pasadia')"
+            />
+          </div>
           <div class="summary-counts">
             <div><strong>{{ members.filter((member) => member.seleccionado).length }}</strong><span>{{ t('events.enrollMembers') }}</span></div>
-            <div><strong>{{ companions.length }}</strong><span>{{ t('events.enrollCompanions') }}</span></div>
+            <div><strong>{{ companionGuests.length }}</strong><span>{{ t('events.enrollCompanions') }}</span></div>
+            <div><strong>{{ dayPassVisitors.length }}</strong><span>{{ t('events.enrollDayPasses') }}</span></div>
           </div>
           <dl>
             <div><dt>{{ t('events.enrollRegistrations') }}</dt><dd>{{ money(totals.inscripciones) }}</dd></div>
@@ -1227,7 +1512,7 @@ onMounted(() => void loadData())
             </thead>
             <tbody>
               <tr v-for="row in summaryRows" :key="row.ref">
-                <td>
+                <td :data-label="t('events.enrollParticipant')">
                   <strong>{{ row.name }}</strong>
                   <span>{{ participantTypeLabel(row.type) }}</span>
                   <small v-if="isEnrollmentModification" class="summary-change-label">
@@ -1240,13 +1525,22 @@ onMounted(() => void loadData())
                     }}
                   </small>
                 </td>
-                <td :class="{ 'negative-value': row.registration < 0 }">
+                <td
+                  :data-label="t('events.enrollmentValue')"
+                  :class="{ 'negative-value': row.registration < 0 }"
+                >
                   {{ money(row.registration) }}
                 </td>
-                <td :class="{ 'negative-value': row.insurance < 0 }">
+                <td
+                  :data-label="t('events.insuranceTitle')"
+                  :class="{ 'negative-value': row.insurance < 0 }"
+                >
                   {{ money(row.insurance) }}
                 </td>
-                <td :class="{ 'negative-value': row.services < 0 }">
+                <td
+                  :data-label="t('events.servicesTitle')"
+                  :class="{ 'negative-value': row.services < 0 }"
+                >
                   <strong>{{ money(row.services) }}</strong>
                   <ul v-if="row.serviceChanges.length" class="summary-service-changes">
                     <li v-for="service in row.serviceChanges" :key="service.key">
@@ -1261,7 +1555,11 @@ onMounted(() => void loadData())
                     </li>
                   </ul>
                 </td>
-                <td class="summary-row-total" :class="{ 'negative-value': row.total < 0 }">
+                <td
+                  :data-label="t('events.enrollNewValueToPay')"
+                  class="summary-row-total"
+                  :class="{ 'negative-value': row.total < 0 }"
+                >
                   {{ money(row.total) }}
                 </td>
               </tr>
@@ -1282,101 +1580,119 @@ onMounted(() => void loadData())
 
       <section v-show="currentStep === 'pago'" class="enroll-card payment-step">
         <h2>{{ t('events.enrollStepPayment') }}</h2>
-        <Message v-if="inscripcion" severity="info" :closable="false">
+        <aside v-if="roster?.evento.requiere_pago" class="bank-account-card">
+          <h3>{{ t('events.enrollBankAccountTitle') }}</h3>
+          <p v-if="roster.evento.metodo_pago" class="pj-muted">{{ roster.evento.metodo_pago }}</p>
+          <div v-if="bankAccount" class="bank-account-card__body">
+            <dl>
+              <div>
+                <dt>{{ t('settings.bankAccounts.nombre') }}</dt>
+                <dd>{{ bankAccount.nombre }}</dd>
+              </div>
+              <div v-if="bankAccount.banco">
+                <dt>{{ t('settings.bankAccounts.banco') }}</dt>
+                <dd>{{ bankAccount.banco }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('settings.bankAccounts.tipo') }}</dt>
+                <dd>{{ bankAccountTipoLabel(bankAccount.tipo_cuenta) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('settings.bankAccounts.numero') }}</dt>
+                <dd>{{ bankAccount.numero_cuenta }}</dd>
+              </div>
+              <div v-if="bankAccount.titular">
+                <dt>{{ t('settings.bankAccounts.titular') }}</dt>
+                <dd>{{ bankAccount.titular }}</dd>
+              </div>
+              <div v-if="bankAccount.identificacion_titular">
+                <dt>{{ t('settings.bankAccounts.identificacion') }}</dt>
+                <dd>{{ bankAccount.identificacion_titular }}</dd>
+              </div>
+            </dl>
+            <figure v-if="bankAccountQrUrl" class="bank-account-card__qr">
+              <img :src="bankAccountQrUrl" :alt="t('settings.bankAccounts.qr')" />
+              <figcaption>{{ t('settings.bankAccounts.qr') }}</figcaption>
+            </figure>
+          </div>
+          <Message v-else severity="warn" :closable="false">
+            {{ t('events.enrollBankAccountEmpty') }}
+          </Message>
+        </aside>
+        <Message v-if="pendingEnrollment && summaryAmountToPay > 0" severity="warn" :closable="false">
+          {{ t('events.enrollChangeRequiresReceipt') }}
+        </Message>
+        <Message v-if="inscripcion && !pendingEnrollment" severity="info" :closable="false">
           {{ t('events.inscripcionEstado') }}:
           {{ t(`events.revisionEstado.${inscripcion.estado}`, inscripcion.estado) }}
         </Message>
-        <section v-if="currentMovement" class="current-change">
-          <div class="current-change__head">
-            <div>
-              <small>{{ t('events.enrollCurrentChange', { number: currentMovement.numero }) }}</small>
-              <strong>{{ t('events.enrollNewValueToPay') }}: {{ money(currentMovementPayment.valor) }}</strong>
-            </div>
-            <div>
-              <small>{{ t('events.comprobantesPendingBalance') }}</small>
-              <strong>{{ money(currentMovementPayment.saldo) }}</strong>
-            </div>
-          </div>
-          <ul class="change-list">
-            <li v-for="item in currentMovement.cambios.participantes_agregados" :key="`pa-${item.ref}`">
-              <i class="pi pi-user-plus" />
-              {{ t('events.enrollParticipantAdded') }}: {{ item.nombre }}
-              ({{ money(Number(item.valor_inscripcion) + Number(item.valor_seguro)) }})
-            </li>
-            <li v-for="item in currentMovement.cambios.servicios_agregados" :key="`sa-${item.participante_ref}-${item.clave}`">
-              <i class="pi pi-plus-circle" />
-              {{ t('events.enrollServiceAdded') }}: {{ item.producto }} — {{ item.participante_nombre }}
-              ({{ money(item.valor_total) }})
-            </li>
-            <li v-for="item in currentMovement.cambios.participantes_modificados" :key="`pm-${item.ref}`">
-              <i class="pi pi-user-edit" />
-              {{ t('events.enrollParticipantUpdated') }}: {{ item.nombre }}
-              ({{ money(Number(item.anterior.valor_inscripcion) + Number(item.anterior.valor_seguro)) }}
-              → {{ money(Number(item.nuevo.valor_inscripcion) + Number(item.nuevo.valor_seguro)) }})
-            </li>
-            <li v-for="item in currentMovement.cambios.servicios_modificados" :key="`sm-${item.clave}`">
-              <i class="pi pi-pencil" />
-              {{ t('events.enrollServiceUpdated') }}: {{ item.nuevo.producto }} — {{ item.nuevo.participante_nombre }}
-              ({{ money(item.anterior.valor_total) }} → {{ money(item.nuevo.valor_total) }})
-            </li>
-            <li v-for="item in currentMovement.cambios.participantes_retirados" :key="`pr-${item.ref}`">
-              <i class="pi pi-user-minus" />
-              {{ t('events.enrollParticipantRemoved') }}: {{ item.nombre }}
-            </li>
-            <li v-for="item in currentMovement.cambios.servicios_retirados" :key="`sr-${item.participante_ref}-${item.clave}`">
-              <i class="pi pi-minus-circle" />
-              {{ t('events.enrollServiceRemoved') }}: {{ item.producto }} — {{ item.participante_nombre }}
-            </li>
-          </ul>
-          <div class="current-change__totals">
-            <span>{{ t('events.enrollPreviousTotal') }}: {{ money(currentMovement.total_anterior) }}</span>
-            <span>{{ t('events.enrollUpdatedTotal') }}: <strong>{{ money(currentMovement.total_nuevo) }}</strong></span>
-          </div>
-        </section>
-        <div class="payment-summary">
-          <div>
-            <small>{{ t('events.enrollTotalPay') }}</small>
-            <strong>{{ money(paymentSummary.total) }}</strong>
-          </div>
-          <div>
-            <small>{{ t('events.comprobantesTotalConsigned') }}</small>
-            <strong>{{ money(paymentSummary.totalConsignado) }}</strong>
-          </div>
-          <div>
-            <small>{{ t('events.comprobantesApprovedTotal') }}</small>
-            <strong>{{ money(paymentSummary.totalAprobado) }}</strong>
-          </div>
-          <div class="payment-summary__balance">
-            <small>{{ t('events.comprobantesPendingBalance') }}</small>
-            <strong>{{ money(paymentSummary.saldo) }}</strong>
-          </div>
+        <div v-if="pendingEnrollment" class="grand-total">
+          <span>{{ t('events.enrollNewValueToPay') }}</span>
+          <strong>{{ money(summaryAmountToPay) }}</strong>
         </div>
-        <Message v-if="paymentSummary.saldo > 0" severity="warn" :closable="false">
-          {{ t('events.comprobantesNewValueRequired', { value: money(suggestedPayment() ?? 0) }) }}
-        </Message>
-        <Message v-else severity="success" :closable="false">
-          {{ t('events.comprobantesValueCovered') }}
-        </Message>
+        <template v-else>
+          <div class="payment-summary">
+            <div>
+              <small>{{ t('events.enrollTotalPay') }}</small>
+              <strong>{{ money(paymentSummary.total) }}</strong>
+            </div>
+            <div>
+              <small>{{ t('events.comprobantesTotalConsigned') }}</small>
+              <strong>{{ money(paymentSummary.totalConsignado) }}</strong>
+            </div>
+            <div>
+              <small>{{ t('events.comprobantesApprovedTotal') }}</small>
+              <strong>{{ money(paymentSummary.totalAprobado) }}</strong>
+            </div>
+            <div class="payment-summary__balance">
+              <small>{{ t('events.comprobantesPendingBalance') }}</small>
+              <strong>{{ money(paymentSummary.saldo) }}</strong>
+            </div>
+          </div>
+          <Message v-if="paymentSummary.saldo > 0" severity="warn" :closable="false">
+            {{ t('events.comprobantesNewValueRequired', { value: money(suggestedPayment() ?? 0) }) }}
+          </Message>
+          <Message v-else severity="success" :closable="false">
+            {{ t('events.comprobantesValueCovered') }}
+          </Message>
+        </template>
         <Message v-if="editingReceiptId" severity="info" :closable="false">
           {{ t('events.comprobantesReplacing') }}
         </Message>
-        <div v-if="paymentSummary.saldo > 0 || editingReceiptId" class="comprobante-form">
-          <InputNumber v-model="comprobanteForm.valor" mode="currency" currency="COP" locale="es-CO" :placeholder="t('events.comprobantesValue')" />
-          <input :key="receiptFileInputKey" type="file" accept="image/*,.pdf" @change="onPickComprobante" />
-          <Button
-            icon="pi pi-upload"
-            :label="editingReceiptId ? t('events.comprobantesReplace') : t('events.comprobantesUpload')"
-            :loading="uploading"
-            @click="uploadComprobante"
+        <div v-if="pendingEnrollment ? summaryAmountToPay > 0 : paymentSummary.saldo > 0 || editingReceiptId" class="comprobante-form">
+          <label class="comprobante-form__value">
+            <span>{{ t('events.comprobantesValue') }}</span>
+            <InputNumber v-model="comprobanteForm.valor" mode="currency" currency="COP" locale="es-CO" :placeholder="t('events.comprobantesValue')" />
+          </label>
+          <MediaDocumentsUpload
+            :files="receiptDocumentItems"
+            :accept="receiptAccept"
+            :max-bytes="receiptMaxBytes"
+            :busy="uploading || saving"
+            :optimize-images="false"
+            :title="t('events.comprobantesUpload')"
+            :subtitle="t('events.comprobantesDocsSubtitle')"
+            :hint="t('events.comprobantesDocsHint')"
+            @add="onReceiptFiles"
+            @remove="clearReceiptFile"
           />
-          <Button
-            v-if="editingReceiptId"
-            :label="t('common.cancel')"
-            text
-            @click="cancelReplacingComprobante"
-          />
+          <div class="comprobante-form__actions">
+            <Button
+              v-if="!pendingEnrollment"
+              icon="pi pi-upload"
+              :label="editingReceiptId ? t('events.comprobantesReplace') : t('events.comprobantesUpload')"
+              :loading="uploading"
+              @click="uploadComprobante"
+            />
+            <Button
+              v-if="editingReceiptId"
+              :label="t('common.cancel')"
+              text
+              @click="cancelReplacingComprobante"
+            />
+          </div>
         </div>
-        <div v-for="receipt in comprobantes" :key="receipt.id" class="receipt-row">
+        <div v-if="!pendingEnrollment" v-for="receipt in comprobantes" :key="receipt.id" class="receipt-row">
           <div>
             <strong>{{ money(receipt.valor) }}</strong>
             <small>{{ receipt.archivo_nombre }}</small>
@@ -1411,6 +1727,12 @@ onMounted(() => void loadData())
               <span>
                 <strong>{{ t('events.enrollChangeNumber', { number: movement.numero }) }}</strong>
                 · {{ movementChangeCount(movement) }} {{ t('events.enrollRecordedChanges') }}
+                ·
+                {{
+                  receiptsForMovement(movement.id).length
+                    ? t('events.enrollChangeHasReceipt')
+                    : t('events.enrollChangeReceiptMissing')
+                }}
               </span>
               <span>{{ money(movement.valor_diferencia) }} → {{ money(movement.total_nuevo) }}</span>
             </summary>
@@ -1538,12 +1860,18 @@ onMounted(() => void loadData())
         <Button :label="t('common.back')" outlined @click="goBack" />
         <Button
           v-if="currentStep === 'resumen'"
-          :label="t('events.enrollWizardSubmit')"
+          :label="t('events.enrollContinueToPayment')"
           icon="pi pi-arrow-right"
           icon-pos="right"
-          :loading="saving"
           :disabled="isEnrollmentModification && !summaryRows.length"
           @click="goNext"
+        />
+        <Button
+          v-else-if="pendingEnrollment"
+          :label="t('events.enrollWizardSubmit')"
+          icon="pi pi-check"
+          :loading="saving"
+          @click="submitEnroll"
         />
         <Button v-else :label="t('events.enrollWizardFinish')" icon="pi pi-check" @click="router.push({ name: 'events' })" />
       </footer>
@@ -1608,7 +1936,10 @@ onMounted(() => void loadData())
           <label><span>{{ t('personas.phone') }}</span><InputText v-model="companionForm.telefono" /></label>
           <label><span>{{ t('personas.email') }}</span><InputText v-model="companionForm.correo" type="email" /></label>
         </template>
-        <label><span>{{ t('events.enrollCompanionRelationship') }}</span><InputText v-model="companionForm.parentesco" /></label>
+        <label v-if="companionDialogKind === 'acompanante'">
+          <span>{{ t('events.enrollCompanionRelationship') }}</span>
+          <InputText v-model="companionForm.parentesco" />
+        </label>
         <label v-if="companionDialogKind === 'pasadia'">
           <span>{{ t('events.enrollDayPassDays') }}</span>
           <InputNumber
@@ -1633,27 +1964,118 @@ onMounted(() => void loadData())
         <Button :label="t('events.servicesAdd')" icon="pi pi-plus" :loading="savingCompanion" @click="addCompanion" />
       </template>
     </Dialog>
+
+    <AppStackDrawer
+      v-model:visible="clubMemberSheet"
+      :position="isMobile ? 'bottom' : 'right'"
+    >
+      <template #header>
+        <div class="club-member-head">
+          <img
+            v-if="clubLogoUrl"
+            class="club-logo-thumb"
+            :src="clubLogoUrl"
+            :alt="clubOrgName"
+          />
+          <div>
+            <strong>{{ t('events.enrollInscribeToClub') }}</strong>
+            <small>{{ clubOrgName || t('events.enrollInscribeToClubLead') }}</small>
+          </div>
+        </div>
+      </template>
+      <p class="pj-muted">{{ t('events.enrollInscribeToClubLead') }}</p>
+      <div class="club-member-form">
+        <label>
+          <span>{{ t('personas.idType') }}</span>
+          <Select v-model="clubMemberForm.tipoIdentificacion" :options="identificationTypeOptions" />
+        </label>
+        <label>
+          <span>{{ t('personas.idNumber') }}</span>
+          <InputText v-model="clubMemberForm.identificacion" />
+        </label>
+        <label>
+          <span>{{ t('personas.firstName') }}</span>
+          <InputText v-model="clubMemberForm.nombre1" />
+        </label>
+        <label>
+          <span>{{ t('personas.secondName') }}</span>
+          <InputText v-model="clubMemberForm.nombre2" />
+        </label>
+        <label>
+          <span>{{ t('personas.lastName') }}</span>
+          <InputText v-model="clubMemberForm.apellido1" />
+        </label>
+        <label>
+          <span>{{ t('personas.secondLastName') }}</span>
+          <InputText v-model="clubMemberForm.apellido2" />
+        </label>
+        <label>
+          <span>{{ t('personas.birthDate') }}</span>
+          <InputText v-model="clubMemberForm.fechaNacimiento" type="date" />
+        </label>
+        <label>
+          <span>{{ t('personas.sex') }}</span>
+          <Select
+            v-model="clubMemberForm.sexo"
+            :options="sexOptions"
+            option-label="label"
+            option-value="value"
+            show-clear
+          />
+        </label>
+        <label>
+          <span>{{ t('personas.phone') }}</span>
+          <InputText v-model="clubMemberForm.telefono" />
+        </label>
+        <label>
+          <span>{{ t('personas.email') }}</span>
+          <InputText v-model="clubMemberForm.correo" type="email" />
+        </label>
+        <label class="club-member-form__wide">
+          <span>{{ t('personas.address') }}</span>
+          <InputText v-model="clubMemberForm.direccion" />
+        </label>
+      </div>
+      <template #footer>
+        <Button :label="t('common.cancel')" text @click="clubMemberSheet = false" />
+        <Button
+          :label="t('common.create')"
+          icon="pi pi-check"
+          :loading="savingClubMember"
+          @click="createClubMember"
+        />
+      </template>
+    </AppStackDrawer>
   </section>
 </template>
 
 <style scoped>
 .enroll-page { max-width: 100%; }
-.enroll-header { display: grid; grid-template-columns: auto 1fr auto; gap: .75rem; align-items: center; margin-bottom: 1rem; }
-.enroll-header h1, .enroll-header p { margin: 0; }
-.enroll-stepper { display: flex; gap: .35rem; }
+.enroll-header { margin-bottom: 1rem; }
+.enroll-stepper { display: flex; flex-wrap: wrap; gap: .35rem; }
 .enroll-stepper button { display: flex; align-items: center; gap: .35rem; border: 0; background: transparent; color: var(--pj-text-muted); cursor: pointer; }
 .enroll-stepper button span { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--pj-bg-elevated); border: 1px solid var(--pj-border); }
 .enroll-stepper button.active { color: var(--p-primary-color); font-weight: 700; }
 .enroll-stepper button.active span, .enroll-stepper button.done span { color: white; background: var(--p-primary-color); }
 .enroll-layout { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 1rem; align-items: start; }
 .enroll-main { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
-.enroll-card, .summary-card { background: var(--pj-bg-elevated); border: 1px solid var(--pj-border); border-radius: 12px; padding: 1rem; }
+.enroll-card, .summary-card { background: var(--pj-bg-elevated); border: 1px solid var(--pj-border); border-radius: 12px; padding: 1rem; min-width: 0; max-width: 100%; }
 .section-head { display: flex; justify-content: space-between; gap: .75rem; align-items: start; margin-bottom: .75rem; }
-.section-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
+.section-head__title { display: flex; align-items: center; gap: .65rem; min-width: 0; }
 .section-head h2, .section-head p { margin: 0; }
 .section-head p { color: var(--pj-text-muted); margin-top: .2rem; }
+.club-logo-thumb {
+  width: 2.35rem;
+  height: 2.35rem;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 50%;
+  background: var(--pj-bg);
+}
+.summary-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 1rem; }
 .table-scroll { overflow-x: auto; }
 .enroll-table { width: 100%; border-collapse: collapse; min-width: 860px; font-size: .82rem; }
+.enroll-table--day-pass { min-width: 36rem; }
 .enroll-table th, .enroll-table td { padding: .55rem; border-bottom: 1px solid var(--pj-border); text-align: left; vertical-align: middle; }
 .enroll-table th { font-size: .72rem; color: var(--pj-text-muted); white-space: nowrap; }
 .enroll-table tr.muted { opacity: .55; }
@@ -1670,13 +2092,20 @@ onMounted(() => void loadData())
 .discount-select { width: 10rem; }
 .service-cell { display: grid; grid-template-columns: auto minmax(4.5rem, 5.25rem); align-items: center; gap: .3rem; min-width: 6.5rem; }
 .service-cell small { grid-column: 1 / -1; text-align: center; }
+.service-cell--stack {
+  grid-template-columns: max-content;
+  justify-content: center;
+  justify-items: center;
+  min-width: 0;
+}
+.service-cell--stack small { grid-column: 1; }
 .service-toggle { display: inline-flex; align-items: center; gap: .25rem; color: var(--pj-text-muted); font-size: .72rem; }
 .days-input { width: 5.25rem; }
 .days-input :deep(.p-inputnumber-input) { width: 2.2rem; padding: .35rem .2rem; text-align: center; }
 .days-input :deep(.p-inputnumber-button) { width: 1.35rem; padding: 0; }
 .summary-card { position: sticky; top: 1rem; }
 .summary-card h2 { margin-top: 0; }
-.summary-counts { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-bottom: 1rem; }
+.summary-counts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .5rem; margin-bottom: 1rem; }
 .summary-counts div { display: flex; flex-direction: column; text-align: center; padding: .65rem; border-radius: 8px; background: color-mix(in srgb, var(--p-primary-color) 7%, transparent); }
 .summary-counts strong { font-size: 1.25rem; color: var(--p-primary-color); }
 .summary-counts span { font-size: .72rem; color: var(--pj-text-muted); }
@@ -1685,8 +2114,8 @@ onMounted(() => void loadData())
 .summary-card dd { margin: 0; }
 .grand-total { display: flex; justify-content: space-between; align-items: center; margin: 1rem 0; padding: .85rem; border-radius: 8px; background: color-mix(in srgb, var(--p-primary-color) 10%, transparent); }
 .grand-total strong { color: var(--p-primary-color); font-size: 1.3rem; }
-.summary-step, .payment-step { max-width: 62rem; margin: 0 auto; }
-.summary-table-wrap { overflow-x: auto; margin-top: 1rem; border: 1px solid var(--pj-border); border-radius: 10px; }
+.summary-step, .payment-step { width: 100%; max-width: min(62rem, 100%); min-width: 0; margin: 0 auto; }
+.summary-table-wrap { overflow-x: auto; max-width: 100%; min-width: 0; margin-top: 1rem; border: 1px solid var(--pj-border); border-radius: 10px; }
 .summary-table { width: 100%; min-width: 48rem; border-collapse: collapse; font-size: .84rem; }
 .summary-table th { padding: .7rem .75rem; background: color-mix(in srgb, var(--p-primary-color) 5%, #fff); color: var(--pj-text-muted); text-align: left; font-size: .72rem; text-transform: uppercase; }
 .summary-table td { padding: .75rem; border-top: 1px solid var(--pj-border); vertical-align: top; }
@@ -1703,11 +2132,6 @@ onMounted(() => void loadData())
 .payment-summary strong { font-size: 1.1rem; }
 .payment-summary__balance { background: color-mix(in srgb, var(--p-primary-color) 10%, transparent); }
 .payment-summary__balance strong { color: var(--p-primary-color); }
-.current-change { margin: 1rem 0; padding: 1rem; border: 1px solid color-mix(in srgb, var(--p-primary-color) 45%, var(--pj-border)); border-radius: 10px; background: color-mix(in srgb, var(--p-primary-color) 6%, transparent); }
-.current-change__head, .current-change__totals { display: flex; justify-content: space-between; gap: 1rem; }
-.current-change__head > div { display: flex; flex-direction: column; }
-.current-change__head strong { font-size: 1.1rem; }
-.current-change__totals { padding-top: .65rem; border-top: 1px solid var(--pj-border); }
 .change-list { display: grid; gap: .35rem; margin: .75rem 0; padding-left: 1.2rem; }
 .change-list i { margin-right: .3rem; color: var(--p-primary-color); }
 .movement-history { margin-top: 1.25rem; }
@@ -1728,7 +2152,23 @@ onMounted(() => void loadData())
 .overall-additions ul { display: grid; gap: .35rem; min-width: 15rem; margin: .45rem 0 0; padding: .55rem; border-radius: 7px; background: color-mix(in srgb, var(--pj-navy) 3%, #fff); list-style: none; }
 .overall-additions li { display: flex; justify-content: space-between; gap: .75rem; }
 .overall-additions li span { color: var(--pj-text-muted); }
-.comprobante-form { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; }
+.bank-account-card { display: grid; gap: .7rem; padding: .9rem 1rem; border: 1px solid var(--pj-border); border-radius: 12px; background: color-mix(in srgb, var(--p-primary-color) 5%, transparent); }
+.bank-account-card h3 { margin: 0; font-size: 1rem; }
+.bank-account-card__body { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; align-items: start; }
+.bank-account-card dl { display: grid; gap: .4rem; margin: 0; }
+.bank-account-card dl > div { display: grid; gap: .1rem; }
+.bank-account-card dt { color: var(--pj-text-muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; }
+.bank-account-card dd { margin: 0; font-weight: 700; }
+.bank-account-card__qr { margin: 0; display: grid; justify-items: center; gap: .35rem; }
+.bank-account-card__qr img { width: 8.5rem; height: 8.5rem; object-fit: contain; border-radius: 10px; background: #fff; border: 1px solid var(--pj-border); }
+.bank-account-card__qr figcaption { font-size: .72rem; color: var(--pj-text-muted); }
+@media (max-width: 700px) {
+  .bank-account-card__body { grid-template-columns: 1fr; }
+  .bank-account-card__qr { justify-self: start; }
+}
+.comprobante-form { display: grid; gap: .85rem; }
+.comprobante-form__value { display: flex; flex-direction: column; gap: .3rem; max-width: 16rem; }
+.comprobante-form__actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .receipt-row { display: grid; grid-template-columns: 1fr auto auto; gap: .75rem; align-items: center; padding: .65rem; border-bottom: 1px solid var(--pj-border); }
 .receipt-row > div { display: flex; flex-direction: column; }
 .receipt-row__actions { display: flex !important; flex-direction: row !important; align-items: center; gap: .15rem; }
@@ -1741,6 +2181,12 @@ onMounted(() => void loadData())
 .movement-receipt small { color: var(--pj-text-muted); }
 .enroll-footer { display: flex; justify-content: space-between; margin: 1rem auto 0; max-width: 62rem; }
 .companion-mode { display: flex; gap: .5rem; margin-bottom: 1rem; }
+.club-member-head { display: flex; align-items: center; gap: .7rem; min-width: 0; }
+.club-member-head > div { display: flex; flex-direction: column; min-width: 0; }
+.club-member-head .club-logo-thumb { background: #fff; }
+.club-member-form { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.club-member-form label { display: flex; flex-direction: column; gap: .3rem; }
+.club-member-form__wide { grid-column: 1 / -1; }
 .companion-form { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
 .companion-form label { display: flex; flex-direction: column; gap: .3rem; }
 .companion-form .companion-search { grid-column: 1 / -1; }
@@ -1789,11 +2235,87 @@ onMounted(() => void loadData())
 @media (max-width: 1000px) {
   .enroll-layout { grid-template-columns: 1fr; }
   .summary-card { position: static; }
-  .enroll-header { grid-template-columns: auto 1fr; }
-  .enroll-stepper { grid-column: 1 / -1; }
+  .section-head { flex-direction: column; align-items: stretch; }
+  .summary-actions { flex-direction: column; }
+  .summary-actions :deep(.p-button) { width: 100%; }
+}
+@media (max-width: 720px) {
+  .summary-table-wrap {
+    overflow: visible;
+    border: 0;
+  }
+  .summary-table {
+    display: grid;
+    min-width: 0;
+    gap: 0.75rem;
+  }
+  .summary-table thead {
+    display: none;
+  }
+  .summary-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+  .summary-table tr {
+    display: grid;
+    gap: 0.2rem;
+    padding: 0.85rem;
+    border: 1px solid var(--pj-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--pj-bg) 55%, transparent);
+  }
+  .summary-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+    min-width: 0;
+    padding: 0.4rem 0;
+    border: 0;
+  }
+  .summary-table td::before {
+    content: attr(data-label);
+    flex: 0 1 46%;
+    color: var(--pj-text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .summary-table td:first-child {
+    flex-direction: column;
+    gap: 0.2rem;
+    padding-bottom: 0.65rem;
+    margin-bottom: 0.25rem;
+    border-bottom: 1px solid var(--pj-border);
+  }
+  .summary-table td:first-child::before {
+    display: none;
+  }
+  .summary-table td:nth-child(4) {
+    flex-wrap: wrap;
+  }
+  .summary-table td:nth-child(4) .summary-service-changes {
+    flex-basis: 100%;
+    min-width: 0;
+    margin-top: 0.25rem;
+    padding-left: 1rem;
+  }
+  .summary-total {
+    max-width: 100%;
+    margin-left: 0;
+  }
+  .enroll-footer {
+    max-width: 100%;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .enroll-footer :deep(.p-button) {
+    flex: 1 1 8rem;
+  }
 }
 @media (max-width: 640px) {
-  .companion-form { grid-template-columns: 1fr; }
+  .companion-form,
+  .club-member-form { grid-template-columns: 1fr; }
   .payment-summary { grid-template-columns: repeat(2, minmax(8rem, 1fr)); }
 }
 </style>

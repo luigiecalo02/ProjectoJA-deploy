@@ -63,7 +63,12 @@ const emit = defineEmits<{
   border-radius: 999px 0 0 999px;
   box-shadow: none;
   background: transparent;
+  color: #071e48;
   font-size: 0.9rem;
+}
+
+.app-search-field :deep(.p-inputtext::placeholder) {
+  color: #5b6b82;
 }
 
 .app-search-field button {

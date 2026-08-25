@@ -75,6 +75,23 @@ async function postEventMedia(url: string, file: File): Promise<ClubEvent> {
   return data.data
 }
 
+function appendEnrollPayload(body: FormData, value: unknown, prefix = ''): void {
+  if (value === undefined || value === null || value === '') return
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      appendEnrollPayload(body, item, prefix ? `${prefix}[${index}]` : String(index))
+    })
+    return
+  }
+  if (typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      appendEnrollPayload(body, child, prefix ? `${prefix}[${key}]` : key)
+    }
+    return
+  }
+  body.append(prefix, String(value))
+}
+
 export const eventsService = {
   async list(params: EventListParams = {}): Promise<EventsPage> {
     const { data } = await api.get<ApiEnvelope<ClubEvent[]>>('/api/v1/events', {
@@ -270,7 +287,20 @@ export const eventsService = {
   async enroll(
     eventId: number,
     payload?: EventoInscripcionEnrollPayload,
+    receipt?: { valor: number; archivo: File } | null,
   ): Promise<EventoInscripcion> {
+    if (payload && receipt?.archivo) {
+      const body = new FormData()
+      appendEnrollPayload(body, payload)
+      body.append('comprobante', await prepareUploadFile(receipt.archivo))
+      body.append('comprobante_valor', String(receipt.valor))
+      const { data } = await api.post<ApiEnvelope<EventoInscripcion>>(
+        `/api/v1/events/${eventId}/enroll`,
+        body,
+        { timeout: 120000 },
+      )
+      return data.data
+    }
     const { data } = await api.post<ApiEnvelope<EventoInscripcion>>(
       `/api/v1/events/${eventId}/enroll`,
       payload ?? undefined,

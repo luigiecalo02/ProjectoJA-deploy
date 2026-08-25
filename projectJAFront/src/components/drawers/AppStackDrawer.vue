@@ -137,8 +137,8 @@ const rootStyle = computed(() => {
   height: 100%;
   width: 100%;
   min-height: 0;
-  background: var(--p-drawer-background, #fff);
-  color: var(--p-drawer-color, inherit);
+  background: var(--pj-bg-elevated, var(--p-drawer-background, #fff));
+  color: var(--pj-text, var(--p-drawer-color, inherit));
 }
 
 .stack-drawer-panel__header {
@@ -152,6 +152,9 @@ const rootStyle = computed(() => {
   border-radius: 0;
   color: #fff;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .stack-drawer-panel__head {

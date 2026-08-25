@@ -17,6 +17,8 @@ export const usersService = {
         q: params.search || undefined,
         is_active: params.is_active === null ? undefined : params.is_active,
         organizacion_id: params.organizacion_id || undefined,
+        tipo_club: params.tipo_club || undefined,
+        role: params.role || undefined,
       },
     })
     return {

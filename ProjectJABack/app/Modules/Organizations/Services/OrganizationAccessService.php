@@ -76,6 +76,13 @@ final class OrganizationAccessService
         return array_values(array_unique(array_map('intval', $ids)));
     }
 
+    public function homeOrganizationId(User $actor): ?int
+    {
+        $ids = $this->membershipOrganizationIds($actor);
+
+        return $ids[0] ?? null;
+    }
+
     /**
      * Organización tipo Club del contexto de sesión activo (si aplica).
      */

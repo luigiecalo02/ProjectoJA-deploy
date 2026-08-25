@@ -22,7 +22,7 @@ final class UserController
         $this->authorizeViewAny($request);
 
         $paginator = $this->userService->list(
-            $request->only(['q', 'role', 'is_active', 'organizacion_id']),
+            $request->only(['q', 'role', 'is_active', 'organizacion_id', 'tipo_club']),
             min(20, max(1, (int) $request->integer('per_page', 15))),
             $request->user(),
         );

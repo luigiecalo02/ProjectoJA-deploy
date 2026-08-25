@@ -14,6 +14,8 @@ import MediaGalleryUpload from '@/components/media/MediaGalleryUpload.vue'
 import MediaDocumentsUpload from '@/components/media/MediaDocumentsUpload.vue'
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
+import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
+import { extractBannerHeroVars } from '@/utils/dominantColor'
 import type {
   EventParticipation,
   ParticipationNode,
@@ -61,6 +63,39 @@ const evidenceForm = ref({
 })
 
 const eventId = computed(() => Number(route.params.id))
+const bannerUrl = computed(() => resolveAssetUrl(data.value?.evento.banner_url))
+const eventLogoUrl = computed(() => resolveAssetUrl(data.value?.evento.image_url))
+const clubLogoUrl = computed(() => resolveAssetUrl(data.value?.organizacion.logo_url))
+const heroCoverUrl = computed(() => bannerUrl.value || eventLogoUrl.value)
+const showClubLogo = computed(() => Boolean(clubLogoUrl.value && heroCoverUrl.value))
+const heroTheme = ref<Record<string, string>>({})
+let heroThemeSequence = 0
+const clubHeroStyle = computed(() => {
+  const url = heroCoverUrl.value
+  if (!url) return undefined
+  return {
+    '--hero-image': toCssImageUrl(url),
+    ...heroTheme.value,
+  }
+})
+
+watch(
+  heroCoverUrl,
+  async (url) => {
+    heroTheme.value = {}
+    if (!url) return
+    const sequence = ++heroThemeSequence
+    try {
+      const vars = await extractBannerHeroVars(url)
+      if (sequence !== heroThemeSequence) return
+      heroTheme.value = vars
+    } catch {
+      if (sequence !== heroThemeSequence) return
+      heroTheme.value = {}
+    }
+  },
+  { immediate: true },
+)
 
 const flatNodes = computed(() => {
   if (!data.value) return [] as FlatNode[]
@@ -432,7 +467,7 @@ async function load(keepSelection = false): Promise<void> {
       }
     }
     const stillThere = prev && nodes.some((n) => n.id === prev)
-    selectedId.value = preferred ?? (stillThere ? prev : (nodes[0]?.id ?? null))
+    selectedId.value = preferred ?? (stillThere ? prev : null)
     const current = selected.value
     if (current) {
       selectNode(current)
@@ -675,38 +710,42 @@ watch(isMobile, (mobile) => {
 
 <template>
   <section class="pj-page participate-page">
-    <div class="part-top">
-      <Button
-        type="button"
-        text
-        icon="pi pi-arrow-left"
-        :label="t('events.backToEvents')"
-        class="back-btn"
-        @click="router.push({ name: 'events' })"
-      />
-    </div>
-
     <PageLoader v-if="loading" :label="t('common.loading')" />
 
     <template v-else-if="data">
       <div class="summary-row">
-        <article class="summary-card summary-card--club">
-          <div class="club-avatar">
+        <article
+          class="summary-card summary-card--club"
+          :class="{
+            'has-cover': Boolean(heroCoverUrl),
+            'has-logo': showClubLogo,
+          }"
+          :style="clubHeroStyle"
+        >
+          <div class="club-hero__intro">
             <img
-              v-if="data.organizacion.logo_url"
-              :src="data.organizacion.logo_url"
+              v-if="showClubLogo && clubLogoUrl"
+              class="club-hero__logo"
+              :src="clubLogoUrl"
               :alt="data.organizacion.nombre"
             />
-            <i v-else class="pi pi-flag" />
-          </div>
-          <div>
-            <h2>{{ data.organizacion.nombre }}</h2>
-            <p class="pj-muted">{{ data.evento.name }}</p>
-            <p v-if="data.inscripcion" class="chip-enrolled">
-              <i class="pi pi-check" />
-              {{ t('events.enrolled') }}
-            </p>
-            <p v-else class="chip-open">{{ t('events.notEnrolledYet') }}</p>
+            <div v-else class="club-avatar">
+              <img
+                v-if="data.organizacion.logo_url"
+                :src="data.organizacion.logo_url"
+                :alt="data.organizacion.nombre"
+              />
+              <i v-else class="pi pi-flag" />
+            </div>
+            <div class="club-hero__copy">
+              <h2>{{ data.organizacion.nombre }}</h2>
+              <p class="pj-muted">{{ data.evento.name }}</p>
+              <p v-if="data.inscripcion" class="chip-enrolled">
+                <i class="pi pi-check" />
+                {{ t('events.enrolled') }}
+              </p>
+              <p v-else class="chip-open">{{ t('events.notEnrolledYet') }}</p>
+            </div>
           </div>
         </article>
 
@@ -829,11 +868,12 @@ watch(isMobile, (mobile) => {
                   <p v-if="selected.descripcion" class="pj-muted">{{ selected.descripcion }}</p>
                 </div>
               </div>
-              <div
-                v-if="deadlineCountdown"
-                class="deadline-box"
-                :class="{ 'deadline-box--expired': deadlineCountdown.expired }"
-              >
+              <div class="detail-head__stats">
+                <div
+                  v-if="deadlineCountdown"
+                  class="deadline-box"
+                  :class="{ 'deadline-box--expired': deadlineCountdown.expired }"
+                >
                 <span class="deadline-box__label">{{ deadlineCountdown.label }}</span>
                 <template v-if="deadlineCountdown.expired">
                   <strong class="deadline-box__expired-text">{{ t('events.evidenceDeadlineClosed') }}</strong>
@@ -882,8 +922,10 @@ watch(isMobile, (mobile) => {
                   }}
                 </small>
               </div>
+              </div>
             </header>
 
+            <div class="detail-sheet__body">
             <EventJudgeActivityCard
               v-if="selectedActivity"
               :actividad="selectedActivity"
@@ -1182,6 +1224,7 @@ watch(isMobile, (mobile) => {
                 </ul>
               </template>
             </section>
+            </div>
           </template>
           <p v-else class="pj-muted empty">{{ t('events.selectSubevent') }}</p>
         </main>
@@ -1194,14 +1237,6 @@ watch(isMobile, (mobile) => {
 .participate-page {
   --participate-sheet-gap: calc(4.75rem + env(safe-area-inset-top, 0px));
   gap: 1rem;
-}
-
-.part-top {
-  margin-bottom: -0.25rem;
-}
-
-.back-btn {
-  padding-left: 0;
 }
 
 .summary-row {
@@ -1217,15 +1252,87 @@ watch(isMobile, (mobile) => {
   gap: 0.85rem;
   padding: 1rem 1.1rem;
   border-radius: 16px;
-  background:
-    linear-gradient(160deg, color-mix(in srgb, var(--pj-bg-elevated) 92%, #fff), var(--pj-bg-elevated)),
-    var(--pj-bg-elevated);
+  background: var(--pj-bg-elevated);
   border: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
   box-shadow: 0 8px 24px color-mix(in srgb, #0f172a 4%, transparent);
 }
 
 .summary-card--club {
   justify-content: flex-start;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.summary-card--club.has-cover {
+  min-height: 7.25rem;
+  color: var(--hero-text, #fff);
+  background-image:
+    var(--hero-overlay, linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%)),
+    var(--hero-image);
+  background-size: cover;
+  background-position: center;
+  border-color: transparent;
+}
+
+.summary-card--club.has-cover h2 {
+  color: var(--hero-text, #fff);
+  text-shadow: 0 1px 12px color-mix(in srgb, var(--hero-chip-bg, rgba(15, 23, 42, 0.5)) 70%, transparent);
+}
+
+.summary-card--club.has-cover .pj-muted {
+  color: var(--hero-muted, rgba(255, 255, 255, 0.86));
+}
+
+.summary-card--club.has-cover .chip-enrolled,
+.summary-card--club.has-cover .chip-open {
+  background: var(--hero-chip-bg, rgba(15, 23, 42, 0.48));
+  border: 1px solid var(--hero-chip-border, rgba(255, 255, 255, 0.28));
+  color: var(--hero-chip-text, #fff);
+}
+
+.club-hero__intro {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.club-hero__copy {
+  min-width: 0;
+}
+
+.club-hero__logo {
+  width: 4.5rem;
+  height: 4.5rem;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 0.9rem;
+  border: 3px solid #fff;
+  background: #fff;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.28);
+}
+
+.summary-card--club.has-cover.has-logo {
+  position: relative;
+  margin-bottom: 2.4rem;
+  align-items: flex-end;
+}
+
+.summary-card--club.has-cover.has-logo .club-hero__intro {
+  align-items: flex-end;
+}
+
+.summary-card--club.has-cover.has-logo .club-hero__copy {
+  padding-left: calc(4.5rem + 0.85rem);
+}
+
+.summary-card--club.has-cover.has-logo .club-hero__logo {
+  position: absolute;
+  left: 1.1rem;
+  bottom: 0;
+  z-index: 2;
+  margin: 0;
+  transform: translateY(50%);
 }
 
 .summary-card h2,
@@ -1516,41 +1623,58 @@ watch(isMobile, (mobile) => {
   color: #1d4ed8;
 }
 
+.detail-head__stats {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
 .score-box {
-  flex-shrink: 0;
-  min-width: 7.5rem;
-  padding: 0.7rem 0.85rem;
-  border-radius: 12px;
-  text-align: right;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: center;
+  align-self: stretch;
+  min-width: 0;
+  height: auto;
+  padding: 0.4rem 0.55rem;
+  border-radius: 10px;
+  text-align: center;
   background: color-mix(in srgb, var(--pj-navy) 6%, transparent);
   border: 1px solid color-mix(in srgb, var(--pj-navy) 12%, transparent);
 }
 
 .score-box strong {
   display: block;
-  font-size: 1.05rem;
+  font-size: 0.92rem;
   color: var(--pj-navy);
+  line-height: 1.2;
 }
 
 .score-box span {
-  font-size: 0.72rem;
+  font-size: 0.62rem;
   color: var(--pj-text-muted);
 }
 
 .score-box__avg {
   display: block;
-  margin-top: 0.3rem;
-  font-size: 0.68rem;
+  margin-top: 0.15rem;
+  font-size: 0.6rem;
   font-weight: 600;
   color: var(--pj-navy);
   opacity: 0.85;
 }
 
 .deadline-box {
-  flex-shrink: 0;
-  min-width: 10.5rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 12px;
+  flex: 1 1 0;
+  align-self: stretch;
+  min-width: 0;
+  height: auto;
+  padding: 0.4rem 0.55rem;
+  border-radius: 10px;
   text-align: center;
   background: color-mix(in srgb, #ea580c 8%, transparent);
   border: 1px solid color-mix(in srgb, #ea580c 28%, transparent);
@@ -1559,8 +1683,8 @@ watch(isMobile, (mobile) => {
 
 .deadline-box__label {
   display: block;
-  margin-bottom: 0.3rem;
-  font-size: 0.68rem;
+  margin-bottom: 0.12rem;
+  font-size: 0.6rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -1570,31 +1694,31 @@ watch(isMobile, (mobile) => {
 .deadline-box__digits {
   display: flex;
   justify-content: center;
-  gap: 0.45rem;
+  gap: 0.3rem;
 }
 
 .deadline-box__digits span {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 1.85rem;
+  min-width: 1.4rem;
 }
 
 .deadline-box__digits strong {
-  font-size: 1.05rem;
+  font-size: 0.88rem;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
 
 .deadline-box__digits small {
-  font-size: 0.62rem;
+  font-size: 0.55rem;
   font-weight: 650;
   opacity: 0.85;
 }
 
 .deadline-box__expired-text {
   display: block;
-  font-size: 0.92rem;
+  font-size: 0.78rem;
 }
 
 .deadline-box--expired {
@@ -2016,8 +2140,7 @@ watch(isMobile, (mobile) => {
     max-height: calc(100dvh - var(--participate-sheet-gap));
     margin: 0;
     padding: 0.55rem 1.05rem calc(1rem + env(safe-area-inset-bottom, 0px));
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: hidden;
     border-radius: 18px 18px 0 0;
     box-shadow: 0 -10px 32px rgb(15 23 42 / 0.22);
     transform: translateY(110%);
@@ -2031,8 +2154,17 @@ watch(isMobile, (mobile) => {
   }
 
   .panel--detail.is-sheet .detail-head {
-    flex-shrink: 0;
-    padding-right: 2.4rem;
+    flex: 0 0 auto;
+    padding-right: 2.6rem;
+    background: var(--pj-bg-elevated);
+    z-index: 3;
+  }
+
+  .panel--detail.is-sheet .detail-sheet__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .detail-sheet__handle {
@@ -2046,9 +2178,9 @@ watch(isMobile, (mobile) => {
 
   .detail-sheet__close {
     position: absolute;
-    top: 0.85rem;
+    top: 0.55rem;
     right: 0.75rem;
-    z-index: 2;
+    z-index: 20;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2058,7 +2190,8 @@ watch(isMobile, (mobile) => {
     padding: 0;
     border: 0;
     border-radius: 8px;
-    background: color-mix(in srgb, #1e3a8a 10%, transparent);
+    background: var(--pj-bg-elevated);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--pj-border, #cbd5e1) 80%, transparent);
     color: #1e3a8a;
     cursor: pointer;
     flex-shrink: 0;
@@ -2076,10 +2209,9 @@ watch(isMobile, (mobile) => {
     flex-direction: column;
   }
 
-  .deadline-box,
-  .score-box {
+  .detail-head__stats {
+    flex: 0 0 auto;
     width: 100%;
-    text-align: center;
   }
 
   .evidence-preview__actions {

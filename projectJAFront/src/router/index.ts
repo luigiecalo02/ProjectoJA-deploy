@@ -121,6 +121,11 @@ const routes: RouteRecordRaw[] = [
         redirect: { name: 'settings.platform', query: { tab: 'apariencia' } },
       },
       {
+        path: 'configuracion/cuentas-bancarias',
+        name: 'settings.bankAccounts',
+        redirect: { name: 'settings.platform', query: { tab: 'cuentas' } },
+      },
+      {
         path: 'events',
         name: 'events',
         component: () => import('@/pages/events/EventsListPage.vue'),

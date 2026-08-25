@@ -3,6 +3,8 @@
 namespace App\Modules\Users\Repositories;
 
 use App\Models\User;
+use App\Modules\Organizations\Models\Organizacion;
+use App\Modules\Organizations\Models\TipoOrganizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -36,31 +38,11 @@ final class UserRepository
             $query->where('is_active', filter_var($filters['is_active'], FILTER_VALIDATE_BOOLEAN));
         }
 
-        if (! empty($filters['role'])) {
-            $role = (string) $filters['role'];
-            $query->where(function ($builder) use ($role) {
-                if ($role === 'super_admin') {
-                    $builder->where('is_super', true);
-                } elseif ($role === 'admin') {
-                    $builder->where('is_admin', true);
-                } else {
-                    $builder->whereHas('persona.organizaciones', function ($po) use ($role) {
-                        $po->where('estado', true)
-                            ->whereHas('rolesAsignados.rol', fn ($r) => $r->where('name', $role));
-                    });
-                }
-            });
-        }
+        $scopeIds = $this->resolveScopeIds($filters);
 
-        if (! empty($filters['organizacion_id'])) {
-            $orgId = (int) $filters['organizacion_id'];
-            $scopeIds = array_values(array_unique(array_merge(
-                [$orgId],
-                $this->orgAccess->descendantIds($orgId),
-            )));
-            $this->constrainToOrganizations($query, $scopeIds);
-        } elseif (! empty($filters['organizacion_ids']) && is_array($filters['organizacion_ids'])) {
-            $scopeIds = array_values(array_unique(array_map('intval', $filters['organizacion_ids'])));
+        if (! empty($filters['role'])) {
+            $this->constrainToRole($query, (string) $filters['role'], $scopeIds);
+        } elseif ($scopeIds !== null) {
             $this->constrainToOrganizations($query, $scopeIds === [] ? [-1] : $scopeIds);
         }
 
@@ -77,13 +59,137 @@ final class UserRepository
     }
 
     /**
+     * @param  array<string, mixed>  $filters
+     * @return list<int>|null
+     */
+    private function resolveScopeIds(array $filters): ?array
+    {
+        $scopeIds = null;
+
+        if (! empty($filters['organizacion_id'])) {
+            $orgId = (int) $filters['organizacion_id'];
+            $scopeIds = array_values(array_unique(array_merge(
+                [$orgId],
+                $this->orgAccess->descendantIds($orgId),
+            )));
+        } elseif (! empty($filters['organizacion_ids']) && is_array($filters['organizacion_ids'])) {
+            $scopeIds = array_values(array_unique(array_map('intval', $filters['organizacion_ids'])));
+        }
+
+        $tipoClub = is_string($filters['tipo_club'] ?? null) ? strtolower(trim((string) $filters['tipo_club'])) : '';
+        if ($tipoClub === '') {
+            return $scopeIds;
+        }
+
+        $tipoOrgIds = $this->organizationIdsForMinistry($tipoClub);
+        if ($scopeIds === null) {
+            return $tipoOrgIds;
+        }
+
+        return array_values(array_intersect($scopeIds, $tipoOrgIds));
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function organizationIdsForMinistry(string $key): array
+    {
+        $tipoIds = $this->tipoIdsFromMinistry($key);
+        if ($tipoIds === []) {
+            return [];
+        }
+
+        return Organizacion::query()
+            ->whereIn('tipo_organizacion_id', $tipoIds)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function tipoIdsFromMinistry(string $key): array
+    {
+        $patterns = match ($key) {
+            'conquistadores' => ['%conquistador%'],
+            'aventureros' => ['%aventurer%'],
+            'guias_mayores' => ['%gu_a%mayor%', '%guia%mayor%'],
+            default => [],
+        };
+        if ($patterns === []) {
+            return [];
+        }
+
+        $ids = TipoOrganizacion::query()
+            ->where(function ($query) use ($patterns) {
+                foreach ($patterns as $index => $like) {
+                    if ($index === 0) {
+                        $query->where('nombre', 'like', $like);
+                    } else {
+                        $query->orWhere('nombre', 'like', $like);
+                    }
+                }
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        if ($ids !== []) {
+            return array_values(array_unique($ids));
+        }
+
+        $fallback = [
+            'conquistadores' => Organizacion::TIPO_CONQUISTADORES,
+            'aventureros' => Organizacion::TIPO_AVENTUREROS,
+            'guias_mayores' => Organizacion::TIPO_GUIAS_MAYORES,
+        ][$key] ?? null;
+
+        return $fallback ? [(int) $fallback] : [];
+    }
+
+    /**
+     * @param  Builder<User>  $query
+     * @param  list<int>|null  $scopeIds
+     */
+    private function constrainToRole(Builder $query, string $role, ?array $scopeIds): void
+    {
+        if ($role === 'super_admin') {
+            $query->where('is_super', true);
+            if ($scopeIds !== null) {
+                $this->constrainToOrganizations($query, $scopeIds === [] ? [-1] : $scopeIds);
+            }
+
+            return;
+        }
+
+        $orgIds = $scopeIds === [] ? [-1] : $scopeIds;
+
+        $query->where(function (Builder $builder) use ($role, $orgIds) {
+            $builder->whereHas('persona.organizaciones', function ($po) use ($role, $orgIds) {
+                $po->where('estado', true)
+                    ->when($orgIds !== null, fn ($scoped) => $scoped->whereIn('organizacion_id', $orgIds))
+                    ->whereHas('rolesAsignados.rol', fn ($r) => $r->where('name', $role));
+            });
+
+            if ($role === 'admin' && $orgIds === null) {
+                $builder->orWhere('is_admin', true);
+            }
+        });
+    }
+
+    /**
      * @param  Builder<User>  $query
      * @param  list<int>  $scopeIds
      */
     private function constrainToOrganizations(Builder $query, array $scopeIds): void
     {
-        $query->whereHas('persona.organizaciones', function ($po) use ($scopeIds) {
-            $po->where('estado', true)->whereIn('organizacion_id', $scopeIds);
+        $query->where(function ($builder) use ($scopeIds) {
+            $builder->whereHas('persona.organizaciones', function ($po) use ($scopeIds) {
+                $po->where('estado', true)->whereIn('organizacion_id', $scopeIds);
+            })->orWhereHas('clubs', function ($clubs) use ($scopeIds) {
+                $clubs->whereIn('clubes.organizacion_id', $scopeIds);
+            });
         });
     }
 }

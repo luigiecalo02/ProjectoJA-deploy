@@ -26,6 +26,32 @@ import type { LoginHeroCopy } from '@/modules/settings/loginHeroCopy'
 export type { LoginHeroFit }
 export type { LoginHeroCopy, LoginHeroDevice, LoginHeroVariant } from '@/modules/settings/loginHeroCopy'
 
+export type CuentaBancariaTipo = 'ahorros' | 'corriente'
+
+export interface CuentaBancaria {
+  id: number
+  nombre: string
+  banco?: string | null
+  tipo_cuenta: CuentaBancariaTipo | string
+  numero_cuenta: string
+  titular?: string | null
+  identificacion_titular?: string | null
+  activo: boolean
+  orden: number
+  qr_url?: string | null
+}
+
+export interface CuentaBancariaPayload {
+  nombre: string
+  banco?: string | null
+  tipo_cuenta: CuentaBancariaTipo | string
+  numero_cuenta: string
+  titular?: string | null
+  identificacion_titular?: string | null
+  activo?: boolean
+  orden?: number
+}
+
 export interface BrandSettings {
   login_hero_url: string | null
   login_logos_url: string | null

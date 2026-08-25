@@ -39,6 +39,7 @@ final class EventService
             'jueces:id,name,email',
             'supervisores:id,name,email',
             'criterios:id,nombre,descripcion,estado,orden',
+            'cuentaBancaria.qrFile',
         ])->withCount('hijos');
 
         $manageAll = $actor->hasPermission('events.create')
@@ -112,6 +113,7 @@ final class EventService
                 'jueces:id,name,email',
                 'supervisores:id,name,email',
                 'criterios:id,nombre,descripcion,estado,orden',
+                'cuentaBancaria.qrFile',
             ])
             ->withCount('hijos');
 
@@ -343,6 +345,7 @@ final class EventService
 
         $this->assertValidDates((string) $data['starts_at'], (string) $data['ends_at']);
         $this->assertHierarchyAndSiteDates($data, null);
+        $this->applyHomeOrganization($actor, $data, $orgIds);
         $this->assertActorCanAssignOrganizations($actor, $data['organizacion_id'] ?? null, $orgIds);
         if (is_array($juezIds)) {
             $this->assertUsersHaveRole($juezIds, 'juez', 'juez_ids');
@@ -401,6 +404,7 @@ final class EventService
                 'jueces:id,name,email',
                 'supervisores:id,name,email',
                 'criterios:id,nombre,descripcion,estado,orden',
+                'cuentaBancaria.qrFile',
             ]);
             $this->auditLogger->log('events', 'create', null, $event->toArray(), $event);
 
@@ -445,6 +449,9 @@ final class EventService
             $this->assertUsersHaveRole($supervisorIds ?? [], 'supervisor', 'supervisor_ids');
         }
         if ($hasOrgs || array_key_exists('organizacion_id', $data)) {
+            if (is_array($orgIds)) {
+                $this->applyHomeOrganization($actor, $data, $orgIds);
+            }
             $this->assertActorCanAssignOrganizations(
                 $actor,
                 $data['organizacion_id'] ?? $event->organizacion_id,
@@ -488,6 +495,7 @@ final class EventService
                 'jueces:id,name,email',
                 'supervisores:id,name,email',
                 'criterios:id,nombre,descripcion,estado,orden',
+                'cuentaBancaria.qrFile',
             ]);
             $this->auditLogger->log('events', 'update', $old, $event->toArray(), $event);
 
@@ -925,6 +933,30 @@ final class EventService
         }
 
         return array_values(array_unique($ids));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  list<int>  $orgIds
+     */
+    private function applyHomeOrganization(User $actor, array &$data, array &$orgIds): void
+    {
+        if ($this->orgAccess->bypassesOrganizationScope($actor)) {
+            return;
+        }
+
+        $homeId = $this->orgAccess->homeOrganizationId($actor);
+        if ($homeId === null) {
+            return;
+        }
+
+        if (empty($data['organizacion_id'])) {
+            $data['organizacion_id'] = $homeId;
+        }
+
+        if ($orgIds === []) {
+            $orgIds = [$homeId];
+        }
     }
 
     /**

@@ -368,6 +368,7 @@ onMounted(() => {
           </div>
         </header>
 
+        <div class="revision-sheet__body">
         <div class="summary-strip">
           <div>
             <i class="pi pi-users" />
@@ -633,6 +634,7 @@ onMounted(() => {
             />
           </div>
         </section>
+        </div>
       </main>
 
       <div v-else-if="!loading" class="revision-empty-detail pj-muted">
@@ -1365,8 +1367,7 @@ onMounted(() => {
     max-height: calc(100dvh - var(--revision-sheet-gap));
     margin: 0;
     padding: 0.55rem 1.05rem calc(1rem + env(safe-area-inset-bottom, 0px));
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: hidden;
     border-radius: 18px 18px 0 0;
     box-shadow: 0 -10px 32px rgb(15 23 42 / 0.22);
     transform: translateY(110%);
@@ -1382,6 +1383,15 @@ onMounted(() => {
   .revision-detail.is-sheet .revision-detail__head {
     flex-shrink: 0;
     padding-right: 2.4rem;
+    background: var(--pj-bg-elevated);
+    z-index: 3;
+  }
+
+  .revision-detail.is-sheet .revision-sheet__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .revision-sheet__handle {

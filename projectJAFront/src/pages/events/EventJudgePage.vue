@@ -1646,7 +1646,7 @@ onMounted(() => {
   margin-bottom: 0.35rem;
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, #2563eb 22%, transparent);
-  background: color-mix(in srgb, #2563eb 6%, #fff);
+  background: color-mix(in srgb, #2563eb 12%, var(--pj-surface));
   position: sticky;
   top: 0;
   z-index: 2;
@@ -1889,7 +1889,7 @@ onMounted(() => {
 
 .panel--tree.is-locked {
   opacity: 0.72;
-  background: color-mix(in srgb, var(--pj-surface, #fff) 88%, #e2e8f0);
+  background: color-mix(in srgb, var(--pj-surface) 88%, var(--pj-bg-muted));
 }
 
 .tree-lock {

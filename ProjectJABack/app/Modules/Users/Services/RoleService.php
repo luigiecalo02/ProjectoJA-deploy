@@ -148,14 +148,36 @@ final class RoleService
             return User::query()->where('is_super', true)->count();
         }
 
-        if ($role->name === 'admin') {
-            return User::query()->where('is_admin', true)->count();
-        }
-
-        return (int) DB::table('persona_organizacion_rol')
+        $assigned = (int) DB::table('persona_organizacion_rol')
             ->where('rol_id', $role->id)
             ->distinct()
             ->count('persona_organizacion_id');
+
+        if ($role->name !== 'admin') {
+            return $assigned;
+        }
+
+        $assignedPersonaIds = DB::table('persona_organizacion_rol')
+            ->join(
+                'persona_organizacion',
+                'persona_organizacion.id',
+                '=',
+                'persona_organizacion_rol.persona_organizacion_id'
+            )
+            ->where('persona_organizacion_rol.rol_id', $role->id)
+            ->pluck('persona_organizacion.persona_id');
+
+        $platformOnly = User::query()
+            ->where('is_admin', true)
+            ->when(
+                $assignedPersonaIds->isNotEmpty(),
+                fn ($query) => $query->where(function ($inner) use ($assignedPersonaIds) {
+                    $inner->whereNull('persona_id')->orWhereNotIn('persona_id', $assignedPersonaIds);
+                }),
+            )
+            ->count();
+
+        return $assigned + $platformOnly;
     }
 
     private function clearUsersPermissionCache(Role $role): void

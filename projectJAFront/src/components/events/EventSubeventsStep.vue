@@ -2491,7 +2491,7 @@ onBeforeUnmount(() => {
 
 .sub-table tbody tr:hover,
 .sub-table tbody tr.is-selected {
-  background: color-mix(in srgb, #2563eb 6%, #fff);
+  background: color-mix(in srgb, #2563eb 12%, var(--pj-bg-elevated));
 }
 
 .sub-table tbody tr.is-dragging {
@@ -2500,16 +2500,16 @@ onBeforeUnmount(() => {
 
 .sub-table tbody tr.is-drop-before {
   box-shadow: inset 0 3px 0 0 #2563eb;
-  background: color-mix(in srgb, #2563eb 5%, #fff);
+  background: color-mix(in srgb, #2563eb 10%, var(--pj-bg-elevated));
 }
 
 .sub-table tbody tr.is-drop-after {
   box-shadow: inset 0 -3px 0 0 #2563eb;
-  background: color-mix(in srgb, #2563eb 5%, #fff);
+  background: color-mix(in srgb, #2563eb 10%, var(--pj-bg-elevated));
 }
 
 .sub-table tbody tr.is-drop-into {
-  background: color-mix(in srgb, #2563eb 10%, #fff);
+  background: color-mix(in srgb, #2563eb 16%, var(--pj-bg-elevated));
   box-shadow: inset 0 0 0 2px #2563eb;
 }
 
@@ -2519,7 +2519,7 @@ onBeforeUnmount(() => {
 
 @keyframes sub-pulse {
   0% {
-    background: color-mix(in srgb, #2563eb 18%, #fff);
+    background: color-mix(in srgb, #2563eb 22%, var(--pj-bg-elevated));
   }
   100% {
     background: transparent;

@@ -300,7 +300,7 @@ onMounted(() => {
   isolation: isolate;
   background:
     linear-gradient(135deg, color-mix(in srgb, #0f766e 18%, transparent), transparent 55%),
-    linear-gradient(180deg, color-mix(in srgb, #f8fafc 88%, #ecfdf5), #fff);
+    linear-gradient(180deg, color-mix(in srgb, var(--pj-bg-muted) 88%, var(--pj-surface)), var(--pj-surface));
   border: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
 }
 
@@ -412,7 +412,7 @@ onMounted(() => {
   gap: 0.15rem;
   padding: 0.65rem 0.85rem;
   border-radius: 12px;
-  background: color-mix(in srgb, #fff 80%, #ecfdf5);
+  background: color-mix(in srgb, var(--pj-surface) 80%, var(--pj-bg-muted));
   border: 1px solid color-mix(in srgb, #0f766e 18%, transparent);
 }
 

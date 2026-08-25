@@ -97,7 +97,13 @@ final class OrganizacionController
 
     public function tree(Request $request): JsonResponse
     {
-        abort_unless($request->user()->can('viewAny', Organizacion::class), Response::HTTP_FORBIDDEN);
+        $user = $request->user();
+        abort_unless(
+            $user?->can('viewAny', Organizacion::class)
+            || $user?->hasPermission('events.create')
+            || $user?->hasPermission('events.update'),
+            Response::HTTP_FORBIDDEN
+        );
 
         $excludeId = $request->integer('exclude_id') ?: null;
 

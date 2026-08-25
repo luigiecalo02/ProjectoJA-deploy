@@ -453,7 +453,7 @@ onMounted(() => {
   isolation: isolate;
   background:
     linear-gradient(135deg, color-mix(in srgb, #0f766e 18%, transparent), transparent 55%),
-    linear-gradient(180deg, color-mix(in srgb, #f8fafc 88%, #ecfdf5), #fff);
+    linear-gradient(180deg, color-mix(in srgb, var(--pj-bg-muted) 88%, var(--pj-surface)), var(--pj-surface));
   border: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
 }
 
@@ -565,7 +565,7 @@ onMounted(() => {
   gap: 0.15rem;
   padding: 0.65rem 0.85rem;
   border-radius: 12px;
-  background: color-mix(in srgb, #fff 80%, #ecfdf5);
+  background: color-mix(in srgb, var(--pj-surface) 80%, var(--pj-bg-muted));
   border: 1px solid color-mix(in srgb, #0f766e 18%, transparent);
 }
 
@@ -636,30 +636,30 @@ onMounted(() => {
   border-right: 1px solid color-mix(in srgb, var(--pj-border) 55%, transparent);
   padding: 0.65rem 0.75rem;
   vertical-align: middle;
-  background: #fff;
+  background: var(--pj-surface);
 }
 
 .tree-table thead th {
   position: sticky;
   top: 0;
   z-index: 3;
-  background: #f8fafc;
+  background: var(--pj-bg-muted);
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #334155;
+  color: var(--pj-text-muted);
   white-space: nowrap;
 }
 
 .sticky {
   position: sticky;
   z-index: 4;
-  background: #fff;
+  background: var(--pj-surface);
 }
 
 .tree-table thead .sticky {
   z-index: 5;
-  background: #f1f5f9;
+  background: var(--pj-bg-elevated);
 }
 
 .sticky-place {
@@ -690,19 +690,19 @@ onMounted(() => {
 .score-head.is-expandable {
   cursor: pointer;
   user-select: none;
-  background: color-mix(in srgb, #0f766e 10%, #f8fafc);
+  background: color-mix(in srgb, #0f766e 10%, var(--pj-bg-muted));
 }
 
 .score-head.is-expandable:hover {
-  background: color-mix(in srgb, #0f766e 18%, #f8fafc);
+  background: color-mix(in srgb, #0f766e 18%, var(--pj-bg-muted));
 }
 
 .score-head.is-expanded {
-  background: color-mix(in srgb, #0f766e 16%, #ecfdf5);
+  background: color-mix(in srgb, #0f766e 16%, var(--pj-bg-muted));
 }
 
 .score-head.is-total {
-  background: color-mix(in srgb, #0f766e 8%, #fff);
+  background: color-mix(in srgb, #0f766e 8%, var(--pj-surface));
   font-weight: 700;
 }
 

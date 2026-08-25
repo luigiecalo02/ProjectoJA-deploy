@@ -18,6 +18,12 @@ final class EventPolicy
 
     public function view(User $actor, Event $event): bool
     {
+        if ($this->isCreator($actor, $event) && (
+            $actor->hasPermission('events.view') || $actor->hasPermission('events.create')
+        )) {
+            return true;
+        }
+
         if (! $actor->hasPermission('events.view')) {
             return false;
         }
@@ -36,6 +42,12 @@ final class EventPolicy
 
     public function update(User $actor, Event $event): bool
     {
+        if ($this->isCreator($actor, $event) && (
+            $actor->hasPermission('events.update') || $actor->hasPermission('events.create')
+        )) {
+            return true;
+        }
+
         if (! $actor->hasPermission('events.update')) {
             return false;
         }
@@ -98,6 +110,11 @@ final class EventPolicy
         }
 
         return $this->actorAssignedInSubtree($root, $actor);
+    }
+
+    private function isCreator(User $actor, Event $event): bool
+    {
+        return $event->created_by !== null && (int) $event->created_by === (int) $actor->id;
     }
 
     private function eagerLoadJuecesTree(Event $event, int $depth): void

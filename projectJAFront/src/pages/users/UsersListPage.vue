@@ -9,6 +9,11 @@ import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
 import Paginator from 'primevue/paginator'
 import Select from 'primevue/select'
+import Tab from 'primevue/tab'
+import TabList from 'primevue/tablist'
+import TabPanel from 'primevue/tabpanel'
+import TabPanels from 'primevue/tabpanels'
+import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 import ToggleSwitch from 'primevue/toggleswitch'
 import AppSearchField from '@/components/AppSearchField.vue'
@@ -22,7 +27,10 @@ import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
 import { useAuthStore } from '@/stores/auth'
 import type { User } from '@/modules/auth/types'
+import type { RoleOption } from '@/modules/users/types'
 import type { PaginationMeta } from '@/types/api'
+import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
+import type { ClubMinistry } from '@/modules/clubs/types'
 import {
   TIPO_ASOCIACION,
   TIPO_CLUB,
@@ -68,6 +76,10 @@ usePageChrome(() => ({
 
 const query = ref('')
 const statusFilter = ref<boolean | null>(null)
+const filterTab = ref<'organizacion' | 'clubes'>('organizacion')
+const tipoClub = ref<ClubMinistry | null>(null)
+const roleFilter = ref<string | null>(null)
+const roleOptions = ref<Array<{ label: string; value: string | null }>>([])
 const orgTree = ref<OrganizacionTreeNode[]>([])
 const orgFilters = reactive({
   unionId: null as number | null,
@@ -96,6 +108,13 @@ const statusOptions = [
   { label: t('common.all'), value: null },
   { label: t('common.active'), value: true },
   { label: t('common.inactive'), value: false },
+]
+
+const tipoClubOptions = [
+  { label: t('users.filterTipoClubAll'), value: null },
+  { label: t('clubs.typeAventureros'), value: 'aventureros' as ClubMinistry },
+  { label: t('clubs.typeConquistadores'), value: 'conquistadores' as ClubMinistry },
+  { label: t('clubs.typeGuias'), value: 'guias_mayores' as ClubMinistry },
 ]
 
 const CLUB_TIPOS = [TIPO_CLUB, ...TIPOS_HIJO_CLUB] as readonly number[]
@@ -162,6 +181,22 @@ function optionsFromNodes(
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
 }
 
+function collectClubNodes(nodes: OrganizacionTreeNode[]): OrganizacionTreeNode[] {
+  const clubs: OrganizacionTreeNode[] = []
+  const walk = (list: OrganizacionTreeNode[]): void => {
+    for (const node of list) {
+      if (CLUB_TIPOS.includes(node.tipo_organizacion_id)) {
+        clubs.push(node)
+      }
+      if (node.children?.length) {
+        walk(node.children)
+      }
+    }
+  }
+  walk(nodes)
+  return clubs
+}
+
 const unionOptions = computed(() => optionsFromNodes(orgTree.value, [TIPO_UNION]))
 
 const asociacionOptions = computed(() => {
@@ -180,8 +215,16 @@ const iglesiaOptions = computed(() => {
 })
 
 const clubOptions = computed(() => {
-  const parent = findOrgNode(orgTree.value, orgFilters.iglesiaId)
-  return parent ? optionsFromNodes(parent.children || [], CLUB_TIPOS) : []
+  const root = findOrgNode(orgTree.value, scopeOrgId.value)
+  const source = root ? [root] : orgTree.value
+
+  return collectClubNodes(source)
+    .filter((node) => {
+      if (!tipoClub.value) return true
+      return audienceKeyFromTipo(node.tipo_organizacion_id, node.tipo_nombre) === tipoClub.value
+    })
+    .map((node) => ({ id: node.id, nombre: node.nombre }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
 })
 
 const scopeTipoId = computed(() => {
@@ -211,15 +254,21 @@ function applyScopeLocks(): void {
   else if (CLUB_TIPOS.includes(tipo)) orgFilters.clubId = id
 }
 
-const selectedOrganizacionId = computed(
-  () =>
-    orgFilters.clubId
-    ?? orgFilters.iglesiaId
+const selectedOrganizacionId = computed(() => {
+  if (filterTab.value === 'clubes') {
+    return orgFilters.clubId
+  }
+  return (
+    orgFilters.iglesiaId
     ?? orgFilters.distritoId
     ?? orgFilters.asociacionId
     ?? orgFilters.unionId
-    ?? scopeOrgId.value,
-)
+    ?? scopeOrgId.value
+  )
+})
+
+const activeTipoClub = computed(() => (filterTab.value === 'clubes' ? tipoClub.value : null))
+const activeRole = computed(() => roleFilter.value)
 
 const showUnionFilter = computed(
   () => canUseOrgFilters.value && !isLevelImplicit('union') && unionOptions.value.length > 0,
@@ -245,12 +294,11 @@ const showIglesiaFilter = computed(
     Boolean(orgFilters.distritoId) &&
     iglesiaOptions.value.length > 0,
 )
+const showTipoClubFilter = computed(
+  () => canUseOrgFilters.value && !isLevelImplicit('club'),
+)
 const showClubFilter = computed(
-  () =>
-    canUseOrgFilters.value &&
-    !isLevelImplicit('club') &&
-    Boolean(orgFilters.iglesiaId) &&
-    clubOptions.value.length > 0,
+  () => canUseOrgFilters.value && !isLevelImplicit('club') && clubOptions.value.length > 0,
 )
 
 const scopeLabel = computed(() => {
@@ -261,17 +309,31 @@ const scopeLabel = computed(() => {
 
 function clearBelow(level: Exclude<OrgFilterLevel, 'club'>): void {
   const below: Record<Exclude<OrgFilterLevel, 'club'>, OrgFilterLevel[]> = {
-    union: ['asociacion', 'distrito', 'iglesia', 'club'],
-    asociacion: ['distrito', 'iglesia', 'club'],
-    distrito: ['iglesia', 'club'],
-    iglesia: ['club'],
+    union: ['asociacion', 'distrito', 'iglesia'],
+    asociacion: ['distrito', 'iglesia'],
+    distrito: ['iglesia'],
+    iglesia: [],
   }
   for (const next of below[level]) {
     if (isLevelImplicit(next)) continue
     if (next === 'asociacion') orgFilters.asociacionId = null
     if (next === 'distrito') orgFilters.distritoId = null
     if (next === 'iglesia') orgFilters.iglesiaId = null
-    if (next === 'club') orgFilters.clubId = null
+  }
+}
+
+async function loadRoles(): Promise<void> {
+  try {
+    const roles = await usersService.roles()
+    roleOptions.value = [
+      { label: t('users.filterRoleAll'), value: null },
+      ...roles.map((role: RoleOption) => ({
+        label: role.label || role.display_name || role.name,
+        value: role.name,
+      })),
+    ]
+  } catch {
+    roleOptions.value = [{ label: t('users.filterRoleAll'), value: null }]
   }
 }
 
@@ -340,6 +402,8 @@ async function loadTotal(): Promise<void> {
       page: 1,
       per_page: 1,
       organizacion_id: selectedOrganizacionId.value,
+      tipo_club: activeTipoClub.value,
+      role: activeRole.value,
     })
     totalUsers.value = result.pagination?.total ?? result.items.length
   } catch (error) {
@@ -390,6 +454,8 @@ async function search(page = 1, showWarning = false): Promise<void> {
       search: term || undefined,
       is_active: statusFilter.value,
       organizacion_id: selectedOrganizacionId.value,
+      tipo_club: activeTipoClub.value,
+      role: activeRole.value,
     })
     if (sequence !== requestSequence) return
     users.value = result.items
@@ -501,6 +567,31 @@ watch(query, scheduleSearch)
 watch(statusFilter, () => {
   if (viewMode.value === 'table' || query.value.trim().length >= 2) void search(1)
 })
+watch(tipoClub, () => {
+  if (orgFilters.clubId && !clubOptions.value.some((club) => club.id === orgFilters.clubId)) {
+    orgFilters.clubId = null
+  }
+  if (filterTab.value !== 'clubes') return
+  if (viewMode.value === 'table' || query.value.trim().length >= 2) {
+    void search(1)
+    return
+  }
+  void loadTotal()
+})
+watch(roleFilter, () => {
+  if (viewMode.value === 'table' || query.value.trim().length >= 2) {
+    void search(1)
+    return
+  }
+  void loadTotal()
+})
+watch(filterTab, () => {
+  if (viewMode.value === 'table' || query.value.trim().length >= 2) {
+    void search(1)
+    return
+  }
+  void loadTotal()
+})
 watch(selectedOrganizacionId, () => {
   if (viewMode.value === 'table' || query.value.trim().length >= 2) {
     void search(1)
@@ -528,7 +619,7 @@ watch(viewMode, (mode) => {
 })
 
 onMounted(async () => {
-  await loadOrgTree()
+  await Promise.all([loadOrgTree(), loadRoles()])
   void loadTotal()
   if (viewMode.value === 'table') {
     void search(1)
@@ -569,6 +660,15 @@ onBeforeUnmount(() => {
             @search="search(1, true)"
           />
           <Select
+            v-model="roleFilter"
+            :options="roleOptions"
+            option-label="label"
+            option-value="value"
+            :placeholder="t('users.filterRole')"
+            class="users-filter"
+            fluid
+          />
+          <Select
             v-model="statusFilter"
             :options="statusOptions"
             option-label="label"
@@ -578,65 +678,98 @@ onBeforeUnmount(() => {
             fluid
           />
           <p v-if="scopeLabel" class="users-filter-scope">{{ scopeLabel }}</p>
-          <Select
-            v-if="showUnionFilter"
-            v-model="orgFilters.unionId"
-            :options="unionOptions"
-            option-label="nombre"
-            option-value="id"
-            show-clear
-            :placeholder="t('users.filterUnion')"
-            class="users-filter"
-            fluid
-            @update:model-value="clearBelow('union')"
-          />
-          <Select
-            v-if="showAsociacionFilter"
-            v-model="orgFilters.asociacionId"
-            :options="asociacionOptions"
-            option-label="nombre"
-            option-value="id"
-            show-clear
-            :placeholder="t('users.filterAsociacion')"
-            class="users-filter"
-            fluid
-            @update:model-value="clearBelow('asociacion')"
-          />
-          <Select
-            v-if="showDistritoFilter"
-            v-model="orgFilters.distritoId"
-            :options="distritoOptions"
-            option-label="nombre"
-            option-value="id"
-            show-clear
-            :placeholder="t('users.filterDistrito')"
-            class="users-filter"
-            fluid
-            @update:model-value="clearBelow('distrito')"
-          />
-          <Select
-            v-if="showIglesiaFilter"
-            v-model="orgFilters.iglesiaId"
-            :options="iglesiaOptions"
-            option-label="nombre"
-            option-value="id"
-            show-clear
-            :placeholder="t('users.filterIglesia')"
-            class="users-filter"
-            fluid
-            @update:model-value="clearBelow('iglesia')"
-          />
-          <Select
-            v-if="showClubFilter"
-            v-model="orgFilters.clubId"
-            :options="clubOptions"
-            option-label="nombre"
-            option-value="id"
-            show-clear
-            :placeholder="t('users.filterClub')"
-            class="users-filter"
-            fluid
-          />
+          <Tabs v-model:value="filterTab" class="users-filter-tabs">
+            <TabList>
+              <Tab value="organizacion">
+                <i class="pi pi-sitemap" />
+                <span>{{ t('users.filterTabOrganizacion') }}</span>
+              </Tab>
+              <Tab value="clubes">
+                <i class="pi pi-flag" />
+                <span>{{ t('users.filterTabClubes') }}</span>
+              </Tab>
+            </TabList>
+            <TabPanels>
+              <TabPanel value="organizacion">
+                <div class="users-filter-stack">
+                  <Select
+                    v-if="showUnionFilter"
+                    v-model="orgFilters.unionId"
+                    :options="unionOptions"
+                    option-label="nombre"
+                    option-value="id"
+                    show-clear
+                    :placeholder="t('users.filterUnion')"
+                    class="users-filter"
+                    fluid
+                    @update:model-value="clearBelow('union')"
+                  />
+                  <Select
+                    v-if="showAsociacionFilter"
+                    v-model="orgFilters.asociacionId"
+                    :options="asociacionOptions"
+                    option-label="nombre"
+                    option-value="id"
+                    show-clear
+                    :placeholder="t('users.filterAsociacion')"
+                    class="users-filter"
+                    fluid
+                    @update:model-value="clearBelow('asociacion')"
+                  />
+                  <Select
+                    v-if="showDistritoFilter"
+                    v-model="orgFilters.distritoId"
+                    :options="distritoOptions"
+                    option-label="nombre"
+                    option-value="id"
+                    show-clear
+                    :placeholder="t('users.filterDistrito')"
+                    class="users-filter"
+                    fluid
+                    @update:model-value="clearBelow('distrito')"
+                  />
+                  <Select
+                    v-if="showIglesiaFilter"
+                    v-model="orgFilters.iglesiaId"
+                    :options="iglesiaOptions"
+                    option-label="nombre"
+                    option-value="id"
+                    show-clear
+                    :placeholder="t('users.filterIglesia')"
+                    class="users-filter"
+                    fluid
+                    @update:model-value="clearBelow('iglesia')"
+                  />
+                </div>
+              </TabPanel>
+              <TabPanel value="clubes">
+                <div class="users-filter-stack">
+                  <Select
+                    v-if="showTipoClubFilter"
+                    v-model="tipoClub"
+                    :options="tipoClubOptions"
+                    option-label="label"
+                    option-value="value"
+                    :placeholder="t('users.filterTipoClub')"
+                    class="users-filter"
+                    fluid
+                  />
+                  <Select
+                    v-if="showClubFilter"
+                    v-model="orgFilters.clubId"
+                    :options="clubOptions"
+                    option-label="nombre"
+                    option-value="id"
+                    show-clear
+                    filter
+                    :placeholder="t('users.filterClub')"
+                    class="users-filter"
+                    fluid
+                  />
+                </div>
+              </TabPanel>
+            </TabPanels>
+          </Tabs>
           <div class="users-views" role="group" :aria-label="t('users.viewMode')">
             <Button
               type="button"
@@ -952,6 +1085,33 @@ onBeforeUnmount(() => {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--p-text-muted-color);
+}
+
+.users-filter-tabs {
+  width: 100%;
+}
+
+.users-filter-tabs :deep(.p-tablist-tab-list) {
+  gap: 0.25rem;
+}
+
+.users-filter-tabs :deep(.p-tab) {
+  flex: 1 1 0;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  padding: 0.45rem 0.5rem;
+}
+
+.users-filter-tabs :deep(.p-tabpanels) {
+  padding: 0.65rem 0 0;
+  background: transparent;
+}
+
+.users-filter-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 
 .users-views {

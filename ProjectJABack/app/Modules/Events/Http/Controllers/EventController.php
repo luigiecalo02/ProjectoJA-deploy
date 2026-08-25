@@ -10,6 +10,7 @@ use App\Modules\Events\Models\Event;
 use App\Modules\Events\Services\EventListEnricher;
 use App\Modules\Events\Services\EventParticipationService;
 use App\Modules\Events\Services\EventService;
+use App\Modules\Settings\Services\CuentaBancariaService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ final class EventController
         private readonly EventService $eventService,
         private readonly EventParticipationService $participationService,
         private readonly EventListEnricher $listEnricher,
+        private readonly CuentaBancariaService $cuentasBancarias,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -351,6 +353,8 @@ final class EventController
             }, is_array($event->descuentos_directiva) ? $event->descuentos_directiva : [])),
             'fecha_limite_pago' => $event->fecha_limite_pago?->toIso8601String(),
             'metodo_pago' => $event->metodo_pago,
+            'cuenta_bancaria_id' => $event->cuenta_bancaria_id,
+            'cuenta_bancaria' => $this->cuentasBancarias->toPayload($event->cuentaBancaria),
             'requiere_seguro' => (bool) $event->requiere_seguro,
             'tipo_seguro_id' => $event->tipo_seguro_id,
             'seguro_valor' => $event->seguro_valor !== null ? (float) $event->seguro_valor : null,

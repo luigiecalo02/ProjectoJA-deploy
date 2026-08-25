@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
+use App\Modules\Organizations\Models\TipoOrganizacion;
 use App\Modules\Users\Models\Role;
 use Database\Seeders\OrganizacionCatalogSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -128,6 +129,48 @@ class UsersApiTest extends TestCase
             ->json('data'))->pluck('id');
         $this->assertTrue($ignored->contains($localUser->id));
         $this->assertFalse($ignored->contains($foreignUser->id));
+    }
+
+    public function test_admin_can_filter_users_by_club_ministry(): void
+    {
+        $this->seed(OrganizacionCatalogSeeder::class);
+
+        $tipoAventureros = (int) TipoOrganizacion::query()
+            ->where('nombre', 'like', '%Aventurer%')
+            ->value('id');
+        $tipoConquistadores = (int) TipoOrganizacion::query()
+            ->where('nombre', 'like', '%Conquistador%')
+            ->value('id');
+
+        $clubAve = Organizacion::query()->create([
+            'tipo_organizacion_id' => $tipoAventureros,
+            'nombre' => 'Club Aventureros Norte',
+            'codigo' => 'AVE-N-'.uniqid(),
+            'estado' => true,
+        ]);
+        $clubConq = Organizacion::query()->create([
+            'tipo_organizacion_id' => $tipoConquistadores,
+            'nombre' => 'Club Conquistadores Norte',
+            'codigo' => 'CON-N-'.uniqid(),
+            'estado' => true,
+        ]);
+
+        $aveUser = $this->userInOrganization($clubAve->id, 'ave@test.local');
+        $conqUser = $this->userInOrganization($clubConq->id, 'conq@test.local');
+
+        Sanctum::actingAs($this->admin());
+
+        $aventureros = collect($this->getJson('/api/v1/users?tipo_club=aventureros')
+            ->assertOk()
+            ->json('data'))->pluck('id');
+        $this->assertTrue($aventureros->contains($aveUser->id));
+        $this->assertFalse($aventureros->contains($conqUser->id));
+
+        $conquistadores = collect($this->getJson('/api/v1/users?tipo_club=conquistadores')
+            ->assertOk()
+            ->json('data'))->pluck('id');
+        $this->assertTrue($conquistadores->contains($conqUser->id));
+        $this->assertFalse($conquistadores->contains($aveUser->id));
     }
 
     private function scopedAdmin(int $organizacionId): User

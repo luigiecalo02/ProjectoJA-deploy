@@ -64,7 +64,112 @@ html.dark {
   --pj-success: #56c968;
   --pj-shadow: 0 8px 22px -12px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
+  color: var(--pj-text);
   background: var(--pj-bg);
+
+  /* PrimeVue (overlays van al body y si no se remapean se quedan en blanco). */
+  --p-surface-0: #0b1828;
+  --p-content-background: var(--pj-bg-elevated);
+  --p-content-hover-background: var(--pj-bg-muted);
+  --p-content-border-color: var(--pj-border);
+  --p-content-color: var(--pj-text);
+  --p-content-hover-color: var(--pj-text);
+  --p-text-color: var(--pj-text);
+  --p-text-muted-color: var(--pj-text-muted);
+  --p-overlay-modal-background: var(--pj-bg-elevated);
+  --p-overlay-modal-color: var(--pj-text);
+  --p-overlay-modal-border-color: var(--pj-border);
+  --p-overlay-select-background: var(--pj-bg-elevated);
+  --p-overlay-select-color: var(--pj-text);
+  --p-overlay-select-border-color: var(--pj-border);
+  --p-overlay-popover-background: var(--pj-bg-elevated);
+  --p-overlay-popover-color: var(--pj-text);
+  --p-overlay-popover-border-color: var(--pj-border);
+  --p-form-field-background: #ffffff;
+  --p-form-field-color: #071e48;
+  --p-form-field-border-color: var(--pj-border);
+  --p-form-field-placeholder-color: #5b6b82;
+  --p-drawer-background: var(--pj-bg-elevated);
+  --p-drawer-color: var(--pj-text);
+  --p-drawer-border-color: var(--pj-border);
+  --p-dialog-background: var(--pj-bg-elevated);
+  --p-dialog-color: var(--pj-text);
+  --p-mask-background: rgba(0, 0, 0, 0.55);
+  --p-datatable-header-background: var(--pj-bg-muted);
+  --p-datatable-header-cell-background: var(--pj-bg-muted);
+  --p-datatable-header-cell-color: var(--pj-text-muted);
+  --p-datatable-header-cell-border-color: var(--pj-border);
+  --p-datatable-body-cell-border-color: var(--pj-border);
+  --p-datatable-row-background: var(--pj-bg-elevated);
+  --p-datatable-row-color: var(--pj-text);
+  --p-datatable-row-hover-background: var(--pj-bg-muted);
+  --p-datatable-row-striped-background: var(--pj-surface);
+}
+
+html.dark body,
+html.dark #app {
+  color: var(--pj-text);
+  background: var(--pj-bg);
+}
+
+html.dark .p-drawer,
+html.dark .p-drawer-header,
+html.dark .p-drawer-content,
+html.dark .p-drawer-footer,
+html.dark .p-dialog,
+html.dark .p-dialog-header,
+html.dark .p-dialog-content,
+html.dark .p-dialog-footer {
+  background: var(--pj-bg-elevated);
+  color: var(--pj-text);
+  border-color: var(--pj-border);
+}
+
+html.dark .p-datatable,
+html.dark .p-datatable-table,
+html.dark .p-datatable-table-container,
+html.dark .p-datatable-wrapper {
+  background: var(--pj-bg-elevated);
+  color: var(--pj-text);
+}
+
+html.dark .p-datatable .p-datatable-thead > tr > th,
+html.dark table thead th {
+  background: var(--pj-bg-muted);
+  color: var(--pj-text-muted);
+  border-color: var(--pj-border);
+}
+
+html.dark .p-datatable .p-datatable-tbody > tr > td,
+html.dark .p-datatable .p-datatable-tfoot > tr > td,
+html.dark table tbody td {
+  background: var(--pj-bg-elevated);
+  color: var(--pj-text);
+  border-color: var(--pj-border);
+}
+
+html.dark .p-datatable .p-datatable-tbody > tr:hover > td,
+html.dark table tbody tr:hover > td {
+  background: var(--pj-bg-muted);
+}
+
+html.dark .p-inputtext,
+html.dark .p-textarea,
+html.dark .p-select,
+html.dark .p-multiselect,
+html.dark .p-password-input,
+html.dark .p-datepicker-input,
+html.dark input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+html.dark textarea,
+html.dark select {
+  color: #071e48;
+}
+
+html.dark .p-inputtext::placeholder,
+html.dark .p-textarea::placeholder,
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #5b6b82;
 }
 
 *,

@@ -455,6 +455,34 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<style>
+/* El Drawer de PrimeVue se monta en body: el scoped del layout no le pinta el fondo. */
+html.dark .p-drawer.mobile-drawer,
+html.dark .p-drawer.mobile-drawer .p-drawer-header,
+html.dark .p-drawer.mobile-drawer .p-drawer-content,
+html.dark .p-drawer.mobile-drawer .p-drawer-footer {
+  background: var(--pj-bg-elevated);
+  color: var(--pj-text);
+}
+
+.p-drawer.mobile-drawer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.p-drawer.mobile-drawer .p-drawer-header {
+  padding-top: calc(0.85rem + env(safe-area-inset-top, 0px));
+}
+
+.p-drawer.mobile-drawer .p-drawer-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+</style>
+
 <style scoped>
 .app-shell {
   min-height: 100vh;
@@ -633,7 +661,7 @@ onBeforeUnmount(() => {
 
 .nav-link--active {
   background: var(--pj-primary-soft);
-  color: var(--pj-navy);
+  color: var(--pj-primary);
   font-weight: 600;
   box-shadow: inset 3px 0 0 var(--pj-gold);
 }
@@ -832,18 +860,12 @@ onBeforeUnmount(() => {
   max-width: 100%;
 }
 
-:deep(.mobile-drawer .p-drawer-content) {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
 .mobile-drawer__footer {
   margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  padding: 1rem 0 max(0.75rem, env(safe-area-inset-bottom, 0px));
+  padding: 1rem 0 max(1.15rem, env(safe-area-inset-bottom, 0px));
 }
 
 .mobile-drawer__user {

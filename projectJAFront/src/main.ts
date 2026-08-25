@@ -23,7 +23,7 @@ app.use(PrimeVue, {
   theme: {
     preset: ProjectJaPreset,
     options: {
-      darkModeSelector: '.dark',
+      darkModeSelector: ':root.dark',
       cssLayer: false,
     },
   },

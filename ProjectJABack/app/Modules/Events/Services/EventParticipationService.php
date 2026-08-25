@@ -571,6 +571,7 @@ final class EventParticipationService
             'reglas' => $event->reglas,
             'estado' => $event->estado,
             'image_url' => $event->image_url,
+            'banner_url' => $event->banner_url,
             'evento_padre_id' => $event->evento_padre_id,
             'es_calificable' => (bool) $event->es_calificable,
             'puntaje_maximo' => $event->puntaje_maximo !== null ? (float) $event->puntaje_maximo : null,
