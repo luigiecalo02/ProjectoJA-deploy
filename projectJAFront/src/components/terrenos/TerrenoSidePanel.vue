@@ -7,6 +7,14 @@ import InputNumber from 'primevue/inputnumber'
 import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
+import ColorAlphaPicker from '@/components/terrenos/ColorAlphaPicker.vue'
+import {
+  DEFAULT_ESTRUCTURA_ALPHA,
+  DEFAULT_ESTRUCTURA_HEX,
+  DEFAULT_ZONA_ALPHA,
+  DEFAULT_ZONA_HEX,
+  colorToCss,
+} from '@/utils/color'
 import type {
   ConfiguracionTerreno,
   EstructuraTerreno,
@@ -178,8 +186,14 @@ const showConfigOverview = computed(
             class="tree-item"
             @click="emit('selectEstructura', estructura)"
           >
-            <strong>{{ estructura.nombre }}</strong>
-            <small>{{ t(`terrenos.tipo.${estructura.tipo}`) }}</small>
+            <span
+              class="swatch"
+              :style="{ background: colorToCss(estructura.color, DEFAULT_ESTRUCTURA_HEX, DEFAULT_ESTRUCTURA_ALPHA) }"
+            />
+            <span class="tree-item__text">
+              <strong>{{ estructura.nombre }}</strong>
+              <small>{{ t(`terrenos.tipo.${estructura.tipo}`) }}</small>
+            </span>
           </button>
         </div>
 
@@ -260,8 +274,14 @@ const showConfigOverview = computed(
             class="tree-item"
             @click="emit('selectZona', zona)"
           >
-            <strong>{{ zona.nombre }}</strong>
-            <small>{{ (zona.lotes || []).length }} {{ t('terrenos.lotes') }}</small>
+            <span
+              class="swatch"
+              :style="{ background: colorToCss(zona.color, DEFAULT_ZONA_HEX, DEFAULT_ZONA_ALPHA) }"
+            />
+            <span class="tree-item__text">
+              <strong>{{ zona.nombre }}</strong>
+              <small>{{ (zona.lotes || []).length }} {{ t('terrenos.lotes') }}</small>
+            </span>
           </button>
         </div>
         <div v-if="lotesDirectos.length" class="tree">
@@ -295,6 +315,16 @@ const showConfigOverview = computed(
             :disabled="!canEdit"
             rows="3"
             @update:model-value="emit('update:zona', { descripcion: String($event) })"
+          />
+        </label>
+        <label>
+          <span>{{ t('terrenos.color') }}</span>
+          <ColorAlphaPicker
+            :model-value="selectedZona.color"
+            :disabled="!canEdit"
+            :default-hex="DEFAULT_ZONA_HEX"
+            :default-alpha="DEFAULT_ZONA_ALPHA"
+            @update:model-value="emit('update:zona', { color: $event })"
           />
         </label>
         <div class="metrics">
@@ -342,6 +372,16 @@ const showConfigOverview = computed(
             :disabled="!canEdit"
             rows="3"
             @update:model-value="emit('update:estructura', { descripcion: String($event) })"
+          />
+        </label>
+        <label>
+          <span>{{ t('terrenos.color') }}</span>
+          <ColorAlphaPicker
+            :model-value="selectedEstructura.color"
+            :disabled="!canEdit"
+            :default-hex="DEFAULT_ESTRUCTURA_HEX"
+            :default-alpha="DEFAULT_ESTRUCTURA_ALPHA"
+            @update:model-value="emit('update:estructura', { color: $event })"
           />
         </label>
         <div class="metrics">
@@ -485,7 +525,7 @@ const showConfigOverview = computed(
 
 .tree-item {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   gap: 0.5rem;
   padding: 0.55rem 0.65rem;
   border: 1px solid color-mix(in srgb, var(--pj-border, #ddd) 80%, transparent);
@@ -493,6 +533,21 @@ const showConfigOverview = computed(
   background: transparent;
   cursor: pointer;
   text-align: left;
+}
+.tree-item__text {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.swatch {
+  flex: 0 0 0.9rem;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #000 18%, transparent);
+  background:
+    linear-gradient(45deg, #ccc 25%, transparent 25%) 0 0 / 6px 6px,
+    #fff;
 }
 
 .tree-item:hover {

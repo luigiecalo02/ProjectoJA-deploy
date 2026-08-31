@@ -17,6 +17,7 @@ class UpdateTerrenoRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'lugar_id' => ['sometimes', 'required', 'integer', 'exists:lugares,id'],
             'nombre' => ['sometimes', 'string', 'max:255'],
             'descripcion' => ['nullable', 'string'],
             'latitud' => ['nullable', 'numeric', 'between:-90,90'],

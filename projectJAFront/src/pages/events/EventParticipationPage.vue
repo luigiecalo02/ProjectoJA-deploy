@@ -16,6 +16,7 @@ import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
 import { extractBannerHeroVars } from '@/utils/dominantColor'
+import { cssColor } from '@/utils/color'
 import type {
   EventParticipation,
   ParticipationNode,
@@ -180,7 +181,7 @@ function toJudgeTreeNode(node: ParticipationNode): JudgeTreeNode {
     es_calificable: node.es_calificable,
     requiere_evidencia: node.requiere_evidencia,
     icono: node.categoria_subevento?.icono || node.tipo_evento?.icono || 'pi pi-flag',
-    color: node.categoria_subevento?.color || node.tipo_evento?.color || null,
+    color: cssColor(node.categoria_subevento?.color || node.tipo_evento?.color) || null,
     categoria: node.categoria_subevento?.nombre || null,
     tipo: node.tipo_evento?.nombre || null,
     hijos: (node.hijos || []).map(toJudgeTreeNode),

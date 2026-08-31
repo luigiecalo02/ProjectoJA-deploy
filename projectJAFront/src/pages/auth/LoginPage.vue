@@ -266,6 +266,13 @@ async function completeRegistration(): Promise<void> {
         :label="t('auth.registerClub')"
         @click="router.push({ name: 'club.inscripcion' })"
       />
+      <Button
+        type="button"
+        outlined
+        icon="pi pi-calendar"
+        :label="t('auth.publicEvents')"
+        @click="router.push({ name: 'eventos.publicos' })"
+      />
     </div>
   </form>
 
@@ -414,6 +421,13 @@ async function completeRegistration(): Promise<void> {
         icon="pi pi-flag"
         :label="t('auth.registerClub')"
         @click="router.push({ name: 'club.inscripcion' })"
+      />
+      <Button
+        type="button"
+        outlined
+        icon="pi pi-calendar"
+        :label="t('auth.publicEvents')"
+        @click="router.push({ name: 'eventos.publicos' })"
       />
     </div>
   </form>

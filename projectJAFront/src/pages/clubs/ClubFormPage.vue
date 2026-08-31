@@ -10,6 +10,7 @@ import Select from 'primevue/select'
 import RadioButton from 'primevue/radiobutton'
 import DatePicker from 'primevue/datepicker'
 import Message from 'primevue/message'
+import ColorAlphaPicker from '@/components/terrenos/ColorAlphaPicker.vue'
 import MediaProfileUpload from '@/components/media/MediaProfileUpload.vue'
 import Tag from 'primevue/tag'
 import Tabs from 'primevue/tabs'
@@ -447,11 +448,11 @@ onMounted(async () => {
             <div class="grid-2">
               <div class="field">
                 <label for="color_principal">{{ t('clubs.colorPrincipal') }}</label>
-                <InputText id="color_principal" v-model="form.color_principal" class="w-full" />
+                <ColorAlphaPicker id="color_principal" v-model="form.color_principal" default-hex="#1e3a5f" />
               </div>
               <div class="field">
                 <label for="color_secundario">{{ t('clubs.colorSecundario') }}</label>
-                <InputText id="color_secundario" v-model="form.color_secundario" class="w-full" />
+                <ColorAlphaPicker id="color_secundario" v-model="form.color_secundario" default-hex="#c4a35a" />
               </div>
             </div>
             <div class="field">

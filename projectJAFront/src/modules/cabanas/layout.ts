@@ -164,7 +164,16 @@ export function applyBedOrientation(
   _room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto'>,
   orientation: BedOrientation,
 ): void {
-  bed.rotacion = orientation === 'vertical' ? 90 : 0
+  bed.rotacion = orientation === 'vertical' ? 180 : 0
+}
+
+export function bedFlipped(bed: Pick<CabanaBed, 'rotacion'>): boolean {
+  const angle = normalizeAngle(bed.rotacion ?? 0)
+  return angle >= 90 && angle < 270
+}
+
+export function applyBedFacing(bed: CabanaBed, flipped: boolean): void {
+  bed.rotacion = flipped ? 180 : 0
 }
 
 export function catalogBedStatus(bed: CabanaBed): 'disponible' | 'ocupada' | 'mantenimiento' | 'bloqueada' {
@@ -172,6 +181,69 @@ export function catalogBedStatus(bed: CabanaBed): 'disponible' | 'ocupada' | 'ma
   if (bed.estado === 'no_disponible' || bed.bloqueada) return 'bloqueada'
   if (occupancyOf(bed) > 0) return 'ocupada'
   return 'disponible'
+}
+
+export type VisualBedStatus = 'disponible' | 'reservada' | 'ocupada' | 'seleccionada' | 'mantenimiento' | 'bloqueada'
+
+export function visualBedStatus(
+  bed: CabanaBed,
+  options: { selectedId?: number | null; assignedId?: number | null } = {},
+): VisualBedStatus {
+  if (options.selectedId === bed.id || options.assignedId === bed.id || bed.asignada_a_mi) {
+    return 'seleccionada'
+  }
+  if (bed.estado === 'mantenimiento') return 'mantenimiento'
+  if (bed.estado === 'no_disponible' || bed.bloqueada || bed.estado === 'bloqueada') return 'bloqueada'
+  const used = occupancyOf(bed)
+  const capacity = Number(bed.capacidad || 1)
+  if (used <= 0) return 'disponible'
+  if (used >= capacity) return 'ocupada'
+  return 'reservada'
+}
+
+export interface BedVisualUnit {
+  key: string
+  mode: 'single' | 'bunk' | 'double'
+  anchor: CabanaBed
+  top: CabanaBed | null
+  bottom: CabanaBed | null
+  beds: CabanaBed[]
+}
+
+export function bedVisualUnits(beds: CabanaBed[]): BedVisualUnit[] {
+  const seen = new Set<string>()
+  const units: BedVisualUnit[] = []
+  for (const bed of beds) {
+    if (bed.tipo === 'camarote' && bed.grupo_camarote) {
+      if (seen.has(bed.grupo_camarote)) continue
+      seen.add(bed.grupo_camarote)
+      const group = beds.filter((item) => item.grupo_camarote === bed.grupo_camarote)
+      const bottom = group.find((item) => item.nivel_camarote === 'abajo') ?? group[0]
+      const top = group.find((item) => item.nivel_camarote === 'arriba') ?? null
+      units.push({ key: bed.grupo_camarote, mode: 'bunk', anchor: bottom, top, bottom, beds: group })
+      continue
+    }
+    if (bed.tipo === 'camarote') {
+      units.push({
+        key: `bunk-${bed.id}`,
+        mode: 'bunk',
+        anchor: bed,
+        top: bed.nivel_camarote === 'arriba' ? bed : null,
+        bottom: bed.nivel_camarote === 'abajo' ? bed : bed,
+        beds: [bed],
+      })
+      continue
+    }
+    units.push({
+      key: `bed-${bed.id}`,
+      mode: bed.tipo === 'doble' ? 'double' : 'single',
+      anchor: bed,
+      top: null,
+      bottom: null,
+      beds: [bed],
+    })
+  }
+  return units
 }
 
 export function isBedInsideRoom(
@@ -250,24 +322,42 @@ export function snapToRoomPerimeter(
   room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto' | 'forma' | 'vertices'>,
   point: CabanaPoint,
 ): CabanaPoint {
+  const snapped = snapDoorToRoomWall(room, point)
+  return { x: snapped.x, y: snapped.y }
+}
+
+export function snapDoorToRoomWall(
+  room: Pick<CabanaRoom, 'x' | 'y' | 'ancho' | 'alto' | 'forma' | 'vertices'>,
+  point: CabanaPoint,
+  doorWidth = 56,
+): { x: number; y: number; rotacion: number } {
   if (roomShape(room) === 'circle') {
     const center = roomCenter(room)
     const radius = roomRadius(room)
     const dx = point.x - center.x
     const dy = point.y - center.y
     const length = Math.hypot(dx, dy) || 1
-    return { x: center.x + (dx / length) * radius, y: center.y + (dy / length) * radius }
+    return {
+      x: center.x + (dx / length) * radius,
+      y: center.y + (dy / length) * radius,
+      rotacion: normalizeAngle((Math.atan2(dy, dx) * 180) / Math.PI + 90),
+    }
   }
   const vertices = roomPolygon(room)
-  let best = vertices[0]
+  let best = { x: vertices[0]?.x ?? point.x, y: vertices[0]?.y ?? point.y, rotacion: 0 }
   let bestDist = Number.POSITIVE_INFINITY
+  const inset = Math.max(8, Number(doorWidth || 56) / 2)
   for (let i = 0; i < vertices.length; i += 1) {
     const a = vertices[i]
     const b = vertices[(i + 1) % vertices.length]
-    const snapped = closestPointOnSegment(point, a, b)
-    if (snapped.dist < bestDist) {
-      bestDist = snapped.dist
-      best = snapped.point
+    const candidate = closestPointOnSegment(point, a, b)
+    if (candidate.dist >= bestDist) continue
+    bestDist = candidate.dist
+    const placed = insetPointOnSegment(a, b, candidate.point, inset)
+    best = {
+      x: placed.x,
+      y: placed.y,
+      rotacion: wallRotation(a, b),
     }
   }
   return best
@@ -299,4 +389,22 @@ function closestPointOnSegment(point: CabanaPoint, a: CabanaPoint, b: CabanaPoin
   const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length))
   const snapped = { x: a.x + dx * t, y: a.y + dy * t }
   return { point: snapped, dist: Math.hypot(point.x - snapped.x, point.y - snapped.y) }
+}
+
+function wallRotation(a: CabanaPoint, b: CabanaPoint): number {
+  const angle = normalizeAngle((Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI)
+  return angle >= 180 ? angle - 180 : angle
+}
+
+function insetPointOnSegment(a: CabanaPoint, b: CabanaPoint, point: CabanaPoint, inset: number): CabanaPoint {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const length = Math.hypot(dx, dy)
+  if (length <= inset * 2) {
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+  }
+  const t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / (length * length)
+  const pad = inset / length
+  const clamped = Math.max(pad, Math.min(1 - pad, t))
+  return { x: a.x + dx * clamped, y: a.y + dy * clamped }
 }

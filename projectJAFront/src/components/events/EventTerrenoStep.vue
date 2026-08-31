@@ -17,6 +17,7 @@ import type { ConfiguracionTerreno, EventoLote, EventoTerreno, Terreno } from '@
 const props = defineProps<{
   eventId: number | null
   eventName?: string
+  lugarId?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -27,7 +28,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
-const { can } = usePermission()
+const { can, canCatalog } = usePermission()
 
 const loading = ref(false)
 const attaching = ref(false)
@@ -39,8 +40,8 @@ const distribucion = ref<EventoTerreno | null>(null)
 const detachVisible = ref(false)
 const configNombreResumen = ref<string | null>(null)
 
-const canManage = computed(() => can('terrenos.assign') || can('terrenos.update'))
-const canView = computed(() => can('terrenos.view') || canManage.value)
+const canManage = computed(() => can('terrenos.assign') || canCatalog('terrenos', 'update'))
+const canView = computed(() => canCatalog('terrenos', 'view') || canManage.value)
 
 const allLotes = computed(() => {
   const rows: Array<{ zonaNombre: string; lote: EventoLote }> = []
@@ -80,7 +81,11 @@ function emitSummary(): void {
 async function loadTerrenos(): Promise<void> {
   if (!canView.value) return
   try {
-    const result = await terrenosService.list({ per_page: 100, estado: 'activo' })
+    const result = await terrenosService.list({
+      per_page: 100,
+      estado: 'activo',
+      lugar_id: props.lugarId ?? undefined,
+    })
     terrenos.value = result.items
   } catch {
     terrenos.value = []
@@ -215,6 +220,13 @@ watch(
   },
 )
 
+watch(
+  () => props.lugarId,
+  () => {
+    void loadTerrenos()
+  },
+)
+
 watch(selectedTerrenoId, (id) => {
   if (distribucion.value) return
   void loadConfigs(id)
@@ -234,7 +246,10 @@ onMounted(async () => {
     </div>
     <p class="step-lead">{{ t('events.wizard.terrenoLead') }}</p>
 
-    <Message v-if="!eventId" severity="info" :closable="false">
+    <Message v-if="!lugarId" severity="info" :closable="false">
+      {{ t('events.wizard.pickPlaceFirst') }}
+    </Message>
+    <Message v-else-if="!eventId" severity="info" :closable="false">
       {{ t('events.wizard.terrenoNeedDraft') }}
     </Message>
 
@@ -283,11 +298,11 @@ onMounted(async () => {
             @click="attach"
           />
           <Button
-            v-if="can('terrenos.view')"
+            v-if="canCatalog('terrenos', 'view')"
             :label="t('events.wizard.terrenoManageTerrenos')"
             icon="pi pi-external-link"
             text
-            @click="router.push({ name: 'terrenos' })"
+            @click="router.push({ name: 'lugares' })"
           />
         </div>
         <p v-if="!terrenos.length" class="pj-muted">{{ t('events.wizard.terrenoEmptyCatalog') }}</p>

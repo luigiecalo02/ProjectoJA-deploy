@@ -16,6 +16,7 @@ use App\Modules\Events\Models\EventoProductoServicio;
 use App\Modules\Events\Models\EventoServicioReserva;
 use App\Modules\Events\Models\Seguro;
 use App\Modules\Cabanas\Services\AsignacionCamaService;
+use App\Modules\Terrains\Models\EventoLote;
 use App\Modules\Events\Models\TipoSeguro;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Services\CuentaBancariaService;
@@ -590,10 +591,17 @@ final class EventInscripcionService
                 ->where('estado', EventoServicioReserva::ESTADO_RESERVADA)
                 ->whereHas('oferta.producto', fn ($query) => $query->where('tipo', 'CABANA'))
                 ->update(['estado' => EventoServicioReserva::ESTADO_CONFIRMADA]);
+            if ($inscripcion->evento_lote_id) {
+                EventoLote::query()
+                    ->whereKey($inscripcion->evento_lote_id)
+                    ->where('estado', EventoLote::ESTADO_RESERVADO)
+                    ->update(['estado' => EventoLote::ESTADO_ASIGNADO]);
+            }
         }
 
         if ($estado === EventoInscripcion::ESTADO_NO_APROBADA) {
             $this->asignacionesCama->releaseByInscripcion($inscripcion);
+            $this->liberarPreferenciasPublicas($inscripcion);
         }
 
         return $inscripcion->fresh([
@@ -625,9 +633,12 @@ final class EventInscripcionService
                 'personas.asignacionesCama' => fn ($query) => $query->where('estado', 'activa')
                     ->with('cama.cuarto.piso.eventoCabana'),
                 'inscritoPor',
+                'persona',
+                'eventoLote',
+                'eventoCabana',
             ])
             ->where('evento_id', $root->id)
-            ->where('tipo', 'club')
+            ->whereIn('tipo', [EventoInscripcion::TIPO_CLUB, EventoInscripcion::TIPO_INDIVIDUAL])
             ->orderByRaw('primera_evidencia_at IS NULL')
             ->orderBy('primera_evidencia_at')
             ->orderBy('id')
@@ -1029,6 +1040,21 @@ final class EventInscripcionService
         if (! in_array((int) $actor->id, $ids, true)) {
             throw new AccessDeniedHttpException('Solo supervisores del evento pueden realizar esta acción.');
         }
+    }
+
+    private function liberarPreferenciasPublicas(EventoInscripcion $inscripcion): void
+    {
+        if ($inscripcion->evento_lote_id) {
+            EventoLote::query()
+                ->whereKey($inscripcion->evento_lote_id)
+                ->where('estado', EventoLote::ESTADO_RESERVADO)
+                ->update(['estado' => EventoLote::ESTADO_DISPONIBLE]);
+        }
+
+        $inscripcion->update([
+            'evento_lote_id' => null,
+            'evento_cabana_id' => null,
+        ]);
     }
 
     private function resolveRoot(Event $event): Event

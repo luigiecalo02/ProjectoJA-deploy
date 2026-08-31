@@ -6,6 +6,7 @@ use App\Modules\Cabanas\Http\Requests\SaveCroquisRequest;
 use App\Modules\Cabanas\Http\Requests\StoreCabanaRequest;
 use App\Modules\Cabanas\Http\Requests\SyncEventoCabanasRequest;
 use App\Modules\Cabanas\Http\Requests\UpdateCabanaRequest;
+use App\Modules\Cabanas\Http\Requests\UpdateEventoCamaPreciosRequest;
 use App\Modules\Cabanas\Http\Requests\UploadCabanaImageRequest;
 use App\Modules\Cabanas\Models\AsignacionCama;
 use App\Modules\Cabanas\Models\Cabana;
@@ -14,6 +15,7 @@ use App\Modules\Cabanas\Models\EventoCabanaCama;
 use App\Modules\Cabanas\Services\AsignacionCamaService;
 use App\Modules\Cabanas\Services\CabanaService;
 use App\Modules\Cabanas\Services\ElegibilidadCamaService;
+use App\Modules\Cabanas\Services\EventoAlojamientoCupoService;
 use App\Modules\Cabanas\Services\EventoCabanaService;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoInscripcionPersona;
@@ -29,6 +31,7 @@ final class CabanaController
         private readonly EventoCabanaService $eventos,
         private readonly AsignacionCamaService $asignaciones,
         private readonly ElegibilidadCamaService $elegibilidad,
+        private readonly EventoAlojamientoCupoService $cupos,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -36,7 +39,7 @@ final class CabanaController
         abort_unless($request->user()->can('viewAny', Cabana::class), Response::HTTP_FORBIDDEN);
 
         return ApiResponse::fromPaginator($this->cabanas->list(
-            $request->only('q', 'estado'),
+            $request->only('q', 'estado', 'lugar_id'),
             $request->integer('per_page', 15),
         ));
     }
@@ -80,7 +83,7 @@ final class CabanaController
 
     public function eventIndex(Request $request, Event $event): JsonResponse
     {
-        abort_unless($request->user()->can('view', $event) || $request->user()->hasPermission('cabanas.view'), 403);
+        abort_unless($request->user()->can('view', $event) || $request->user()->hasCatalogPermission('cabanas', 'view'), 403);
         $personaId = (int) ($request->user()->persona_id ?? 0);
         $items = $this->eventos->list($event)->map(fn (EventoCabana $cabana) => $this->eventPayload($cabana, $personaId));
 
@@ -94,6 +97,15 @@ final class CabanaController
             ->map(fn (EventoCabana $cabana) => $this->eventPayload($cabana, $personaId));
 
         return ApiResponse::success(['items' => $items], 'Cabañas del evento sincronizadas');
+    }
+
+    public function updateBedPrices(UpdateEventoCamaPreciosRequest $request, Event $event): JsonResponse
+    {
+        $personaId = (int) ($request->user()->persona_id ?? 0);
+        $items = $this->eventos->updateBedPrices($event, $request->validated('items'))
+            ->map(fn (EventoCabana $cabana) => $this->eventPayload($cabana, $personaId));
+
+        return ApiResponse::success(['items' => $items], 'Precios de camas actualizados');
     }
 
     public function alojamiento(Request $request, Event $event): JsonResponse
@@ -112,9 +124,17 @@ final class CabanaController
             ->first();
         $capacidad = $cabanas->sum('capacidad');
         $ocupacion = $cabanas->sum('ocupacion');
+        $pool = $this->cupos->pool($event);
+        $cupo = $this->cupos->cupoForUser($event, $request->user());
         $elegibilidad = $canSelfAssign
             ? $this->elegibilidad->explain($request->user(), $event)
             : ['eligible' => false, 'codigo' => 'sin_permiso', 'motivo' => 'No tienes permiso para elegir cama.'];
+        $cupoAbierto = $cupo?->isOpen() === true;
+        if ($canSelfAssign && $cupoAbierto && $elegibilidad['codigo'] === 'sin_reserva') {
+            $elegibilidad = ['eligible' => true, 'codigo' => 'ok', 'motivo' => null];
+        }
+        $puedeSeleccionar = $elegibilidad['eligible']
+            || ($canSelfAssign && $cupoAbierto && $cupo->restantes() > 0);
 
         return ApiResponse::success([
             'evento' => ['id' => $event->id, 'name' => $event->name],
@@ -123,9 +143,12 @@ final class CabanaController
             'ocupacion' => $ocupacion,
             'ocupadas' => $ocupacion,
             'capacidad' => $capacidad,
-            'puede_seleccionar' => $elegibilidad['eligible'],
+            'reservados' => $pool['reservados'],
+            'libres' => $pool['libres'],
+            'puede_seleccionar' => $puedeSeleccionar,
             'elegibilidad_codigo' => $elegibilidad['codigo'],
             'elegibilidad_motivo' => $elegibilidad['motivo'],
+            'cupo' => $cupo ? $this->cupos->payload($cupo, true) : null,
         ]);
     }
 
@@ -203,6 +226,11 @@ final class CabanaController
                             'codigo' => $cama->codigo,
                             'nombre' => $cama->nombre,
                             'capacidad' => $cama->capacidad,
+                            'tipo' => $cama->tipo ?? 'sencilla',
+                            'nivel_camarote' => $cama->nivel_camarote,
+                            'grupo_camarote' => $cama->grupo_camarote,
+                            'precio_sugerido' => $cama->precio_sugerido !== null ? (float) $cama->precio_sugerido : null,
+                            'precio' => $cama->precio !== null ? (float) $cama->precio : null,
                             'x' => $cama->x,
                             'y' => $cama->y,
                             'ancho' => $cama->ancho,
@@ -265,7 +293,14 @@ final class CabanaController
         return [
             'id' => $asignacion->id,
             'evento_cabana_cama_id' => $asignacion->evento_cabana_cama_id,
-            'cama' => $cama ? ['id' => $cama->id, 'codigo' => $cama->codigo, 'nombre' => $cama->nombre] : null,
+            'cama' => $cama ? [
+                'id' => $cama->id,
+                'codigo' => $cama->codigo,
+                'nombre' => $cama->nombre,
+                'tipo' => $cama->tipo,
+                'nivel_camarote' => $cama->nivel_camarote,
+                'precio' => $cama->precio !== null ? (float) $cama->precio : null,
+            ] : null,
             'cuarto' => $cuarto ? ['id' => $cuarto->id, 'nombre' => $cuarto->nombre, 'genero' => $cuarto->genero] : null,
             'piso' => $piso ? ['id' => $piso->id, 'nombre' => $piso->nombre] : null,
             'cabana' => $cabana ? ['id' => $cabana->id, 'nombre' => $cabana->nombre] : null,

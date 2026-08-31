@@ -95,7 +95,9 @@ return new class extends Migration
         Schema::table('evento_pago', function (Blueprint $table) {
             $table->dropForeign(['inscripcion_id']);
         });
-        DB::statement('ALTER TABLE evento_pago MODIFY inscripcion_id BIGINT UNSIGNED NULL');
+        Schema::table('evento_pago', function (Blueprint $table) {
+            $table->unsignedBigInteger('inscripcion_id')->nullable()->change();
+        });
         Schema::table('evento_pago', function (Blueprint $table) {
             $table->foreign('inscripcion_id')->references('id')->on('evento_inscripcion')->nullOnDelete();
         });

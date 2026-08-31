@@ -1,4 +1,4 @@
-import { applyBedOrientation, applyDoorOrientation, bedOrientation, bedState, doorOrientation, isBedInsideRoom, normalizeAngle, normalizeLegacyBedRotation, objectCenter, occupancyOf, pointInRoom, pxToMeters, roomCaption, roomState, rotateTransform } from './layout'
+import { applyBedFacing, applyBedOrientation, applyDoorOrientation, bedFlipped, bedOrientation, bedState, bedVisualUnits, doorOrientation, isBedInsideRoom, normalizeAngle, normalizeLegacyBedRotation, objectCenter, occupancyOf, pointInRoom, pxToMeters, roomCaption, roomState, rotateTransform, snapDoorToRoomWall, visualBedStatus } from './layout'
 import type { CabanaBed, CabanaRoom } from './types'
 
 const bed = (overrides: Partial<CabanaBed> = {}): CabanaBed => ({
@@ -37,10 +37,15 @@ export function runLayoutTests(): string[] {
     ['100px equivalen a 1 metro', () => pxToMeters(600) === 6],
     ['etiqueta de cuarto incluye codigo y genero', () => roomCaption(room({ codigo: '101', genero: 'M' })) === '101 - Hombres'],
     ['cama ancha es horizontal', () => bedOrientation(bed({ ancho: 120, alto: 72 })) === 'horizontal'],
-    ['rotar a vertical deja 90 grados', () => {
+    ['orientacion opuesta voltea la cama', () => {
       const item = bed({ x: 20, y: 30, ancho: 120, alto: 72, rotacion: 0 })
       applyBedOrientation(item, room(), 'vertical')
-      return item.rotacion === 90
+      return item.rotacion === 180
+    }],
+    ['aplicar facing derecha deja rotacion 180', () => {
+      const item = bed({ rotacion: 0 })
+      applyBedFacing(item, true)
+      return item.rotacion === 180 && bedFlipped(item)
     }],
     ['punto dentro del circulo', () => pointInRoom({ x: 100, y: 100 }, room({ x: 0, y: 0, ancho: 200, alto: 200, forma: 'circle' }))],
     ['punto fuera del circulo', () => !pointInRoom({ x: 5, y: 5 }, room({ x: 0, y: 0, ancho: 200, alto: 200, forma: 'circle' }))],
@@ -60,6 +65,27 @@ export function runLayoutTests(): string[] {
       normalizeLegacyBedRotation(item)
       return item.ancho === 120 && item.alto === 72 && item.rotacion === 90
     }],
+    ['puerta se pega a la pared inferior', () => {
+      const snapped = snapDoorToRoomWall(room(), { x: 90, y: 180 })
+      return snapped.y === 150 && snapped.rotacion === 0
+    }],
+    ['puerta se pega a la pared derecha en vertical', () => {
+      const snapped = snapDoorToRoomWall(room(), { x: 240, y: 80 })
+      return snapped.x === 200 && snapped.rotacion === 90
+    }],
+    ['puerta no se sale de la esquina del muro', () => {
+      const snapped = snapDoorToRoomWall(room(), { x: 0, y: 0 }, 56)
+      return snapped.x >= 28 && snapped.y === 0
+    }],
+    ['camarote se agrupa en un solo icono', () => {
+      const units = bedVisualUnits([
+        bed({ id: 1, tipo: 'camarote', grupo_camarote: 'g1', nivel_camarote: 'abajo' }),
+        bed({ id: 2, tipo: 'camarote', grupo_camarote: 'g1', nivel_camarote: 'arriba' }),
+        bed({ id: 3, codigo: 'S1', tipo: 'sencilla' }),
+      ])
+      return units.length === 2 && units[0].mode === 'bunk' && units[1].mode === 'single'
+    }],
+    ['ocupacion parcial se ve reservada', () => visualBedStatus(bed({ ocupadas: 1, capacidad: 2 })) === 'reservada'],
   ]
 
   return cases.filter(([, run]) => !run()).map(([name]) => name)

@@ -35,7 +35,7 @@ final class TerrenoController
         abort_unless($request->user()->can('viewAny', Terreno::class), Response::HTTP_FORBIDDEN);
 
         $paginator = $this->terrenoService->list(
-            $request->only(['q', 'estado']),
+            $request->only(['q', 'estado', 'lugar_id']),
             (int) $request->integer('per_page', 15),
         );
         $paginator->getCollection()->transform(fn (Terreno $t) => $this->payloadTerreno($t));
@@ -340,6 +340,11 @@ final class TerrenoController
     {
         $data = [
             'id' => $terreno->id,
+            'lugar_id' => $terreno->lugar_id,
+            'lugar' => $terreno->lugar ? [
+                'id' => $terreno->lugar->id,
+                'nombre' => $terreno->lugar->nombre,
+            ] : null,
             'nombre' => $terreno->nombre,
             'descripcion' => $terreno->descripcion,
             'latitud' => $terreno->latitud,

@@ -14,10 +14,11 @@ return new class extends Migration
         });
 
         DB::statement('
-            UPDATE lotes_terreno lt
-            INNER JOIN zonas_terreno zt ON zt.id = lt.zona_terreno_id
-            SET lt.terreno_id = zt.terreno_id
-            WHERE lt.terreno_id IS NULL
+            UPDATE lotes_terreno
+            SET terreno_id = (
+                SELECT zt.terreno_id FROM zonas_terreno zt WHERE zt.id = lotes_terreno.zona_terreno_id
+            )
+            WHERE terreno_id IS NULL
         ');
 
         Schema::table('lotes_terreno', function (Blueprint $table) {
@@ -25,7 +26,9 @@ return new class extends Migration
             $table->dropUnique(['zona_terreno_id', 'codigo']);
         });
 
-        DB::statement('ALTER TABLE lotes_terreno MODIFY zona_terreno_id BIGINT UNSIGNED NULL');
+        Schema::table('lotes_terreno', function (Blueprint $table) {
+            $table->unsignedBigInteger('zona_terreno_id')->nullable()->change();
+        });
 
         Schema::table('lotes_terreno', function (Blueprint $table) {
             $table->foreign('zona_terreno_id')->references('id')->on('zonas_terreno')->nullOnDelete();
@@ -37,17 +40,20 @@ return new class extends Migration
         });
 
         DB::statement('
-            UPDATE eventos_lotes el
-            INNER JOIN eventos_zonas ez ON ez.id = el.evento_zona_id
-            SET el.evento_terreno_id = ez.evento_terreno_id
-            WHERE el.evento_terreno_id IS NULL
+            UPDATE eventos_lotes
+            SET evento_terreno_id = (
+                SELECT ez.evento_terreno_id FROM eventos_zonas ez WHERE ez.id = eventos_lotes.evento_zona_id
+            )
+            WHERE evento_terreno_id IS NULL
         ');
 
         Schema::table('eventos_lotes', function (Blueprint $table) {
             $table->dropForeign(['evento_zona_id']);
         });
 
-        DB::statement('ALTER TABLE eventos_lotes MODIFY evento_zona_id BIGINT UNSIGNED NULL');
+        Schema::table('eventos_lotes', function (Blueprint $table) {
+            $table->unsignedBigInteger('evento_zona_id')->nullable()->change();
+        });
 
         Schema::table('eventos_lotes', function (Blueprint $table) {
             $table->foreign('evento_zona_id')->references('id')->on('eventos_zonas')->nullOnDelete();

@@ -3,8 +3,11 @@
 namespace App\Modules\Events\Services;
 
 use App\Models\User;
+use App\Modules\Cabanas\Models\EventoCabana;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\TipoEvento;
+use App\Modules\Lugares\Models\Lugar;
+use App\Modules\Terrains\Models\EventoTerreno;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\TipoOrganizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
@@ -40,6 +43,7 @@ final class EventService
             'supervisores:id,name,email',
             'criterios:id,nombre,descripcion,estado,orden',
             'cuentaBancaria.qrFile',
+            'catalogLugar:id,nombre,descripcion,latitud,longitud,nivel_zoom,estado',
         ])->withCount('hijos');
 
         $manageAll = $actor->hasPermission('events.create')
@@ -114,6 +118,7 @@ final class EventService
                 'supervisores:id,name,email',
                 'criterios:id,nombre,descripcion,estado,orden',
                 'cuentaBancaria.qrFile',
+                'catalogLugar:id,nombre,descripcion,latitud,longitud,nivel_zoom,estado',
             ])
             ->withCount('hijos');
 
@@ -368,6 +373,9 @@ final class EventService
             $data['permite_inscripcion_organizacion'] = $data['permite_inscripcion_organizacion'] ?? false;
             $data['permite_inscripcion_club'] = $data['permite_inscripcion_club'] ?? false;
             $data['permite_inscripcion_iglesia'] = $data['permite_inscripcion_iglesia'] ?? false;
+            $data['usar_lotes'] = $data['usar_lotes'] ?? false;
+            $data['usar_cabanas'] = $data['usar_cabanas'] ?? false;
+            $this->applyLugarSnapshot($data);
 
             if (! empty($data['evento_padre_id']) && ! isset($data['orden'])) {
                 $data['orden'] = (int) Event::query()
@@ -405,6 +413,7 @@ final class EventService
                 'supervisores:id,name,email',
                 'criterios:id,nombre,descripcion,estado,orden',
                 'cuentaBancaria.qrFile',
+                'catalogLugar:id,nombre,descripcion,latitud,longitud,nivel_zoom,estado',
             ]);
             $this->auditLogger->log('events', 'create', null, $event->toArray(), $event);
 
@@ -448,6 +457,11 @@ final class EventService
         if ($hasSupervisores) {
             $this->assertUsersHaveRole($supervisorIds ?? [], 'supervisor', 'supervisor_ids');
         }
+        if (array_key_exists('lugar_id', $data)) {
+            $this->assertLugarCompatible($event, $data['lugar_id'] !== null ? (int) $data['lugar_id'] : null);
+            $this->applyLugarSnapshot($data);
+        }
+
         if ($hasOrgs || array_key_exists('organizacion_id', $data)) {
             if (is_array($orgIds)) {
                 $this->applyHomeOrganization($actor, $data, $orgIds);
@@ -496,6 +510,7 @@ final class EventService
                 'supervisores:id,name,email',
                 'criterios:id,nombre,descripcion,estado,orden',
                 'cuentaBancaria.qrFile',
+                'catalogLugar:id,nombre,descripcion,latitud,longitud,nivel_zoom,estado',
             ]);
             $this->auditLogger->log('events', 'update', $old, $event->toArray(), $event);
 
@@ -706,6 +721,59 @@ final class EventService
             'organizaciones:id,nombre,codigo',
             'tiposOrganizacion:id,nombre',
         ]);
+    }
+
+    /** @param  array<string, mixed>  $data */
+    private function applyLugarSnapshot(array &$data): void
+    {
+        if (! array_key_exists('lugar_id', $data) || $data['lugar_id'] === null || $data['lugar_id'] === '') {
+            return;
+        }
+
+        $lugar = Lugar::query()->find((int) $data['lugar_id']);
+        if (! $lugar) {
+            return;
+        }
+
+        $data['lugar'] = $lugar->nombre;
+        if (! array_key_exists('latitud', $data) || $data['latitud'] === null) {
+            $data['latitud'] = $lugar->latitud;
+        }
+        if (! array_key_exists('longitud', $data) || $data['longitud'] === null) {
+            $data['longitud'] = $lugar->longitud;
+        }
+    }
+
+    private function assertLugarCompatible(Event $event, ?int $lugarId): void
+    {
+        $eventoTerreno = EventoTerreno::query()
+            ->where('evento_id', $event->id)
+            ->with('terreno:id,lugar_id')
+            ->first();
+        $hasCabanas = EventoCabana::query()->where('evento_id', $event->id)->exists();
+
+        if (! $lugarId && ($eventoTerreno || $hasCabanas)) {
+            throw ValidationException::withMessages([
+                'lugar_id' => ['No se puede quitar el lugar mientras el evento tenga terreno o cabañas asociadas.'],
+            ]);
+        }
+
+        if ($eventoTerreno?->terreno && $lugarId && (int) $eventoTerreno->terreno->lugar_id !== $lugarId) {
+            throw ValidationException::withMessages([
+                'lugar_id' => ['El evento ya tiene un terreno de otro lugar. Desasócielo antes de cambiar el lugar.'],
+            ]);
+        }
+
+        $mismatch = $lugarId && EventoCabana::query()
+            ->where('evento_id', $event->id)
+            ->whereHas('cabana', fn ($q) => $q->where('lugar_id', '!=', $lugarId))
+            ->exists();
+
+        if ($mismatch) {
+            throw ValidationException::withMessages([
+                'lugar_id' => ['El evento ya tiene cabañas de otro lugar. Retírelas antes de cambiar el lugar.'],
+            ]);
+        }
     }
 
     /**

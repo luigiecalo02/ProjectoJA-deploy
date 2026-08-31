@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ClubEvent } from '@/modules/events/types'
+import { cssColor } from '@/utils/color'
 
 const props = withDefaults(
   defineProps<{
@@ -81,7 +82,7 @@ function onOpen(node: ClubEvent): void {
         <span
           v-else
           class="evt-tree__icon"
-          :style="{ color: node.categoria_subevento?.color || node.tipo_evento?.color || undefined }"
+          :style="{ color: cssColor(node.categoria_subevento?.color || node.tipo_evento?.color) }"
         >
           <i :class="node.categoria_subevento?.icono || node.tipo_evento?.icono || 'pi pi-flag'" />
         </span>

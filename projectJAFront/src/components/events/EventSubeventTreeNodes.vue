@@ -2,6 +2,7 @@
 import { useI18n } from 'vue-i18n'
 import Button from 'primevue/button'
 import type { ClubEvent } from '@/modules/events/types'
+import { cssColor } from '@/utils/color'
 
 const props = withDefaults(
   defineProps<{
@@ -99,7 +100,7 @@ function dropClassFor(itemId: number): string {
         <span
           v-else
           class="sub-tree__icon"
-          :style="{ color: node.categoria_subevento?.color || undefined }"
+          :style="{ color: cssColor(node.categoria_subevento?.color) }"
         >
           <i :class="iconFor(node)" />
         </span>

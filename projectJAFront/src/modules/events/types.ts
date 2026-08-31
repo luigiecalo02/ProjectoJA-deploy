@@ -556,6 +556,18 @@ export interface ClubEvent {
   descripcion?: string | null
   reglas?: string | null
   lugar?: string | null
+  lugar_id?: number | null
+  lugar_catalogo?: {
+    id: number
+    nombre: string
+    descripcion?: string | null
+    latitud?: number | null
+    longitud?: number | null
+    nivel_zoom?: number | null
+    estado?: string
+  } | null
+  usar_lotes?: boolean
+  usar_cabanas?: boolean
   latitud?: number | null
   longitud?: number | null
   image_url: string | null
@@ -701,6 +713,9 @@ export interface EventFormPayload {
   name: string
   descripcion?: string | null
   lugar?: string | null
+  lugar_id?: number | null
+  usar_lotes?: boolean
+  usar_cabanas?: boolean
   latitud?: number | null
   longitud?: number | null
   starts_at: string
@@ -1049,8 +1064,16 @@ export interface EventoInscripcion {
   id: number
   evento_id: number
   tipo: string
-  organizacion_id: number
+  organizacion_id: number | null
   organizacion?: { id: number; nombre: string; logo_url?: string | null } | null
+  persona?: {
+    id: number
+    full_name: string
+    identificacion?: string | null
+    correo?: string | null
+  } | null
+  evento_lote?: { id: number; codigo?: string | null; nombre?: string | null } | null
+  evento_cabana?: { id: number; nombre: string } | null
   estado: EventoInscripcionEstado
   total_declarado?: number | null
   total_consignado?: number

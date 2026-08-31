@@ -1,6 +1,8 @@
 export type CabanaEstado = 'activa' | 'inactiva'
 export type GeneroAlojamiento = 'M' | 'F' | 'MIXTO'
 export type EstadoCama = 'disponible' | 'parcial' | 'completa' | 'seleccionada' | 'bloqueada'
+export type TipoCama = 'sencilla' | 'doble' | 'multiple' | 'camarote'
+export type NivelCamarote = 'abajo' | 'arriba'
 export type ElegibilidadCodigo = 'ok' | 'sin_persona' | 'sin_sexo' | 'sin_inscripcion' | 'sin_reserva' | 'sin_permiso'
 
 export interface CabanaBed {
@@ -15,6 +17,11 @@ export interface CabanaBed {
   rotacion?: number
   genero?: GeneroAlojamiento | null
   capacidad: number
+  tipo?: TipoCama
+  nivel_camarote?: NivelCamarote | null
+  grupo_camarote?: string | null
+  precio_sugerido?: number | null
+  precio?: number | null
   ocupacion?: number
   ocupadas?: number
   estado?: string
@@ -69,6 +76,8 @@ export interface CabanaFloor {
 
 export interface Cabana {
   id: number
+  lugar_id?: number | null
+  lugar?: { id: number; nombre: string } | null
   nombre: string
   descripcion?: string | null
   image_url?: string | null
@@ -83,6 +92,7 @@ export interface Cabana {
 }
 
 export interface CabanaPayload {
+  lugar_id: number
   nombre: string
   descripcion?: string | null
   estado?: CabanaEstado
@@ -119,6 +129,10 @@ export interface CabanaLayoutPayload {
         rotacion?: number
         genero?: GeneroAlojamiento | null
         capacidad: number
+        tipo?: TipoCama
+        nivel_camarote?: NivelCamarote | null
+        grupo_camarote?: string | null
+        precio_sugerido?: number | null
         estado?: string
       }>
     }>
@@ -157,6 +171,46 @@ export interface AsignacionCama {
   cabana?: Pick<Cabana, 'id' | 'nombre'> | null
 }
 
+export interface AlojamientoCupoUser {
+  id: number
+  name: string
+  email: string
+}
+
+export interface AlojamientoCupoAsignacion {
+  id: number
+  inscripcion_persona_id: number
+  nombre?: string | null
+  cama?: Pick<CabanaBed, 'id' | 'codigo' | 'nombre'> | null
+}
+
+export interface AlojamientoCupo {
+  id: number
+  user_id: number
+  cupos: number
+  usados: number
+  restantes: number
+  estado: 'abierto' | 'cerrado'
+  cerrado_at?: string | null
+  user?: AlojamientoCupoUser | null
+  asignaciones?: AlojamientoCupoAsignacion[]
+}
+
+export interface AlojamientoCupoPool {
+  items: AlojamientoCupo[]
+  capacidad: number
+  ocupadas: number
+  reservados: number
+  libres: number
+}
+
+export interface AlojamientoCandidato {
+  id: number
+  nombre: string
+  identificacion?: string | null
+  sexo?: string | null
+}
+
 export interface AlojamientoEvento {
   evento: {
     id: number
@@ -168,7 +222,10 @@ export interface AlojamientoEvento {
   ocupacion?: number
   ocupadas: number
   capacidad: number
+  reservados?: number
+  libres?: number
   puede_seleccionar: boolean
   elegibilidad_codigo?: ElegibilidadCodigo | string
   elegibilidad_motivo?: string | null
+  cupo?: AlojamientoCupo | null
 }

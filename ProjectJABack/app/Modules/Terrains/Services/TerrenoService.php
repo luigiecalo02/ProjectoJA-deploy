@@ -21,7 +21,9 @@ final class TerrenoService
 
     public function list(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        $query = Terreno::query()->withCount(['configuraciones', 'estructuras', 'eventosTerrenos']);
+        $query = Terreno::query()
+            ->with('lugar:id,nombre,latitud,longitud,nivel_zoom,estado')
+            ->withCount(['configuraciones', 'estructuras', 'eventosTerrenos']);
 
         if (! empty($filters['q'])) {
             $q = trim((string) $filters['q']);
@@ -35,6 +37,10 @@ final class TerrenoService
             $query->where('estado', $filters['estado']);
         }
 
+        if (! empty($filters['lugar_id'])) {
+            $query->where('lugar_id', (int) $filters['lugar_id']);
+        }
+
         return $query->orderByDesc('id')->paginate($perPage);
     }
 
@@ -42,6 +48,7 @@ final class TerrenoService
     {
         return Terreno::query()
             ->with([
+                'lugar:id,nombre,latitud,longitud,nivel_zoom,estado',
                 'estructuras',
                 'configuraciones' => fn ($q) => $q->withCount(['zonas', 'lotes'])->orderByDesc('es_default')->orderBy('orden'),
                 'creador:id,name,email',
@@ -57,6 +64,7 @@ final class TerrenoService
 
         return DB::transaction(function () use ($actor, $data, $measures) {
             $terreno = Terreno::query()->create([
+                'lugar_id' => $data['lugar_id'],
                 'nombre' => $data['nombre'],
                 'descripcion' => $data['descripcion'] ?? null,
                 'latitud' => $data['latitud'] ?? null,

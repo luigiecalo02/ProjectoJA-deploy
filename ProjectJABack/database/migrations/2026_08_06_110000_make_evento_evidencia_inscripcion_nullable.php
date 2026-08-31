@@ -13,7 +13,9 @@ return new class extends Migration
             $table->dropForeign(['inscripcion_id']);
         });
 
-        DB::statement('ALTER TABLE evento_evidencia MODIFY inscripcion_id BIGINT UNSIGNED NULL');
+        Schema::table('evento_evidencia', function (Blueprint $table) {
+            $table->unsignedBigInteger('inscripcion_id')->nullable()->change();
+        });
 
         Schema::table('evento_evidencia', function (Blueprint $table) {
             $table->foreign('inscripcion_id')
@@ -29,7 +31,9 @@ return new class extends Migration
             $table->dropForeign(['inscripcion_id']);
         });
 
-        DB::statement('ALTER TABLE evento_evidencia MODIFY inscripcion_id BIGINT UNSIGNED NOT NULL');
+        Schema::table('evento_evidencia', function (Blueprint $table) {
+            $table->unsignedBigInteger('inscripcion_id')->nullable(false)->change();
+        });
 
         Schema::table('evento_evidencia', function (Blueprint $table) {
             $table->foreign('inscripcion_id')

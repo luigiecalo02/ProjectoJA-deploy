@@ -31,7 +31,7 @@ final class DistribucionEventoController
     public function show(Request $request, Event $event): JsonResponse
     {
         abort_unless(
-            $request->user()->hasPermission('terrenos.view') || $request->user()->can('view', $event),
+            $request->user()->hasCatalogPermission('terrenos', 'view') || $request->user()->can('view', $event),
             Response::HTTP_FORBIDDEN
         );
 

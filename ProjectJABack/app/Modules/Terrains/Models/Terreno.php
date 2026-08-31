@@ -3,6 +3,7 @@
 namespace App\Modules\Terrains\Models;
 
 use App\Models\User;
+use App\Modules\Lugares\Models\Lugar;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,6 +17,7 @@ class Terreno extends Model
     public const ESTADO_INACTIVO = 'inactivo';
 
     protected $fillable = [
+        'lugar_id',
         'nombre',
         'descripcion',
         'latitud',
@@ -41,6 +43,11 @@ class Terreno extends Model
             'perimetro' => 'float',
             'metros_por_persona' => 'float',
         ];
+    }
+
+    public function lugar(): BelongsTo
+    {
+        return $this->belongsTo(Lugar::class, 'lugar_id');
     }
 
     public function creador(): BelongsTo

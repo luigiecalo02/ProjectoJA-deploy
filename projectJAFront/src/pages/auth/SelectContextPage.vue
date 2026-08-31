@@ -10,6 +10,7 @@ import { getApiErrorMessage } from '@/services/api'
 import type { AuthContextOption } from '@/modules/auth/types'
 import { brandConfig } from '@/config/brand'
 import { clubLoaderKeyFromContext, persistClubLoader } from '@/modules/auth/clubLogin'
+import { cssColor } from '@/utils/color'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -35,8 +36,8 @@ function cardStyle(option: AuthContextOption): Record<string, string> | undefine
   if (!primary) return undefined
   const secondary = option.color_secundario?.trim() || primary
   return {
-    '--card-accent': primary,
-    '--card-accent-2': secondary,
+    '--card-accent': cssColor(primary) || primary,
+    '--card-accent-2': cssColor(secondary) || secondary,
   }
 }
 

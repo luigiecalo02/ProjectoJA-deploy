@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
@@ -13,14 +13,18 @@ import type {
   CabanaLayoutPayload,
   CabanaPoint,
   CabanaRoom,
+  NivelCamarote,
   RoomShape,
+  TipoCama,
 } from '@/modules/cabanas/types'
 import {
   angleFromPoints,
-  applyBedOrientation,
+  applyBedFacing,
   applyDoorOrientation,
+  bedFlipped,
   bedOrientation,
   boundsFromPoints,
+  bedVisualUnits,
   catalogBedStatus,
   defaultDoorForRoom,
   doorOrientation,
@@ -36,9 +40,12 @@ import {
   roomShape,
   rotateHandlePoint,
   rotateTransform,
-  snapToRoomPerimeter,
+  snapDoorToRoomWall,
+  visualBedStatus,
+  type BedVisualUnit,
   type ObjectOrientation,
 } from '@/modules/cabanas/layout'
+import BedVisual from '@/components/cabanas/BedVisual.vue'
 
 type EditorTool = 'select' | 'draw-square' | 'draw-circle' | 'draw-polygon' | 'place-door' | 'erase'
 type Selection =
@@ -67,20 +74,27 @@ const tool = ref<EditorTool>('select')
 const drawOrientation = ref<ObjectOrientation>('horizontal')
 const drawAngle = ref(0)
 const selection = ref<Selection>(null)
+const selectedBedIds = ref<number[]>([])
 const zoom = ref(1)
+const canvasWrapRef = ref<HTMLElement | null>(null)
+const wrapSize = ref({ width: 0, height: 0 })
+let wrapObserver: ResizeObserver | null = null
 const draftRoom = ref<{ x: number; y: number; ancho: number; alto: number; forma: RoomShape } | null>(null)
 const draftPolygon = ref<CabanaPoint[]>([])
+const draftMarquee = ref<{ x: number; y: number; ancho: number; alto: number } | null>(null)
 const past = ref<string[]>([])
 const future = ref<string[]>([])
 let nextTemporaryId = -1
 let interaction:
   | {
-      kind: 'draw' | 'move-room' | 'resize-room' | 'move-bed' | 'resize-bed' | 'rotate-bed' | 'rotate-door'
+      kind: 'draw' | 'move-room' | 'resize-room' | 'move-bed' | 'resize-bed' | 'rotate-door' | 'move-door' | 'marquee'
       startX: number
       startY: number
       room?: CabanaRoom
       bed?: CabanaBed
+      door?: CabanaDoor
       initial: { x: number; y: number; ancho?: number; alto?: number }
+      initialBeds?: Array<{ id: number; x: number; y: number }>
     }
   | null = null
 
@@ -89,10 +103,15 @@ const genderOptions = [
   { label: 'Mujeres', value: 'F' },
   { label: 'Mixta', value: 'MIXTO' },
 ]
-const bedTypeOptions = [
-  { label: 'Sencilla', value: 1 },
-  { label: 'Doble', value: 2 },
-  { label: 'Múltiple', value: 3 },
+const bedTypeOptions: Array<{ label: string; value: TipoCama }> = [
+  { label: 'Sencilla', value: 'sencilla' },
+  { label: 'Doble', value: 'doble' },
+  { label: 'Múltiple', value: 'multiple' },
+  { label: 'Camarote', value: 'camarote' },
+]
+const bunkLevelOptions: Array<{ label: string; value: NivelCamarote }> = [
+  { label: 'Piso de abajo', value: 'abajo' },
+  { label: 'Piso de arriba', value: 'arriba' },
 ]
 const bedStatusOptions = [
   { label: 'Disponible', value: 'disponible' },
@@ -112,19 +131,48 @@ const activeFloor = computed(() => floors.value.find((floor) => floor.id === act
 const activeRoom = computed(
   () => activeFloor.value?.cuartos.find((room) => room.id === activeRoomId.value) ?? null,
 )
-const viewWidth = computed(() => {
-  if (activeRoom.value) return activeRoom.value.ancho + 120
-  return activeFloor.value?.ancho || 1000
-})
-const viewHeight = computed(() => {
-  if (activeRoom.value) return activeRoom.value.alto + 120
-  return activeFloor.value?.alto || 650
-})
-const viewBox = computed(() => {
+function syncWrapSize(): void {
+  const el = canvasWrapRef.value
+  if (!el) return
+  wrapSize.value = { width: el.clientWidth, height: el.clientHeight }
+}
+
+function fittedView(baseWidth: number, baseHeight: number): { width: number; height: number } {
+  const wrapW = wrapSize.value.width
+  const wrapH = wrapSize.value.height
+  if (wrapW < 8 || wrapH < 8) return { width: baseWidth, height: baseHeight }
+  const fit = Math.min(wrapW / baseWidth, wrapH / baseHeight)
+  if (!Number.isFinite(fit) || fit <= 0) return { width: baseWidth, height: baseHeight }
+  return { width: wrapW / fit, height: wrapH / fit }
+}
+
+const viewBase = computed(() => {
   if (activeRoom.value) {
-    return `${activeRoom.value.x - 60} ${activeRoom.value.y - 60} ${viewWidth.value} ${viewHeight.value}`
+    return { width: activeRoom.value.ancho + 120, height: activeRoom.value.alto + 120 }
   }
-  return `0 0 ${viewWidth.value} ${viewHeight.value}`
+  return {
+    width: activeFloor.value?.ancho || 1000,
+    height: activeFloor.value?.alto || 650,
+  }
+})
+const viewWidth = computed(() => fittedView(viewBase.value.width, viewBase.value.height).width)
+const viewHeight = computed(() => fittedView(viewBase.value.width, viewBase.value.height).height)
+const viewOrigin = computed(() => {
+  if (!activeRoom.value) return { x: 0, y: 0 }
+  return {
+    x: activeRoom.value.x - 60 - (viewWidth.value - viewBase.value.width) / 2,
+    y: activeRoom.value.y - 60 - (viewHeight.value - viewBase.value.height) / 2,
+  }
+})
+const viewBox = computed(() => `${viewOrigin.value.x} ${viewOrigin.value.y} ${viewWidth.value} ${viewHeight.value}`)
+const canvasStyle = computed(() => {
+  const width = wrapSize.value.width
+  const height = wrapSize.value.height
+  if (width < 8 || height < 8) return { width: '100%', height: '100%' }
+  return {
+    width: `${Math.round(width * zoom.value)}px`,
+    height: `${Math.round(height * zoom.value)}px`,
+  }
 })
 const roomStats = computed(() => {
   const room = activeRoom.value
@@ -137,19 +185,97 @@ const roomStats = computed(() => {
   return { capacity, configured, available, occupied }
 })
 const selectedBed = computed(() => (selection.value?.kind === 'bed' ? selection.value.bed : null))
+const selectedBeds = computed(() => {
+  const room = activeRoom.value
+  if (!room || !selectedBedIds.value.length) return []
+  return room.camas.filter((bed) => selectedBedIds.value.includes(bed.id))
+})
 const selectedRoom = computed(() => {
   if (selection.value?.kind === 'room') return selection.value.room
   if (selection.value?.kind === 'bed') return selection.value.room
   return activeRoom.value
 })
 const selectedAngle = computed(() => {
+  if (selectedBeds.value.length > 1) {
+    return normalizeAngle(selectedBeds.value[0]?.rotacion ?? drawAngle.value)
+  }
   if (selection.value?.kind === 'bed') return normalizeAngle(selection.value.bed.rotacion ?? 0)
   if (selection.value?.kind === 'door') return normalizeAngle(selection.value.door.rotacion ?? 0)
   return normalizeAngle(drawAngle.value)
 })
+const selectionBounds = computed(() => {
+  const beds = selectedBeds.value
+  if (beds.length < 2) return null
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (const bed of beds) {
+    const width = bed.ancho ?? 120
+    const height = bed.alto ?? 72
+    minX = Math.min(minX, bed.x)
+    minY = Math.min(minY, bed.y)
+    maxX = Math.max(maxX, bed.x + width)
+    maxY = Math.max(maxY, bed.y + height + 38)
+  }
+  return { x: minX - 8, y: minY - 8, ancho: maxX - minX + 16, alto: maxY - minY + 16 }
+})
 const anglePresets = [0, 45, 90, 135, 180, 270]
+const bedsFaceRight = computed(() => {
+  if (selectedBeds.value.length) return selectedBeds.value.every((bed) => bedFlipped(bed))
+  return drawAngle.value === 180
+})
+
+function setBedFacing(flipped: boolean): void {
+  drawAngle.value = flipped ? 180 : 0
+  drawOrientation.value = flipped ? 'vertical' : 'horizontal'
+  if (props.readonly) return
+  const room = selection.value?.kind === 'bed' ? selection.value.room : activeRoom.value
+  const targets = selectedBeds.value.length
+    ? selectedBeds.value
+    : selectedBed.value
+      ? [selectedBed.value]
+      : []
+  if (!room || !targets.length) return
+  if (targets.every((bed) => bedFlipped(bed) === flipped)) return
+  pushHistory()
+  for (const bed of targets) {
+    applyBedFacing(bed, flipped)
+    syncBunkGeometry(room, bed)
+  }
+}
 const canUndo = computed(() => past.value.length > 0)
 const canRedo = computed(() => future.value.length > 0)
+const roomMenu = ref<{ x: number; y: number; room: CabanaRoom } | null>(null)
+
+function closeRoomMenu(): void {
+  roomMenu.value = null
+}
+
+function openRoomMenu(room: CabanaRoom, floorId: number, event: MouseEvent): void {
+  if (props.readonly) return
+  event.preventDefault()
+  event.stopPropagation()
+  selectRoom(room, floorId)
+  roomMenu.value = { x: event.clientX, y: event.clientY, room }
+}
+
+function removeRoom(room: CabanaRoom): void {
+  if (props.readonly) return
+  const floor = floors.value.find((item) => item.cuartos.some((itemRoom) => itemRoom.id === room.id))
+    ?? activeFloor.value
+  if (!floor) return
+  pushHistory()
+  floor.cuartos = floor.cuartos.filter((item) => item.id !== room.id)
+  selectedBedIds.value = []
+  if (activeRoomId.value === room.id) {
+    activeRoomId.value = floor.cuartos[0]?.id ?? null
+    selection.value = activeRoom.value ? { kind: 'room', room: activeRoom.value } : null
+  } else if (selection.value?.kind === 'room' && selection.value.room.id === room.id) {
+    selection.value = activeRoom.value ? { kind: 'room', room: activeRoom.value } : null
+  }
+  closeRoomMenu()
+}
 
 watch(
   () => props.cabana,
@@ -160,6 +286,7 @@ watch(
     activeRoomId.value = floors.value[0]?.cuartos[0]?.id ?? null
     expandedFloors.value = floors.value.map((floor) => floor.id)
     selection.value = activeRoom.value ? { kind: 'room', room: activeRoom.value } : null
+    selectedBedIds.value = []
     const empty = !floors.value.some((floor) => floor.cuartos.length)
     tool.value = !props.readonly && empty ? 'draw-square' : 'select'
     past.value = []
@@ -167,6 +294,23 @@ watch(
   },
   { immediate: true },
 )
+
+onMounted(() => {
+  syncWrapSize()
+  if (canvasWrapRef.value && typeof ResizeObserver !== 'undefined') {
+    wrapObserver = new ResizeObserver(() => syncWrapSize())
+    wrapObserver.observe(canvasWrapRef.value)
+  }
+  window.addEventListener('click', closeRoomMenu)
+  window.addEventListener('scroll', closeRoomMenu, true)
+})
+
+onBeforeUnmount(() => {
+  wrapObserver?.disconnect()
+  window.removeEventListener('click', closeRoomMenu)
+  window.removeEventListener('scroll', closeRoomMenu, true)
+  wrapObserver = null
+})
 
 function cloneFloors(pisos: CabanaFloor[] | undefined): CabanaFloor[] {
   const floorsClone = JSON.parse(JSON.stringify(pisos ?? [])) as CabanaFloor[]
@@ -207,6 +351,7 @@ function restore(raw: string): void {
   activeRoomId.value = parsed.activeRoomId
   const room = activeRoom.value
   selection.value = room ? { kind: 'room', room } : null
+  selectedBedIds.value = []
 }
 
 function pushHistory(): void {
@@ -240,13 +385,49 @@ function selectFloor(id: number): void {
   const first = floors.value.find((floor) => floor.id === id)?.cuartos[0]
   activeRoomId.value = first?.id ?? null
   selection.value = first ? { kind: 'room', room: first } : null
+  selectedBedIds.value = []
 }
 
 function selectRoom(room: CabanaRoom, floorId: number): void {
   activeFloorId.value = floorId
   activeRoomId.value = room.id
   selection.value = { kind: 'room', room }
+  selectedBedIds.value = []
   tool.value = 'select'
+}
+
+function isBedSelected(bed: CabanaBed): boolean {
+  return selectedBedIds.value.includes(bed.id)
+}
+
+function toggleBedSelection(room: CabanaRoom, bed: CabanaBed): void {
+  const ids = selectedBedIds.value.includes(bed.id)
+    ? selectedBedIds.value.filter((id) => id !== bed.id)
+    : [...selectedBedIds.value, bed.id]
+  selectedBedIds.value = ids
+  const current = room.camas.find((item) => item.id === (ids[ids.length - 1] ?? bed.id))
+  selection.value = current ? { kind: 'bed', room, bed: current } : { kind: 'room', room }
+}
+
+function bedVisualHeight(bed: CabanaBed, mode: 'single' | 'bunk' | 'double' = 'single'): number {
+  return bed.alto ?? (mode === 'single' ? 72 : 100)
+}
+
+function bedVisualBoxHeight(bed: CabanaBed, mode: 'single' | 'bunk' | 'double' = 'single'): number {
+  return bedVisualHeight(bed, mode) + 38
+}
+
+function startMarquee(room: CabanaRoom, event: PointerEvent): void {
+  const point = pointFromEvent(event)
+  draftMarquee.value = { x: point.x, y: point.y, ancho: 0, alto: 0 }
+  interaction = {
+    kind: 'marquee',
+    startX: point.x,
+    startY: point.y,
+    room,
+    initial: { x: point.x, y: point.y },
+  }
+  ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
 }
 
 function addFloor(recordHistory = true): void {
@@ -317,47 +498,92 @@ function createRoom(overrides: Partial<CabanaRoom> = {}): CabanaRoom | null {
   return room
 }
 
-function nextBedSlot(room: CabanaRoom): { x: number; y: number } {
-  const width = 120
-  const height = 72
-  const gap = 22
+function lastPlacedBed(room: CabanaRoom): CabanaBed | null {
+  const selected = selectedBeds.value.find((bed) => bed.cuarto_id === room.id)
+    ?? (selectedBed.value?.cuarto_id === room.id ? selectedBed.value : null)
+  if (selected && !(selected.tipo === 'camarote' && selected.nivel_camarote === 'arriba')) return selected
+  const items = room.camas.filter((bed) => !(bed.tipo === 'camarote' && bed.nivel_camarote === 'arriba'))
+  return items[items.length - 1] ?? null
+}
+
+function lastBedStyle(room: CabanaRoom, asCamarote = false): { ancho: number; alto: number; rotacion: number } {
+  const last = lastPlacedBed(room)
+  return {
+    ancho: last?.ancho ?? 120,
+    alto: last?.alto ?? (asCamarote ? 100 : 72),
+    rotacion: last ? (bedFlipped(last) ? 180 : 0) : 0,
+  }
+}
+
+function nextBedSlot(room: CabanaRoom, size = lastBedStyle(room)): { x: number; y: number } {
+  const width = size.ancho
+  const height = size.alto
+  const last = lastPlacedBed(room)
+  const gap = 16
   const pad = 28
+  const label = 38
+  if (last) {
+    const lastWidth = last.ancho ?? width
+    const lastHeight = last.alto ?? height
+    const beside = { x: last.x + lastWidth + gap, y: last.y }
+    if (beside.x + width <= room.x + room.ancho - 12) return beside
+    return { x: last.x, y: last.y + lastHeight + label + gap }
+  }
   const cols = Math.max(1, Math.floor((room.ancho - pad * 2 + gap) / (width + gap)))
   for (let index = 0; index < 48; index += 1) {
     const x = room.x + pad + (index % cols) * (width + gap)
     const y = room.y + pad + Math.floor(index / cols) * (height + gap)
     if (y + height > room.y + room.alto - 20) break
-    const taken = room.camas.some((bed) => Math.abs(bed.x - x) < width - 8 && Math.abs(bed.y - y) < height - 8)
+    const taken = room.camas.some((bed) => {
+      if (bed.tipo === 'camarote' && bed.nivel_camarote === 'arriba') return false
+      return Math.abs(bed.x - x) < width - 8 && Math.abs(bed.y - y) < height - 8
+    })
     if (!taken) return { x, y }
   }
   return { x: room.x + pad, y: room.y + pad }
 }
 
-function createBed(room: CabanaRoom, point?: { x: number; y: number }): CabanaBed {
-  pushHistory()
-  const slot = point ?? nextBedSlot(room)
+function uniqueBedCode(room: CabanaRoom, preferred: string): string {
+  if (!room.camas.some((item) => item.codigo === preferred)) return preferred
+  let index = room.camas.length + 1
+  let next = `${preferred}-${index}`
+  while (room.camas.some((item) => item.codigo === next)) {
+    index += 1
+    next = `${preferred}-${index}`
+  }
+  return next
+}
+
+function createBed(room: CabanaRoom, point?: { x: number; y: number }, overrides: Partial<CabanaBed> = {}, recordHistory = true): CabanaBed {
+  if (recordHistory) pushHistory()
+  const style = lastBedStyle(room)
+  const slot = point ?? nextBedSlot(room, style)
   const index = room.camas.length + 1
+  const code = uniqueBedCode(room, overrides.codigo || `C${room.codigo || index}`)
   const bed: CabanaBed = {
     id: nextTemporaryId--,
     cuarto_id: room.id,
-    codigo: `C${room.codigo || index}`,
-    nombre: `C${room.codigo || index}`,
-    x: clamp(slot.x, room.x + 12, room.x + room.ancho - 128),
-    y: clamp(slot.y, room.y + 12, room.y + room.alto - 80),
-    ancho: 120,
-    alto: 72,
-    rotacion: drawAngle.value,
+    codigo: code,
+    nombre: overrides.nombre || code,
+    x: clamp(slot.x, room.x + 12, room.x + room.ancho - (style.ancho + 8)),
+    y: clamp(slot.y, room.y + 12, room.y + room.alto - (style.alto + 40)),
+    ancho: style.ancho,
+    alto: style.alto,
+    rotacion: style.rotacion,
     capacidad: 1,
+    tipo: 'sencilla',
+    nivel_camarote: null,
+    grupo_camarote: null,
+    precio_sugerido: null,
     estado: 'disponible',
     genero: room.genero,
-  }
-  if (room.camas.some((item) => item.codigo === bed.codigo)) {
-    bed.codigo = `C${room.codigo || 'H'}-${index}`
-    bed.nombre = bed.codigo
+    ...overrides,
+    codigo: code,
   }
   room.camas.push(bed)
   room.capacidad = Math.max(1, room.camas.reduce((sum, item) => sum + Number(item.capacidad || 1), 0))
   selection.value = { kind: 'bed', room, bed }
+  selectedBedIds.value = [bed.id]
   tool.value = 'select'
   return bed
 }
@@ -367,6 +593,77 @@ function addBedFromToolbar(): void {
   createBed(activeRoom.value)
 }
 
+function addCamaroteFromToolbar(): void {
+  if (!activeRoom.value || props.readonly) return
+  pushHistory()
+  const group = `bunk-${Date.now()}-${Math.abs(nextTemporaryId)}`
+  const style = lastBedStyle(activeRoom.value, true)
+  const slot = nextBedSlot(activeRoom.value, style)
+  const base = uniqueBedCode(activeRoom.value, `C${activeRoom.value.codigo || activeRoom.value.camas.length + 1}`)
+  const lower = createBed(activeRoom.value, slot, {
+    ancho: style.ancho,
+    alto: style.alto,
+    rotacion: style.rotacion,
+    codigo: `${base}-AB`,
+    nombre: `${base}-AB`,
+    tipo: 'camarote',
+    nivel_camarote: 'abajo',
+    grupo_camarote: group,
+    capacidad: 1,
+    precio_sugerido: null,
+  }, false)
+  createBed(activeRoom.value, { x: lower.x, y: lower.y }, {
+    codigo: `${base}-AR`,
+    nombre: `${base}-AR`,
+    tipo: 'camarote',
+    nivel_camarote: 'arriba',
+    grupo_camarote: group,
+    capacidad: 1,
+    ancho: lower.ancho,
+    alto: lower.alto,
+    rotacion: lower.rotacion,
+  }, false)
+  selection.value = { kind: 'bed', room: activeRoom.value, bed: lower }
+  selectedBedIds.value = [lower.id]
+}
+
+function bunkDrawOrder(beds: CabanaBed[]): CabanaBed[] {
+  return [...beds].sort((left, right) => {
+    if (left.nivel_camarote === right.nivel_camarote) return 0
+    return left.nivel_camarote === 'abajo' ? -1 : 1
+  })
+}
+
+function pickBedFromUnit(unit: BedVisualUnit, level: 'single' | 'arriba' | 'abajo'): CabanaBed {
+  if (level === 'arriba') return unit.top ?? unit.anchor
+  if (level === 'abajo') return unit.bottom ?? unit.anchor
+  return unit.anchor
+}
+
+function unitCodigo(unit: BedVisualUnit): string {
+  return unit.anchor.codigo.replace(/-A[BR]$/i, '')
+}
+
+function onBedVisualPick(unit: BedVisualUnit, level: 'single' | 'arriba' | 'abajo', event: PointerEvent): void {
+  if (!activeRoom.value) return
+  startBed(activeRoom.value, pickBedFromUnit(unit, level), event)
+}
+
+function bunkSibling(room: CabanaRoom, bed: CabanaBed): CabanaBed | null {
+  if (bed.tipo !== 'camarote' || !bed.grupo_camarote) return null
+  return room.camas.find((item) => item.id !== bed.id && item.grupo_camarote === bed.grupo_camarote) ?? null
+}
+
+function syncBunkGeometry(room: CabanaRoom, bed: CabanaBed): void {
+  const sibling = bunkSibling(room, bed)
+  if (!sibling) return
+  sibling.x = bed.x
+  sibling.y = bed.y
+  sibling.ancho = bed.ancho
+  sibling.alto = bed.alto
+  sibling.rotacion = bed.rotacion
+}
+
 function pointFromEvent(event: PointerEvent): { x: number; y: number } {
   const svg = event.currentTarget instanceof SVGSVGElement
     ? event.currentTarget
@@ -374,8 +671,8 @@ function pointFromEvent(event: PointerEvent): { x: number; y: number } {
   if (!svg) return { x: 0, y: 0 }
   const rect = svg.getBoundingClientRect()
   return {
-    x: ((event.clientX - rect.left) / rect.width) * viewWidth.value + (activeRoom.value ? activeRoom.value.x - 60 : 0),
-    y: ((event.clientY - rect.top) / rect.height) * viewHeight.value + (activeRoom.value ? activeRoom.value.y - 60 : 0),
+    x: ((event.clientX - rect.left) / rect.width) * viewWidth.value + viewOrigin.value.x,
+    y: ((event.clientY - rect.top) / rect.height) * viewHeight.value + viewOrigin.value.y,
   }
 }
 
@@ -407,7 +704,12 @@ function startCanvas(event: PointerEvent): void {
     return
   }
   if (event.target === event.currentTarget && activeRoom.value) {
+    if (tool.value === 'select') {
+      startMarquee(activeRoom.value, event)
+      return
+    }
     selection.value = { kind: 'room', room: activeRoom.value }
+    selectedBedIds.value = []
   }
 }
 
@@ -443,11 +745,16 @@ function startRoom(room: CabanaRoom, event: PointerEvent): void {
   }
   if (props.readonly || tool.value === 'erase') {
     selection.value = { kind: 'room', room }
-    if (tool.value === 'erase' && !props.readonly) removeSelection()
+    selectedBedIds.value = []
+    return
+  }
+  if (activeRoom.value && tool.value === 'select') {
+    startMarquee(room, event)
     return
   }
   const point = pointFromEvent(event)
   selection.value = { kind: 'room', room }
+  selectedBedIds.value = []
   interaction = { kind: 'move-room', startX: point.x, startY: point.y, room, initial: { x: room.x, y: room.y } }
   ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
 }
@@ -470,6 +777,13 @@ function startResizeRoom(room: CabanaRoom, event: PointerEvent): void {
 
 function startBed(room: CabanaRoom, bed: CabanaBed, event: PointerEvent): void {
   event.stopPropagation()
+  if (event.ctrlKey || event.metaKey) {
+    toggleBedSelection(room, bed)
+    drawOrientation.value = bedOrientation(bed)
+    drawAngle.value = normalizeAngle(bed.rotacion ?? 0)
+    return
+  }
+  if (!isBedSelected(bed)) selectedBedIds.value = [bed.id]
   selection.value = { kind: 'bed', room, bed }
   drawOrientation.value = bedOrientation(bed)
   drawAngle.value = normalizeAngle(bed.rotacion ?? 0)
@@ -488,6 +802,7 @@ function startBed(room: CabanaRoom, bed: CabanaBed, event: PointerEvent): void {
     room,
     bed,
     initial: { x: bed.x, y: bed.y },
+    initialBeds: selectedBeds.value.map((item) => ({ id: item.id, x: item.x, y: item.y })),
   }
   ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
 }
@@ -505,23 +820,6 @@ function startResizeBed(room: CabanaRoom, bed: CabanaBed, event: PointerEvent): 
     room,
     bed,
     initial: { x: bed.x, y: bed.y, ancho: bed.ancho ?? 120, alto: bed.alto ?? 72 },
-  }
-  ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
-}
-
-function startRotateBed(room: CabanaRoom, bed: CabanaBed, event: PointerEvent): void {
-  if (props.readonly) return
-  event.stopPropagation()
-  pushHistory()
-  selection.value = { kind: 'bed', room, bed }
-  const point = pointFromEvent(event)
-  interaction = {
-    kind: 'rotate-bed',
-    startX: point.x,
-    startY: point.y,
-    room,
-    bed,
-    initial: { x: bed.x, y: bed.y },
   }
   ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
 }
@@ -548,15 +846,9 @@ function setObjectAngle(degrees: number | null, options: { history?: boolean } =
   drawAngle.value = angle
   if (angle === 90 || angle === 270) drawOrientation.value = 'vertical'
   else if (angle === 0 || angle === 180) drawOrientation.value = 'horizontal'
-  if (selection.value?.kind === 'bed') {
-    if (options.history !== false) pushHistory()
-    selection.value.bed.rotacion = angle
-    return
-  }
-  if (selection.value?.kind === 'door') {
-    if (options.history !== false) pushHistory()
-    selection.value.door.rotacion = angle
-  }
+  if (selection.value?.kind !== 'door') return
+  if (options.history !== false) pushHistory()
+  selection.value.door.rotacion = angle
 }
 
 function snapRotateAngle(degrees: number, event: PointerEvent): number {
@@ -601,25 +893,47 @@ function onPointerMove(event: PointerEvent): void {
     return
   }
   if (interaction.kind === 'move-bed' && interaction.room && interaction.bed) {
-    const width = interaction.bed.ancho ?? 120
-    const height = interaction.bed.alto ?? 72
-    interaction.bed.x = clamp(interaction.initial.x + dx, interaction.room.x + 8, interaction.room.x + interaction.room.ancho - width - 8)
-    interaction.bed.y = clamp(interaction.initial.y + dy, interaction.room.y + 8, interaction.room.y + interaction.room.alto - height - 8)
+    const moving = interaction.initialBeds?.length
+      ? interaction.initialBeds
+      : [{ id: interaction.bed.id, x: interaction.initial.x, y: interaction.initial.y }]
+    for (const origin of moving) {
+      const bed = interaction.room.camas.find((item) => item.id === origin.id)
+      if (!bed) continue
+      const width = bed.ancho ?? 120
+      const height = bed.alto ?? 72
+      bed.x = clamp(origin.x + dx, interaction.room.x + 8, interaction.room.x + interaction.room.ancho - width - 8)
+      bed.y = clamp(origin.y + dy, interaction.room.y + 8, interaction.room.y + interaction.room.alto - height - 8)
+      syncBunkGeometry(interaction.room, bed)
+    }
     return
   }
   if (interaction.kind === 'resize-bed' && interaction.room && interaction.bed) {
     interaction.bed.ancho = clamp((interaction.initial.ancho ?? 120) + dx, 80, interaction.room.x + interaction.room.ancho - interaction.bed.x - 8)
     interaction.bed.alto = clamp((interaction.initial.alto ?? 72) + dy, 56, interaction.room.y + interaction.room.alto - interaction.bed.y - 8)
+    syncBunkGeometry(interaction.room, interaction.bed)
     return
   }
-  if (interaction.kind === 'rotate-bed' && interaction.bed) {
-    interaction.bed.rotacion = snapRotateAngle(angleFromPoints(objectCenter(interaction.bed), point), event)
-    drawAngle.value = interaction.bed.rotacion
+  if (interaction.kind === 'marquee' && draftMarquee.value) {
+    draftMarquee.value = {
+      x: Math.min(interaction.startX, point.x),
+      y: Math.min(interaction.startY, point.y),
+      ancho: Math.abs(point.x - interaction.startX),
+      alto: Math.abs(point.y - interaction.startY),
+    }
     return
   }
   if (interaction.kind === 'rotate-door' && selection.value?.kind === 'door') {
     selection.value.door.rotacion = snapRotateAngle(angleFromPoints(selection.value.door, point), event)
     drawAngle.value = selection.value.door.rotacion
+    return
+  }
+  if (interaction.kind === 'move-door' && interaction.room && interaction.door) {
+    const snapped = snapDoorToRoomWall(interaction.room, point, interaction.door.ancho)
+    interaction.door.x = snapped.x
+    interaction.door.y = snapped.y
+    interaction.door.rotacion = snapped.rotacion
+    drawAngle.value = snapped.rotacion
+    drawOrientation.value = doorOrientation(interaction.door)
   }
 }
 
@@ -634,29 +948,71 @@ function finishInteraction(): void {
       forma: draftRoom.value.forma,
     })
   }
+  if (interaction.kind === 'marquee' && interaction.room && draftMarquee.value) {
+    const box = draftMarquee.value
+    if (box.ancho < 8 && box.alto < 8) {
+      selection.value = { kind: 'room', room: interaction.room }
+      selectedBedIds.value = []
+    } else {
+      const hits = interaction.room.camas.filter((bed) => {
+        const center = objectCenter(bed)
+        return center.x >= box.x && center.x <= box.x + box.ancho && center.y >= box.y && center.y <= box.y + box.alto
+      })
+      selectedBedIds.value = hits.map((bed) => bed.id)
+      selection.value = hits[hits.length - 1]
+        ? { kind: 'bed', room: interaction.room, bed: hits[hits.length - 1] }
+        : { kind: 'room', room: interaction.room }
+    }
+  }
   interaction = null
   draftRoom.value = null
+  draftMarquee.value = null
 }
 
-function selectDoor(room: CabanaRoom, door: CabanaDoor): void {
+function startDoor(room: CabanaRoom, door: CabanaDoor, event: PointerEvent): void {
+  event.stopPropagation()
   selection.value = { kind: 'door', room, door }
+  selectedBedIds.value = []
   drawOrientation.value = doorOrientation(door)
   drawAngle.value = normalizeAngle(door.rotacion ?? 0)
-  if (tool.value === 'erase' && !props.readonly) removeSelection()
+  if (props.readonly) return
+  if (tool.value === 'erase') {
+    removeSelection()
+    return
+  }
+  if (tool.value === 'place-door') {
+    placeDoor(room, pointFromEvent(event))
+    return
+  }
+  if (tool.value !== 'select') return
+  pushHistory()
+  const point = pointFromEvent(event)
+  interaction = {
+    kind: 'move-door',
+    startX: point.x,
+    startY: point.y,
+    room,
+    door,
+    initial: { x: door.x, y: door.y },
+  }
+  ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
 }
 
 function placeDoor(room: CabanaRoom, point: CabanaPoint): void {
   pushHistory()
-  const snapped = snapToRoomPerimeter(room, point)
+  const snapped = snapDoorToRoomWall(room, point)
   const door: CabanaDoor = {
     id: nextTemporaryId--,
     x: snapped.x,
     y: snapped.y,
     ancho: 56,
-    rotacion: drawAngle.value,
+    rotacion: snapped.rotacion,
   }
   room.puertas = [...(room.puertas ?? []), door]
   selection.value = { kind: 'door', room, door }
+  selectedBedIds.value = []
+  drawAngle.value = snapped.rotacion
+  drawOrientation.value = doorOrientation(door)
   tool.value = 'select'
 }
 
@@ -670,15 +1026,20 @@ function removeSelection(): void {
     return
   }
   if (selected.kind === 'bed') {
-    selected.room.camas = selected.room.camas.filter((bed) => bed.id !== selected.bed.id)
+    const targets = new Set(selectedBeds.value.length ? selectedBeds.value.map((bed) => bed.id) : [selected.bed.id])
+    const groups = new Set(
+      selected.room.camas
+        .filter((bed) => targets.has(bed.id) && bed.grupo_camarote)
+        .map((bed) => bed.grupo_camarote as string),
+    )
+    selected.room.camas = selected.room.camas.filter((bed) => {
+      if (targets.has(bed.id)) return false
+      return !(bed.grupo_camarote && groups.has(bed.grupo_camarote))
+    })
     selected.room.capacidad = Math.max(1, selected.room.camas.reduce((sum, item) => sum + Number(item.capacidad || 1), 0) || 1)
+    selectedBedIds.value = []
     selection.value = { kind: 'room', room: selected.room }
-    return
   }
-  if (!activeFloor.value) return
-  activeFloor.value.cuartos = activeFloor.value.cuartos.filter((room) => room.id !== selected.room.id)
-  activeRoomId.value = activeFloor.value.cuartos[0]?.id ?? null
-  selection.value = activeRoom.value ? { kind: 'room', room: activeRoom.value } : null
 }
 
 function setRoomMeters(room: CabanaRoom, axis: 'ancho' | 'alto', meters: number | null): void {
@@ -694,34 +1055,79 @@ function setBedMeters(bed: CabanaBed, room: CabanaRoom, axis: 'x' | 'y' | 'ancho
   if (axis === 'x') bed.x = room.x + px
   else if (axis === 'y') bed.y = room.y + px
   else bed[axis] = px
+  syncBunkGeometry(room, bed)
 }
 
-function setBedType(bed: CabanaBed, value: number | null): void {
-  if (!value || props.readonly) return
+function bedTypeValue(bed: CabanaBed): TipoCama {
+  if (bed.tipo) return bed.tipo
+  if (bed.capacidad >= 3) return 'multiple'
+  return bed.capacidad === 2 ? 'doble' : 'sencilla'
+}
+
+function setBedType(bed: CabanaBed, value: TipoCama | null): void {
+  if (!value || props.readonly || selection.value?.kind !== 'bed') return
+  const room = selection.value.room
   pushHistory()
-  bed.capacidad = value === 3 ? Math.max(3, bed.capacidad || 3) : value
+  if (value === 'camarote') {
+    bed.tipo = 'camarote'
+    bed.capacidad = 1
+    bed.nivel_camarote = bed.nivel_camarote ?? 'abajo'
+    if (!bed.grupo_camarote) bed.grupo_camarote = `bunk-${Date.now()}-${Math.abs(bed.id)}`
+    if (!bunkSibling(room, bed)) {
+      const base = bed.codigo.replace(/-A[BR]$/i, '')
+      createBed(room, { x: bed.x, y: bed.y }, {
+        codigo: `${base}-AR`,
+        nombre: `${base}-AR`,
+        tipo: 'camarote',
+        nivel_camarote: bed.nivel_camarote === 'arriba' ? 'abajo' : 'arriba',
+        grupo_camarote: bed.grupo_camarote,
+        capacidad: 1,
+        ancho: bed.ancho,
+        alto: bed.alto,
+        rotacion: bed.rotacion,
+        precio_sugerido: bed.precio_sugerido ?? null,
+      }, false)
+      if (!bed.codigo.endsWith('-AB') && !bed.codigo.endsWith('-AR')) {
+        bed.codigo = `${base}-AB`
+        bed.nombre = bed.codigo
+      }
+    }
+    selection.value = { kind: 'bed', room, bed }
+    refreshRoomCapacity(room)
+    return
+  }
+  const sibling = bunkSibling(room, bed)
+  bed.tipo = value
+  bed.nivel_camarote = null
+  bed.grupo_camarote = null
+  bed.capacidad = value === 'multiple' ? Math.max(3, bed.capacidad || 3) : value === 'doble' ? 2 : 1
+  if (sibling) {
+    room.camas = room.camas.filter((item) => item.id !== sibling.id)
+  }
+  refreshRoomCapacity(room)
 }
 
-function bedTypeValue(bed: CabanaBed): number {
-  if (bed.capacidad >= 3) return 3
-  return bed.capacidad === 2 ? 2 : 1
+function setBunkLevel(bed: CabanaBed, value: NivelCamarote | null): void {
+  if (!value || props.readonly || selection.value?.kind !== 'bed') return
+  pushHistory()
+  const sibling = bunkSibling(selection.value.room, bed)
+  bed.nivel_camarote = value
+  if (sibling && sibling.nivel_camarote === value) {
+    sibling.nivel_camarote = value === 'arriba' ? 'abajo' : 'arriba'
+  }
+}
+
+function refreshRoomCapacity(room: CabanaRoom): void {
+  room.capacidad = Math.max(1, room.camas.reduce((sum, item) => sum + Number(item.capacidad || 1), 0) || 1)
 }
 
 function setDrawOrientation(orientation: ObjectOrientation): void {
   drawOrientation.value = orientation
   drawAngle.value = orientation === 'vertical' ? 90 : 0
-  if (props.readonly) return
-  if (selection.value?.kind === 'bed') {
-    if (normalizeAngle(selection.value.bed.rotacion ?? 0) === drawAngle.value) return
-    pushHistory()
-    applyBedOrientation(selection.value.bed, selection.value.room, orientation)
-    return
-  }
-  if (selection.value?.kind === 'door') {
-    if (normalizeAngle(selection.value.door.rotacion ?? 0) === drawAngle.value) return
-    pushHistory()
-    applyDoorOrientation(selection.value.door, orientation)
-  }
+  if (props.readonly || selection.value?.kind !== 'door') return
+  if (normalizeAngle(selection.value.door.rotacion ?? 0) === drawAngle.value) return
+  pushHistory()
+  applyDoorOrientation(selection.value.door, orientation)
 }
 
 function statusLabel(status: string): string {
@@ -768,6 +1174,10 @@ function save(): void {
           alto: bed.alto ?? 72,
           rotacion: bed.rotacion ?? 0,
           capacidad: bed.capacidad,
+          tipo: bedTypeValue(bed),
+          nivel_camarote: bed.tipo === 'camarote' ? (bed.nivel_camarote ?? 'abajo') : null,
+          grupo_camarote: bed.tipo === 'camarote' ? (bed.grupo_camarote ?? null) : null,
+          precio_sugerido: bed.precio_sugerido ?? null,
           estado: bed.estado === 'mantenimiento' || bed.estado === 'no_disponible' ? bed.estado : 'disponible',
         })),
       })),
@@ -866,6 +1276,7 @@ function save(): void {
               type="button"
               :class="{ active: activeRoomId === room.id }"
               @click="selectRoom(room, floor.id)"
+              @contextmenu="openRoomMenu(room, floor.id, $event)"
             >
               <i class="pi pi-th-large" />
               {{ roomCaption(room) }}
@@ -936,6 +1347,13 @@ function save(): void {
               @click="addBedFromToolbar"
             />
             <Button
+              label="Agregar camarote"
+              icon="pi pi-objects-column"
+              size="small"
+              :disabled="readonly || !activeRoom"
+              @click="addCamaroteFromToolbar"
+            />
+            <Button
               label="Borrar"
               icon="pi pi-trash"
               size="small"
@@ -944,51 +1362,62 @@ function save(): void {
               severity="danger"
               @click="tool = 'erase'"
             />
-            <Button
-              label="Horizontal"
-              icon="pi pi-arrows-h"
-              size="small"
-              :outlined="drawOrientation !== 'horizontal'"
-              :disabled="readonly"
-              @click="setDrawOrientation('horizontal')"
-            />
-            <Button
-              label="Vertical"
-              icon="pi pi-arrows-v"
-              size="small"
-              :outlined="drawOrientation !== 'vertical'"
-              :disabled="readonly"
-              @click="setDrawOrientation('vertical')"
-            />
-            <div v-if="!readonly" class="angle-tools">
-              <span>Ángulo</span>
-              <Slider
-                :model-value="selectedAngle"
-                :min="0"
-                :max="359"
-                :step="1"
-                class="angle-slider"
-                @update:model-value="setObjectAngle($event, { history: false })"
-              />
-              <InputNumber
-                :model-value="selectedAngle"
-                :min="0"
-                :max="359"
-                suffix="°"
-                :use-grouping="false"
-                class="angle-input"
-                @update:model-value="setObjectAngle($event)"
+            <template v-if="selection?.kind === 'door'">
+              <Button
+                label="Horizontal"
+                icon="pi pi-arrows-h"
+                size="small"
+                :outlined="drawOrientation !== 'horizontal'"
+                :disabled="readonly"
+                @click="setDrawOrientation('horizontal')"
               />
               <Button
-                v-for="preset in anglePresets"
-                :key="preset"
-                :label="`${preset}°`"
+                label="Vertical"
+                icon="pi pi-arrows-v"
                 size="small"
-                text
-                :severity="selectedAngle === preset ? 'primary' : 'secondary'"
-                @click="setObjectAngle(preset)"
+                :outlined="drawOrientation !== 'vertical'"
+                :disabled="readonly"
+                @click="setDrawOrientation('vertical')"
               />
-            </div>
+              <div v-if="!readonly" class="angle-tools">
+                <span>Ángulo</span>
+                <Slider
+                  :model-value="selectedAngle"
+                  :min="0"
+                  :max="359"
+                  :step="1"
+                  class="angle-slider"
+                  @update:model-value="setObjectAngle($event, { history: false })"
+                />
+                <InputNumber
+                  :model-value="selectedAngle"
+                  :min="0"
+                  :max="359"
+                  suffix="°"
+                  :use-grouping="false"
+                  class="angle-input"
+                  @update:model-value="setObjectAngle($event)"
+                />
+              </div>
+            </template>
+            <template v-else-if="activeRoom">
+              <Button
+                label="Izquierda"
+                icon="pi pi-arrow-left"
+                size="small"
+                :outlined="bedsFaceRight"
+                :disabled="readonly"
+                @click="setBedFacing(false)"
+              />
+              <Button
+                label="Derecha"
+                icon="pi pi-arrow-right"
+                size="small"
+                :outlined="!bedsFaceRight"
+                :disabled="readonly"
+                @click="setBedFacing(true)"
+              />
+            </template>
           </div>
           <div class="zoom">
             <Button icon="pi pi-minus" text rounded size="small" @click="zoom = Math.max(0.6, zoom - 0.1)" />
@@ -998,13 +1427,14 @@ function save(): void {
           </div>
         </div>
 
-        <div class="canvas-wrap">
+        <div ref="canvasWrapRef" class="canvas-wrap">
           <svg
             v-if="activeFloor"
             class="layout-canvas"
             :class="`tool-${tool}`"
             :viewBox="viewBox"
-            :style="{ width: `${Math.round(720 * zoom)}px` }"
+            :style="canvasStyle"
+            preserveAspectRatio="xMidYMid meet"
             role="application"
             aria-label="Editor del croquis de la cabaña"
             @pointerdown="startCanvas"
@@ -1018,7 +1448,7 @@ function save(): void {
                 <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#c5d0e0" stroke-width="0.8" />
               </pattern>
             </defs>
-            <rect class="canvas-bg" :x="activeRoom ? activeRoom.x - 60 : 0" :y="activeRoom ? activeRoom.y - 60 : 0" :width="viewWidth" :height="viewHeight" fill="url(#cabana-grid)" />
+            <rect class="canvas-bg" :x="viewOrigin.x" :y="viewOrigin.y" :width="viewWidth" :height="viewHeight" fill="url(#cabana-grid)" />
 
             <template v-if="activeRoom">
               <text class="dim" :x="activeRoom.x + activeRoom.ancho / 2" :y="activeRoom.y - 16">
@@ -1040,6 +1470,7 @@ function save(): void {
                 :rx="activeRoom.ancho / 2"
                 :ry="activeRoom.alto / 2"
                 @pointerdown="startRoom(activeRoom, $event)"
+                @contextmenu="openRoomMenu(activeRoom, activeFloorId ?? 0, $event)"
               />
               <path
                 v-else-if="roomShape(activeRoom) === 'polygon'"
@@ -1047,6 +1478,7 @@ function save(): void {
                 :class="genderClass(activeRoom.genero)"
                 :d="roomPath(activeRoom)"
                 @pointerdown="startRoom(activeRoom, $event)"
+                @contextmenu="openRoomMenu(activeRoom, activeFloorId ?? 0, $event)"
               />
               <rect
                 v-else
@@ -1058,6 +1490,7 @@ function save(): void {
                 :height="activeRoom.alto"
                 rx="4"
                 @pointerdown="startRoom(activeRoom, $event)"
+                @contextmenu="openRoomMenu(activeRoom, activeFloorId ?? 0, $event)"
               />
               <g
                 v-for="door in activeRoom.puertas ?? []"
@@ -1065,7 +1498,7 @@ function save(): void {
                 class="door"
                 :class="{ selected: selection?.kind === 'door' && selection.door.id === door.id }"
                 :transform="rotateTransform(door)"
-                @pointerdown.stop="selectDoor(activeRoom, door)"
+                @pointerdown.stop="startDoor(activeRoom, door, $event)"
               >
                 <rect
                   :x="doorRect(door).x"
@@ -1092,57 +1525,52 @@ function save(): void {
                 </g>
               </g>
               <g
-                v-for="bed in activeRoom.camas"
-                :key="bed.id"
+                v-for="unit in bedVisualUnits(activeRoom.camas)"
+                :key="unit.key"
                 class="bed-card"
-                :class="[`is-${catalogBedStatus(bed)}`, { selected: selectedBed?.id === bed.id }]"
-                :transform="rotateTransform(bed)"
-                @pointerdown="startBed(activeRoom, bed, $event)"
+                :class="{ selected: unit.beds.some((bed) => isBedSelected(bed)) }"
               >
-                <rect :x="bed.x" :y="bed.y" :width="bed.ancho ?? 120" :height="bed.alto ?? 72" rx="8" />
-                <rect class="pillow" :x="bed.x + 10" :y="bed.y + 8" width="28" height="14" rx="6" />
-                <rect class="pillow" :x="bed.x + 44" :y="bed.y + 8" width="28" height="14" rx="6" />
-                <text class="bed-code" :x="bed.x + 12" :y="bed.y + 40">
-                  {{ bed.codigo }}
-                </text>
-                <text class="bed-status" :x="bed.x + 12" :y="bed.y + 56">
-                  {{ statusLabel(catalogBedStatus(bed)) }}
-                </text>
-                <text class="bed-cap" :x="(bed.x + (bed.ancho ?? 120)) - 8" :y="bed.y + 56">
-                  {{ bed.capacidad }}
-                </text>
-                <g v-if="!readonly && selectedBed?.id === bed.id">
-                  <rect
-                    class="bed-outline"
-                    :x="bed.x - 6"
-                    :y="bed.y - 6"
-                    :width="(bed.ancho ?? 120) + 12"
-                    :height="(bed.alto ?? 72) + 12"
-                    rx="10"
-                  />
-                  <circle
-                    class="handle"
-                    :cx="bed.x + (bed.ancho ?? 120)"
-                    :cy="bed.y + (bed.alto ?? 72)"
-                    r="6"
-                    @pointerdown="startResizeBed(activeRoom, bed, $event)"
-                  />
-                  <line
-                    class="rotate-stem"
-                    :x1="objectCenter(bed).x"
-                    :y1="bed.y"
-                    :x2="rotateHandlePoint(bed).x"
-                    :y2="rotateHandlePoint(bed).y"
-                  />
-                  <circle
-                    class="rotate-handle"
-                    :cx="rotateHandlePoint(bed).x"
-                    :cy="rotateHandlePoint(bed).y"
-                    r="7"
-                    @pointerdown="startRotateBed(activeRoom, bed, $event)"
-                  />
-                </g>
+                <BedVisual
+                  :x="unit.anchor.x"
+                  :y="unit.anchor.y"
+                  :width="unit.anchor.ancho ?? 120"
+                  :height="bedVisualHeight(unit.anchor, unit.mode)"
+                  :codigo="unitCodigo(unit)"
+                  :mode="unit.mode"
+                  :status="visualBedStatus(selectedBeds.some((bed) => unit.beds.includes(bed)) ? (selectedBed ?? unit.anchor) : unit.anchor)"
+                  :status-top="unit.top ? visualBedStatus(unit.top) : null"
+                  :status-bottom="unit.bottom ? visualBedStatus(unit.bottom) : null"
+                  :selected="unit.beds.some((bed) => isBedSelected(bed))"
+                  :flipped="bedFlipped(unit.anchor)"
+                  interactive
+                  @pick="(level, event) => onBedVisualPick(unit, level, event)"
+                />
+                <circle
+                  v-if="!readonly && unit.beds.some((bed) => isBedSelected(bed)) && selectedBeds.length < 2"
+                  class="handle"
+                  :cx="unit.anchor.x + (unit.anchor.ancho ?? 120)"
+                  :cy="unit.anchor.y + bedVisualBoxHeight(unit.anchor, unit.mode)"
+                  r="6"
+                  @pointerdown="startResizeBed(activeRoom, unit.anchor, $event)"
+                />
               </g>
+              <rect
+                v-if="!readonly && selectionBounds"
+                class="bed-outline"
+                :x="selectionBounds.x"
+                :y="selectionBounds.y"
+                :width="selectionBounds.ancho"
+                :height="selectionBounds.alto"
+                rx="10"
+              />
+              <rect
+                v-if="draftMarquee"
+                class="draft-marquee"
+                :x="draftMarquee.x"
+                :y="draftMarquee.y"
+                :width="draftMarquee.ancho"
+                :height="draftMarquee.alto"
+              />
               <rect
                 v-if="!readonly && selection?.kind === 'room'"
                 class="handle-rect"
@@ -1162,6 +1590,7 @@ function save(): void {
                 class="floor-room"
                 :class="genderClass(room.genero)"
                 @pointerdown="startRoom(room, $event)"
+                @contextmenu="openRoomMenu(room, activeFloorId ?? 0, $event)"
               >
                 <ellipse
                   v-if="roomShape(room) === 'circle'"
@@ -1219,7 +1648,13 @@ function save(): void {
             }}
           </p>
           <p v-else-if="tool === 'place-door'" class="canvas-hint">
-            Haz clic sobre el muro para colocar una puerta.
+            Haz clic sobre el muro para colocar una puerta. Luego arrástrala solo por las paredes.
+          </p>
+          <p v-else-if="tool === 'erase'" class="canvas-hint">
+            Clic en una cama o puerta para borrarla. La habitación solo se elimina con clic derecho.
+          </p>
+          <p v-else-if="tool === 'select' && !readonly" class="canvas-hint">
+            Ctrl+clic o arrastra para seleccionar varias camas. Clic derecho en la habitación para eliminarla.
           </p>
         </div>
 
@@ -1283,7 +1718,35 @@ function save(): void {
               @click="setObjectAngle(preset)"
             />
           </div>
-          <p class="tip">Gira la puerta a cualquier ángulo. Arrastra el mango circular o usa 0° / 90° para horizontal y vertical.</p>
+          <p class="tip">Arrastra la puerta por las paredes del cuarto. El mango circular gira el ángulo si lo necesitas.</p>
+        </template>
+        <template v-else-if="selectedBeds.length > 1">
+          <header>
+            <div>
+              <h3>{{ selectedBeds.length }} camas seleccionadas</h3>
+              <small>Cámbiales la orientación para que miren al otro lado.</small>
+            </div>
+            <Button v-if="!readonly" icon="pi pi-trash" text rounded severity="danger" @click="removeSelection" />
+          </header>
+          <div class="orient-actions">
+            <Button
+              label="Izquierda"
+              icon="pi pi-arrow-left"
+              size="small"
+              :outlined="bedsFaceRight"
+              :disabled="readonly"
+              @click="setBedFacing(false)"
+            />
+            <Button
+              label="Derecha"
+              icon="pi pi-arrow-right"
+              size="small"
+              :outlined="!bedsFaceRight"
+              :disabled="readonly"
+              @click="setBedFacing(true)"
+            />
+          </div>
+          <p class="tip">Izquierda / Derecha voltea la imagen de todas las seleccionadas.</p>
         </template>
         <template v-else-if="selectedBed && selection?.kind === 'bed'">
           <header>
@@ -1319,6 +1782,38 @@ function save(): void {
               @update:model-value="setBedType(selectedBed, $event)"
             />
           </label>
+          <label v-if="selectedBed.tipo === 'camarote'">
+            Nivel del camarote
+            <Select
+              :model-value="selectedBed.nivel_camarote || 'abajo'"
+              :options="bunkLevelOptions"
+              option-label="label"
+              option-value="value"
+              :disabled="readonly"
+              @update:model-value="setBunkLevel(selectedBed, $event)"
+            />
+          </label>
+          <label>
+            Precio sugerido {{ selectedBed.tipo === 'camarote' ? (selectedBed.nivel_camarote === 'arriba' ? 'arriba' : 'abajo') : '' }}
+            <InputNumber
+              v-model="selectedBed.precio_sugerido"
+              :min="0"
+              :max-fraction-digits="0"
+              prefix="$ "
+              :disabled="readonly"
+            />
+          </label>
+          <label v-if="selectedBed.tipo === 'camarote' && bunkSibling(selection.room, selectedBed)">
+            Precio sugerido {{ selectedBed.nivel_camarote === 'arriba' ? 'abajo' : 'arriba' }}
+            <InputNumber
+              v-model="bunkSibling(selection.room, selectedBed)!.precio_sugerido"
+              :min="0"
+              :max-fraction-digits="0"
+              prefix="$ "
+              :disabled="readonly"
+            />
+          </label>
+          <small class="tip">El precio final de arriba y abajo se ajusta en la configuración de cada evento.</small>
           <label>
             Estado
             <Select
@@ -1378,40 +1873,25 @@ function save(): void {
               />
             </label>
           </div>
-          <label>
-            Ángulo
-            <div class="angle-field">
-              <Slider
-                :model-value="selectedAngle"
-                :min="0"
-                :max="359"
-                :step="1"
-                :disabled="readonly"
-                @update:model-value="setObjectAngle($event, { history: false })"
-              />
-              <InputNumber
-                :model-value="selectedAngle"
-                :min="0"
-                :max="359"
-                suffix="°"
-                :use-grouping="false"
-                :disabled="readonly"
-                @update:model-value="setObjectAngle($event)"
-              />
-            </div>
-          </label>
           <div class="orient-actions">
             <Button
-              v-for="preset in anglePresets"
-              :key="`bed-${preset}`"
-              :label="`${preset}°`"
+              label="Izquierda"
+              icon="pi pi-arrow-left"
               size="small"
-              :outlined="selectedAngle !== preset"
+              :outlined="bedsFaceRight"
               :disabled="readonly"
-              @click="setObjectAngle(preset)"
+              @click="setBedFacing(false)"
+            />
+            <Button
+              label="Derecha"
+              icon="pi pi-arrow-right"
+              size="small"
+              :outlined="!bedsFaceRight"
+              :disabled="readonly"
+              @click="setBedFacing(true)"
             />
           </div>
-          <p class="tip">Gira la cama a cualquier ángulo. Arrastra el mango de arriba, usa el deslizador o escribe los grados. Mantén Shift para saltos de 15°.</p>
+          <p class="tip">Izquierda / Derecha voltea la imagen para que mire al lado opuesto.</p>
         </template>
 
         <template v-else-if="selectedRoom">
@@ -1420,8 +1900,8 @@ function save(): void {
               <h3>Habitación</h3>
               <small>{{ roomCaption(selectedRoom) }}</small>
             </div>
-            <Button v-if="!readonly" icon="pi pi-trash" text rounded severity="danger" @click="removeSelection" />
           </header>
+          <p v-if="!readonly" class="tip">Clic derecho sobre la habitación para eliminarla.</p>
           <label>Nombre<InputText v-model="selectedRoom.nombre" :disabled="readonly" /></label>
           <label>Código<InputText v-model="selectedRoom.codigo" :disabled="readonly" /></label>
           <label>
@@ -1501,14 +1981,27 @@ function save(): void {
         </template>
       </aside>
     </div>
+    <button
+      v-if="roomMenu && !readonly"
+      type="button"
+      class="room-context-menu"
+      :style="{ left: `${roomMenu.x}px`, top: `${roomMenu.y}px` }"
+      @click.stop="removeRoom(roomMenu.room)"
+    >
+      <i class="pi pi-trash" />
+      Eliminar habitación
+    </button>
   </section>
 </template>
 
 <style scoped>
 .studio {
   display: grid;
+  grid-template-rows: auto 1fr;
   gap: 0.85rem;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
 .studio__top {
   display: flex;
@@ -1558,7 +2051,8 @@ function save(): void {
   display: grid;
   grid-template-columns: 16rem minmax(0, 1fr) 18rem;
   gap: 0.75rem;
-  min-height: 34rem;
+  min-height: 0;
+  height: 100%;
   align-items: stretch;
 }
 .studio__tree, .studio__props, .studio__stage {
@@ -1566,12 +2060,14 @@ function save(): void {
   border-radius: 12px;
   background: var(--pj-bg-elevated);
   min-width: 0;
+  min-height: 0;
 }
 .studio__tree, .studio__props {
   padding: 0.85rem;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
+  overflow: auto;
 }
 .studio__tree h3, .studio__props h3 {
   margin: 0;
@@ -1619,7 +2115,28 @@ function save(): void {
   font-weight: 700;
 }
 .tree-add { justify-content: flex-start; margin-top: auto; }
-.studio__stage { display: grid; grid-template-rows: auto 1fr auto; }
+.room-context-menu {
+  position: fixed;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--pj-border);
+  border-radius: 8px;
+  background: var(--pj-bg-elevated);
+  color: #b91c1c;
+  font: inherit;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgb(15 23 42 / 16%);
+  cursor: pointer;
+}
+.studio__stage {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: min(70dvh, 42rem);
+}
 .stage-toolbar, .stage-footer {
   display: flex;
   justify-content: space-between;
@@ -1636,20 +2153,20 @@ function save(): void {
 .zoom span { min-width: 3rem; text-align: center; font-size: 0.78rem; font-weight: 700; }
 .canvas-wrap {
   overflow: auto;
-  min-height: 22rem;
+  min-height: 0;
+  height: 100%;
   background: #eef2f6;
-  display: grid;
-  place-items: center;
+  display: block;
   position: relative;
 }
 .layout-canvas {
   display: block;
+  width: 100%;
+  height: 100%;
   max-width: none;
-  min-height: 360px;
   touch-action: none;
   user-select: none;
   background: #f8fafc;
-  border-radius: 8px;
 }
 .layout-canvas.tool-draw-square,
 .layout-canvas.tool-draw-circle,
@@ -1659,8 +2176,9 @@ function save(): void {
 .room-wall.gender-M { stroke: #60a5fa; }
 .room-wall.gender-F { stroke: #f472b6; }
 .room-wall.gender-MIXTO { stroke: #a78bfa; }
-.door rect { fill: #cbd5e1; stroke: #475569; stroke-width: 1; cursor: pointer; }
+.door rect { fill: #cbd5e1; stroke: #475569; stroke-width: 1; cursor: grab; }
 .door.selected rect { fill: #f59e0b; stroke: #b45309; }
+.layout-canvas:has(.door:active) .door rect { cursor: grabbing; }
 .dim { fill: #64748b; font-size: 14px; font-weight: 700; text-anchor: middle; }
 .dim-v { writing-mode: tb; }
 .floor-room rect, .floor-room ellipse, .floor-room path { fill: #fff; stroke: #64748b; stroke-width: 3; }
@@ -1684,17 +2202,8 @@ function save(): void {
 }
 .floor-room text { fill: #0f172a; font-size: 18px; font-weight: 700; pointer-events: none; }
 .floor-room .muted { font-size: 13px; font-weight: 500; fill: #64748b; }
+.draft-marquee { fill: rgb(37 99 235 / 12%); stroke: #2563eb; stroke-dasharray: 6 4; }
 .bed-card { cursor: grab; }
-.bed-card rect { fill: #fff; stroke: #22c55e; stroke-width: 2; }
-.bed-card .pillow { fill: #e2e8f0; stroke: none; }
-.bed-card text { pointer-events: none; }
-.bed-card .bed-code { font-size: 13px; font-weight: 800; fill: #0f172a; }
-.bed-card .bed-status { font-size: 10px; font-weight: 700; fill: #16a34a; }
-.bed-card .bed-cap { font-size: 11px; font-weight: 800; text-anchor: end; fill: #334155; }
-.bed-card.is-ocupada rect { stroke: #ef4444; }
-.bed-card.is-ocupada .bed-status { fill: #dc2626; }
-.bed-card.is-mantenimiento rect { stroke: #94a3b8; }
-.bed-card.is-bloqueada rect { stroke: #3b82f6; }
 .bed-outline { fill: none; stroke: #2563eb; stroke-dasharray: 6 4; stroke-width: 1.6; }
 .handle { fill: #2563eb; stroke: #fff; stroke-width: 2; cursor: nwse-resize; }
 .handle-rect { fill: #f59e0b; stroke: #fff; cursor: nwse-resize; }
@@ -1770,8 +2279,12 @@ function save(): void {
   font-size: 0.75rem;
   line-height: 1.35;
 }
+@media (min-width: 1101px) {
+  .studio__stage { min-height: 0; }
+}
 @media (max-width: 1100px) {
-  .studio__body { grid-template-columns: 1fr; }
+  .studio { height: auto; grid-template-rows: auto auto; }
+  .studio__body { grid-template-columns: 1fr; height: auto; }
   .studio__stats { grid-template-columns: repeat(2, 1fr); width: 100%; }
   .studio__tree { order: 2; }
   .studio__props { order: 3; }

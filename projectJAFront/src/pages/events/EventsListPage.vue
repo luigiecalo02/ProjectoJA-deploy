@@ -26,11 +26,12 @@ import {
   TIPOS_HIJO_CLUB,
 } from '@/modules/organizaciones/types'
 import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
+import { cssColor } from '@/utils/color'
 
 const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
-const { can } = usePermission()
+const { can, canCatalog } = usePermission()
 const auth = useAuthStore()
 const canCreateEvent = computed(() => can('events.create'))
 
@@ -168,7 +169,7 @@ function canReviewInscripciones(_event: ClubEvent): boolean {
 
 function canAccessDistribucion(event: ClubEvent): boolean {
   if (isClubDirectorContext.value) return event.puede_elegir_lote === true
-  return can('terrenos.view') || can('terrenos.assign')
+  return canCatalog('terrenos', 'view') || can('terrenos.assign')
 }
 
 function distribucionButtonLabel(): string {
@@ -219,7 +220,15 @@ function canParticipate(event: ClubEvent): boolean {
   return isClubDirectorContext.value && (event.estado === 'publicado' || event.estado === 'en_proceso')
 }
 
+function eventHasScoring(event: ClubEvent): boolean {
+  if (event.es_calificable || event.puntaje_maximo != null || event.puntaje_desde_hijos) {
+    return true
+  }
+  return (event.hijos ?? []).some((child) => eventHasScoring(child))
+}
+
 function canJudge(event: ClubEvent): boolean {
+  if (!eventHasScoring(event)) return false
   if (!can('events.evaluate') || (event.estado !== 'publicado' && event.estado !== 'en_proceso')) return false
   const ids = event.juez_ids
   if (!ids || ids.length === 0) return true
@@ -228,6 +237,7 @@ function canJudge(event: ClubEvent): boolean {
 }
 
 function canViewStandings(event: ClubEvent): boolean {
+  if (!eventHasScoring(event)) return false
   return (
     (can('events.view_scores') || can('events.evaluate')) &&
     (event.estado === 'publicado' || event.estado === 'en_proceso' || event.estado === 'cerrado')
@@ -727,7 +737,7 @@ onMounted(() => {
               {{ inscripcionStatusMeta(event.inscripcion_estado)?.label }}
             </span>
             <div
-              v-if="canEnroll(event) || canParticipate(event) || canJudge(event) || canViewStandings(event) || canReviewInscripciones(event) || canAccessAlojamiento(event) || can('terrenos.view') || can('terrenos.assign')"
+              v-if="canEnroll(event) || canParticipate(event) || canJudge(event) || canViewStandings(event) || canReviewInscripciones(event) || canAccessAlojamiento(event) || canCatalog('terrenos', 'view') || can('terrenos.assign')"
               class="event-card__actions"
             >
               <Button
@@ -844,7 +854,7 @@ onMounted(() => {
               <span
                 v-if="event.tipo_evento"
                 class="audience-badge badge--tipo"
-                :style="event.tipo_evento.color ? { borderColor: event.tipo_evento.color, color: event.tipo_evento.color } : undefined"
+                :style="event.tipo_evento.color ? { borderColor: cssColor(event.tipo_evento.color), color: cssColor(event.tipo_evento.color) } : undefined"
               >
                 {{ event.tipo_evento.nombre }}
               </span>
@@ -902,7 +912,7 @@ onMounted(() => {
               {{ inscripcionStatusMeta(event.inscripcion_estado)?.label }}
             </span>
             <div
-              v-if="canEnroll(event) || canParticipate(event) || canJudge(event) || canViewStandings(event) || canReviewInscripciones(event) || canAccessAlojamiento(event) || can('terrenos.view') || can('terrenos.assign')"
+              v-if="canEnroll(event) || canParticipate(event) || canJudge(event) || canViewStandings(event) || canReviewInscripciones(event) || canAccessAlojamiento(event) || canCatalog('terrenos', 'view') || can('terrenos.assign')"
               class="event-card__actions"
             >
               <Button

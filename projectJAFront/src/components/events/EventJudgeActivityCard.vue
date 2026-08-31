@@ -10,6 +10,7 @@ import type {
   ParticipationCalificacion,
 } from '@/modules/events/types'
 import { formatDateOnly } from '@/modules/events/dateUtils'
+import { cssColor } from '@/utils/color'
 
 type EvidenceKind = 'faltante' | 'cargada' | 'no_aplica' | 'mixto'
 
@@ -345,7 +346,7 @@ const subeventoRows = computed(() =>
       <span
         v-if="!actividad.image_url"
         class="judge-activity__icon"
-        :style="{ color: actividad.categoria_subevento?.color || undefined }"
+        :style="{ color: cssColor(actividad.categoria_subevento?.color) }"
       >
         <i :class="iconFor(actividad)" />
       </span>
@@ -355,8 +356,8 @@ const subeventoRows = computed(() =>
           v-if="actividad.categoria_subevento"
           class="cat-pill"
           :style="{
-            color: actividad.categoria_subevento.color || undefined,
-            borderColor: actividad.categoria_subevento.color || undefined,
+            color: cssColor(actividad.categoria_subevento.color),
+            borderColor: cssColor(actividad.categoria_subevento.color),
           }"
         >
           {{ actividad.categoria_subevento.nombre }}
@@ -525,7 +526,7 @@ const subeventoRows = computed(() =>
           <button type="button" class="subevents-item" @click="emit('selectSubevento', child)">
             <span
               class="subevents-item__thumb"
-              :style="!child.image_url && child.color ? { color: child.color } : undefined"
+              :style="!child.image_url && child.color ? { color: cssColor(child.color) } : undefined"
             >
               <img v-if="child.image_url" :src="child.image_url" :alt="child.name" />
               <i v-else :class="iconFor(child)" />

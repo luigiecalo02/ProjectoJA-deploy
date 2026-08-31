@@ -19,6 +19,7 @@ import EventSubeventTreeNodes from '@/components/events/EventSubeventTreeNodes.v
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import MediaCoverUpload from '@/components/media/MediaCoverUpload.vue'
+import { cssColor } from '@/utils/color'
 import type {
   CategoriaSubevento,
   ClubEvent,
@@ -1549,7 +1550,7 @@ onBeforeUnmount(() => {
                         <span
                           v-else
                           class="sub-name__icon"
-                          :style="{ color: item.categoria_subevento?.color || undefined }"
+                          :style="{ color: cssColor(item.categoria_subevento?.color) }"
                         >
                           <i :class="iconFor(item)" />
                         </span>
@@ -1680,7 +1681,7 @@ onBeforeUnmount(() => {
             <span
               v-if="!selected.image_url"
               class="sub-name__icon"
-              :style="{ color: selected.categoria_subevento?.color || undefined }"
+              :style="{ color: cssColor(selected.categoria_subevento?.color) }"
             >
               <i :class="iconFor(selected)" />
             </span>
@@ -1690,8 +1691,8 @@ onBeforeUnmount(() => {
                 v-if="selected.categoria_subevento"
                 class="cat-pill"
                 :style="{
-                  color: selected.categoria_subevento.color || undefined,
-                  borderColor: selected.categoria_subevento.color || undefined,
+                  color: cssColor(selected.categoria_subevento.color),
+                  borderColor: cssColor(selected.categoria_subevento.color),
                 }"
               >
                 {{ selected.categoria_subevento.nombre }}

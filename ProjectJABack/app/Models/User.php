@@ -123,6 +123,12 @@ class User extends Authenticatable
         return in_array($permission, $this->permissionNames(), true);
     }
 
+    public function hasCatalogPermission(string $module, string $action): bool
+    {
+        return $this->hasPermission("lugares.{$action}")
+            || $this->hasPermission("{$module}.{$action}");
+    }
+
     /**
      * @return list<string>
      */

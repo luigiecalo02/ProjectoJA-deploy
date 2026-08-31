@@ -5,6 +5,7 @@ import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import Select from 'primevue/select'
 import ClubLoader from '@/components/ClubLoader.vue'
+import ColorAlphaPicker from '@/components/terrenos/ColorAlphaPicker.vue'
 import { getApiErrorMessage } from '@/services/api'
 import { brandSettingsService } from '@/services/brandSettingsService'
 import { useBrandStore } from '@/stores/brand'
@@ -231,19 +232,19 @@ async function resetAll(): Promise<void> {
         <div class="color-grid">
           <label>
             <span>{{ t('settings.ringTop') }}</span>
-            <input v-model="draft.ring_top" type="color" :disabled="!canUpdate" />
+            <ColorAlphaPicker v-model="draft.ring_top" :disabled="!canUpdate" />
           </label>
           <label>
             <span>{{ t('settings.ringRight') }}</span>
-            <input v-model="draft.ring_right" type="color" :disabled="!canUpdate" />
+            <ColorAlphaPicker v-model="draft.ring_right" :disabled="!canUpdate" />
           </label>
           <label>
             <span>{{ t('settings.glow') }}</span>
-            <input v-model="draft.glow" type="color" :disabled="!canUpdate" />
+            <ColorAlphaPicker v-model="draft.glow" :disabled="!canUpdate" />
           </label>
           <label>
             <span>{{ t('settings.labelColor') }}</span>
-            <input v-model="draft.label_color" type="color" :disabled="!canUpdate" />
+            <ColorAlphaPicker v-model="draft.label_color" :disabled="!canUpdate" />
           </label>
         </div>
 
@@ -411,6 +412,10 @@ async function resetAll(): Promise<void> {
   gap: 0.75rem;
 }
 
+.color-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
 .loader-fields label {
   display: flex;
   flex-direction: column;
@@ -420,13 +425,8 @@ async function resetAll(): Promise<void> {
   color: #334155;
 }
 
-.loader-fields input[type='color'] {
-  width: 100%;
-  height: 2.4rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.6rem;
-  background: #fff;
-  padding: 0.2rem;
+.color-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
 .loader-actions {

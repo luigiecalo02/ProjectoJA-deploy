@@ -42,6 +42,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/auth/VerifyEmailPage.vue'),
         meta: { guest: true },
       },
+      {
+        path: '/eventos-publicos',
+        name: 'eventos.publicos',
+        component: () => import('@/pages/events/PublicEventosPage.vue'),
+        meta: { guest: true, wide: true },
+      },
+      {
+        path: '/eventos-publicos/:id',
+        name: 'eventos.publicos.inscribir',
+        component: () => import('@/pages/events/PublicEventoEnrollPage.vue'),
+        meta: { guest: true, wide: true },
+      },
     ],
   },
   {
@@ -210,40 +222,58 @@ const routes: RouteRecordRaw[] = [
         meta: { permission: 'seguros_consulta.view', titleKey: 'segurosConsulta.title' },
       },
       {
+        path: 'lugares',
+        name: 'lugares',
+        component: () => import('@/pages/lugares/LugaresListPage.vue'),
+        meta: { permission: 'lugares.view', titleKey: 'lugares.title' },
+      },
+      {
+        path: 'lugares/nuevo',
+        name: 'lugares.form',
+        component: () => import('@/pages/lugares/LugarFormPage.vue'),
+        meta: { permission: 'lugares.create', titleKey: 'lugares.create', backTo: { name: 'lugares' } },
+      },
+      {
+        path: 'lugares/:id',
+        name: 'lugares.edit',
+        component: () => import('@/pages/lugares/LugarFormPage.vue'),
+        meta: { permission: 'lugares.view', titleKey: 'lugares.edit', backTo: { name: 'lugares' } },
+      },
+      {
         path: 'terrenos',
         name: 'terrenos',
-        component: () => import('@/pages/terrenos/TerrenosListPage.vue'),
-        meta: { permission: 'terrenos.view', titleKey: 'terrenos.title' },
+        redirect: { name: 'lugares' },
       },
       {
         path: 'cabanas',
         name: 'cabanas',
-        component: () => import('@/pages/cabanas/CabanasListPage.vue'),
-        meta: { permission: 'cabanas.view', titleKey: 'cabanas.title' },
+        redirect: { name: 'lugares' },
       },
       {
         path: 'cabanas/:id/layout',
         name: 'cabanas.layout',
         component: () => import('@/pages/cabanas/CabanaLayoutPage.vue'),
-        meta: { permission: 'cabanas.view', titleKey: 'cabanas.layout', backTo: { name: 'cabanas' } },
+        meta: {
+          permissionsAny: ['lugares.view', 'cabanas.view'],
+          titleKey: 'cabanas.layout',
+          backTo: { name: 'lugares' },
+        },
       },
       {
         path: 'terrenos/:id',
         name: 'terrenos.map',
         component: () => import('@/pages/terrenos/TerrenoMapPage.vue'),
-        meta: { permission: 'terrenos.view', titleKey: 'terrenos.title', backTo: { name: 'terrenos' } },
+        meta: {
+          permissionsAny: ['lugares.view', 'terrenos.view'],
+          titleKey: 'terrenos.title',
+          backTo: { name: 'lugares' },
+        },
       },
       {
         path: 'terrenos/:id/configuraciones/:configId',
         name: 'terrenos.config',
         component: () => import('@/pages/terrenos/ConfigMapPage.vue'),
-        meta: { permission: 'terrenos.view' },
-      },
-      {
-        path: 'terrenos/:id/configuraciones/:configId',
-        name: 'terrenos.config',
-        component: () => import('@/pages/terrenos/ConfigMapPage.vue'),
-        meta: { permission: 'terrenos.view' },
+        meta: { permissionsAny: ['lugares.view', 'terrenos.view'] },
       },
       {
         path: 'clubs',
@@ -365,7 +395,13 @@ router.beforeEach(async (
     return next({ name: 'login', query: { redirect: to.fullPath } })
   }
 
-  if (to.meta.guest && auth.isAuthenticated && to.name !== 'auth.callback') {
+  if (
+    to.meta.guest
+    && auth.isAuthenticated
+    && to.name !== 'auth.callback'
+    && to.name !== 'eventos.publicos'
+    && to.name !== 'eventos.publicos.inscribir'
+  ) {
     if (auth.requiresContext) {
       return next({ name: 'auth.context' })
     }

@@ -9,6 +9,13 @@ import {
   loteFillColor,
   pathsToPolygonGeoJson,
 } from '@/modules/terrenos/geometria'
+import {
+  DEFAULT_ESTRUCTURA_ALPHA,
+  DEFAULT_ESTRUCTURA_HEX,
+  DEFAULT_ZONA_ALPHA,
+  DEFAULT_ZONA_HEX,
+  parseMapColor,
+} from '@/utils/color'
 import type { GeoJsonGeometry, MapLayerMode, MapToolMode } from '@/modules/terrenos/types'
 
 export type MapFeature = {
@@ -40,6 +47,8 @@ const props = defineProps<{
   lockViewport?: boolean
   /** Clic derecho en lotes para acciones (asignar / estado). */
   enableLoteActionsMenu?: boolean
+  /** Color del trazo al dibujar una estructura. */
+  drawColor?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -139,22 +148,41 @@ async function init(): Promise<void> {
   }
 }
 
+function activeDrawColor(): { hex: string; alpha: number } {
+  return parseMapColor(props.drawColor, '#1565c0', 0.35)
+}
+
 function featureStyle(f: MapFeature, selected: boolean): Record<string, unknown> {
-  const base =
-    f.kind === 'terreno'
-      ? '#455a64'
-      : f.kind === 'zona'
-        ? f.color || '#00897b'
-        : f.kind === 'estructura'
-          ? f.color || '#6d4c41'
-          : loteFillColor(f.estado || 'disponible')
+  if (f.kind === 'estructura') {
+    const parsed = parseMapColor(f.color, DEFAULT_ESTRUCTURA_HEX, DEFAULT_ESTRUCTURA_ALPHA)
+    return {
+      fillColor: parsed.hex,
+      fillOpacity: selected ? Math.min(1, parsed.alpha + 0.12) : parsed.alpha,
+      strokeColor: selected ? '#000' : parsed.hex,
+      strokeWeight: selected ? 3 : 1.5,
+      zIndex: 4,
+    }
+  }
+
+  if (f.kind === 'zona') {
+    const parsed = parseMapColor(f.color, DEFAULT_ZONA_HEX, DEFAULT_ZONA_ALPHA)
+    return {
+      fillColor: parsed.hex,
+      fillOpacity: selected ? Math.min(1, parsed.alpha + 0.12) : parsed.alpha,
+      strokeColor: selected ? '#000' : parsed.hex,
+      strokeWeight: selected ? 3 : 1.5,
+      zIndex: 2,
+    }
+  }
+
+  const base = f.kind === 'terreno' ? '#455a64' : loteFillColor(f.estado || 'disponible')
 
   return {
     fillColor: base,
-    fillOpacity: selected ? 0.55 : f.kind === 'lote' ? 0.4 : f.kind === 'estructura' ? 0.45 : 0.25,
+    fillOpacity: selected ? 0.55 : f.kind === 'lote' ? 0.4 : 0.25,
     strokeColor: selected ? '#000' : base,
     strokeWeight: selected ? 3 : f.kind === 'terreno' ? 2 : 1.5,
-    zIndex: f.kind === 'lote' ? 3 : f.kind === 'estructura' ? 4 : f.kind === 'zona' ? 2 : 1,
+    zIndex: f.kind === 'lote' ? 3 : 1,
   }
 }
 
@@ -753,7 +781,7 @@ function startDrawing(): void {
   previewLine = new google.maps.Polyline({
     map,
     path: [],
-    strokeColor: '#1565c0',
+    strokeColor: activeDrawColor().hex,
     strokeOpacity: 0.9,
     strokeWeight: 2,
     clickable: false,
@@ -786,7 +814,7 @@ function startDrawing(): void {
         icon: {
           path: 'M0,0 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0',
           scale: 1,
-          fillColor: '#1565c0',
+          fillColor: activeDrawColor().hex,
           fillOpacity: 1,
           strokeWeight: 1,
           strokeColor: '#ffffff',
@@ -799,8 +827,8 @@ function startDrawing(): void {
         previewPolygon = new google.maps.Polygon({
           map,
           paths: drawVertices,
-          fillColor: '#1565c0',
-          fillOpacity: 0.2,
+          fillColor: activeDrawColor().hex,
+          fillOpacity: activeDrawColor().alpha,
           strokeWeight: 0,
           clickable: false,
         })
@@ -924,6 +952,17 @@ watch(() => [props.lockViewport, props.enableLoteActionsMenu], () => {
   applyEditableState()
 })
 watch(() => [props.layer, props.imagenUrl], () => syncLayer())
+watch(() => props.drawColor, () => {
+  const color = activeDrawColor()
+  previewLine?.setOptions({ strokeColor: color.hex })
+  previewPolygon?.setOptions({ fillColor: color.hex, fillOpacity: color.alpha })
+  for (const marker of vertexMarkers) {
+    const icon = marker.getIcon()
+    if (icon && typeof icon === 'object' && 'fillColor' in icon) {
+      marker.setIcon({ ...icon, fillColor: color.hex })
+    }
+  }
+})
 // No recentrar al cambiar lat/lng del terreno: conserva la ubicación actual del usuario
 
 onMounted(() => void init())

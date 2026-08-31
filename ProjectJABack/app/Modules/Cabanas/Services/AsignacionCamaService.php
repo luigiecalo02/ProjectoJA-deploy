@@ -5,6 +5,7 @@ namespace App\Modules\Cabanas\Services;
 use App\Models\User;
 use App\Modules\Cabanas\Events\OcupacionCabanaChanged;
 use App\Modules\Cabanas\Models\AsignacionCama;
+use App\Modules\Cabanas\Models\EventoAlojamientoCupo;
 use App\Modules\Cabanas\Models\EventoCabanaCama;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoInscripcion;
@@ -33,18 +34,35 @@ final class AsignacionCamaService
         return $this->assign($cama, $linea, $reserva, $actor);
     }
 
+    public function assignLine(
+        EventoCabanaCama $cama,
+        EventoInscripcionPersona $linea,
+        User $actor,
+        ?EventoServicioReserva $reserva = null,
+        ?int $cupoId = null,
+    ): AsignacionCama {
+        return $this->assign($cama, $linea, $reserva, $actor, $cupoId);
+    }
+
     private function assign(
         EventoCabanaCama $cama,
         EventoInscripcionPersona $linea,
-        EventoServicioReserva $reserva,
+        ?EventoServicioReserva $reserva,
         User $actor,
+        ?int $cupoId = null,
     ): AsignacionCama {
-        $result = DB::transaction(function () use ($cama, $linea, $reserva, $actor) {
+        $result = DB::transaction(function () use ($cama, $linea, $reserva, $actor, $cupoId) {
             $linea = EventoInscripcionPersona::query()->lockForUpdate()->findOrFail($linea->id);
-            $reserva = EventoServicioReserva::query()->lockForUpdate()->findOrFail($reserva->id);
+            if ($reserva) {
+                $reserva = EventoServicioReserva::query()->lockForUpdate()->findOrFail($reserva->id);
+            }
             $cama = EventoCabanaCama::query()->lockForUpdate()->findOrFail($cama->id);
             $event = $this->eventFor($cama);
-            [, $reserva] = $this->elegibilidad->resolveForLine($event, $linea);
+            if ($reserva) {
+                [, $reserva] = $this->elegibilidad->resolveForLine($event, $linea);
+            } else {
+                $this->elegibilidad->assertApprovedLine($event, $linea);
+            }
             if ($cama->estado !== 'disponible') {
                 throw ValidationException::withMessages(['cama' => ['La cama no está disponible.']]);
             }
@@ -63,6 +81,9 @@ final class AsignacionCamaService
             if ($ocupacion >= $cama->capacidad) {
                 throw ValidationException::withMessages(['cama' => ['La cama alcanzó su capacidad.']]);
             }
+            if ($cupoId === null && ! $actual) {
+                $this->assertPublicPool($event);
+            }
             if ($actual) {
                 $actual->update(['estado' => AsignacionCama::ESTADO_LIBERADA, 'liberada_at' => now()]);
             }
@@ -71,7 +92,8 @@ final class AsignacionCamaService
                 'evento_id' => $event->id,
                 'evento_cabana_cama_id' => $cama->id,
                 'inscripcion_persona_id' => $linea->id,
-                'evento_servicio_reserva_id' => $reserva->id,
+                'evento_servicio_reserva_id' => $reserva?->id,
+                'evento_alojamiento_cupo_id' => $cupoId,
                 'estado' => AsignacionCama::ESTADO_ACTIVA,
                 'asignado_por' => $actor->id,
             ]);
@@ -79,6 +101,27 @@ final class AsignacionCamaService
         $this->broadcast($result, 'assigned');
 
         return $result->load('cama.cuarto.piso.eventoCabana');
+    }
+
+    private function assertPublicPool(Event $event): void
+    {
+        $capacidad = (int) EventoCabanaCama::query()
+            ->whereHas('cuarto.piso.eventoCabana', fn ($query) => $query->where('evento_id', $event->id))
+            ->sum('capacidad');
+        $ocupadas = AsignacionCama::query()
+            ->where('evento_id', $event->id)
+            ->where('estado', AsignacionCama::ESTADO_ACTIVA)
+            ->lockForUpdate()
+            ->count();
+        $reservados = EventoAlojamientoCupo::query()
+            ->where('evento_id', $event->id)
+            ->where('estado', EventoAlojamientoCupo::ESTADO_ABIERTO)
+            ->lockForUpdate()
+            ->get()
+            ->sum(fn (EventoAlojamientoCupo $cupo) => $cupo->restantes());
+        if ($ocupadas + 1 + $reservados > $capacidad) {
+            throw ValidationException::withMessages(['cama' => ['No hay cupos libres de alojamiento.']]);
+        }
     }
 
     public function release(AsignacionCama $asignacion): AsignacionCama

@@ -10,6 +10,10 @@ export function usePermission() {
     return auth.hasPermission(permission)
   }
 
+  function canCatalog(module: 'terrenos' | 'cabanas', action: 'view' | 'create' | 'update' | 'delete'): boolean {
+    return can(`lugares.${action}`) || can(`${module}.${action}`)
+  }
+
   function canAny(required: string[]): boolean {
     return required.some((permission) => auth.hasPermission(permission))
   }
@@ -21,6 +25,7 @@ export function usePermission() {
   return {
     permissions,
     can,
+    canCatalog,
     canAny,
     canAll,
   }

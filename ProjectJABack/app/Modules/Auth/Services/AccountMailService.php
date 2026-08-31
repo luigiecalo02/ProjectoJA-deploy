@@ -4,6 +4,8 @@ namespace App\Modules\Auth\Services;
 
 use App\Models\User;
 use App\Modules\Clubs\Models\Persona;
+use App\Modules\Events\Models\Event;
+use App\Modules\Events\Models\EventoInscripcion;
 use App\Modules\Settings\Services\MailSettingsService;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -109,6 +111,53 @@ final class AccountMailService
             $this->sendApprovedNotice($user);
         } catch (\Throwable) {
         }
+    }
+
+    public function trySendInscripcionPublica(
+        string $email,
+        string $name,
+        Event $event,
+        EventoInscripcion $inscripcion,
+        bool $createdUser,
+    ): void {
+        try {
+            $this->sendInscripcionPublica($email, $name, $event, $inscripcion, $createdUser);
+        } catch (\Throwable) {
+            // El registro no debe fallar si SMTP no responde.
+        }
+    }
+
+    public function sendInscripcionPublica(
+        string $email,
+        string $name,
+        Event $event,
+        EventoInscripcion $inscripcion,
+        bool $createdUser,
+    ): void {
+        if (! $this->mailSettings->isConfigured()) {
+            return;
+        }
+
+        $this->mailSettings->apply();
+        $total = number_format((float) ($inscripcion->total_declarado ?? 0), 0, ',', '.');
+        $intro = $createdUser
+            ? "Recibimos tu inscripción a {$event->name}. El total declarado es \$ {$total}. Confirma tu cuenta con el enlace de verificación y te avisaremos por este correo cuando se revise."
+            : "Recibimos tu inscripción a {$event->name}. El total declarado es \$ {$total}. Te enviaremos el seguimiento de la revisión a este correo.";
+        $url = $createdUser
+            ? rtrim((string) config('app.frontend_url'), '/').'/login'
+            : rtrim((string) config('app.frontend_url'), '/').'/eventos-publicos';
+
+        Mail::send('emails.branded-panel', [
+            ...$this->brandedMail->layout(),
+            'title' => 'Inscripción recibida',
+            'userName' => $name ?: 'amigo',
+            'intro' => $intro,
+            'buttonLabel' => $createdUser ? 'Ir a iniciar sesión' : 'Ver eventos',
+            'url' => $url,
+            'after' => 'Si no te inscribiste, puedes ignorar este mensaje. Si no encuentras este correo, revisa la bandeja de spam.',
+        ], function ($message) use ($email, $event) {
+            $message->to($email)->subject('ProjectJA · Inscripción a '.$event->name);
+        });
     }
 
     public function sendApprovedNotice(User $user): void
@@ -277,7 +326,7 @@ final class AccountMailService
         return $persona?->user;
     }
 
-    private function maskEmail(string $email): string
+    public function maskEmail(string $email): string
     {
         $parts = explode('@', $email, 2);
         $local = $parts[0] ?? '';

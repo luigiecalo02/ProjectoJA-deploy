@@ -9,26 +9,26 @@ final class CabanaPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->hasPermission('cabanas.view');
+        return $user->hasCatalogPermission('cabanas', 'view');
     }
 
     public function view(User $user, Cabana $cabana): bool
     {
-        return $user->hasPermission('cabanas.view');
+        return $user->hasCatalogPermission('cabanas', 'view');
     }
 
     public function create(User $user): bool
     {
-        return $user->hasPermission('cabanas.create');
+        return $user->hasCatalogPermission('cabanas', 'create');
     }
 
     public function update(User $user, Cabana $cabana): bool
     {
-        return $user->hasPermission('cabanas.update');
+        return $user->hasCatalogPermission('cabanas', 'update');
     }
 
     public function delete(User $user, Cabana $cabana): bool
     {
-        return $user->hasPermission('cabanas.delete');
+        return $user->hasCatalogPermission('cabanas', 'delete');
     }
 }

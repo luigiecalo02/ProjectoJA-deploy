@@ -9,6 +9,8 @@ import ToggleSwitch from 'primevue/toggleswitch'
 import Message from 'primevue/message'
 import PageLoader from '@/components/PageLoader.vue'
 import AppStackDrawer from '@/components/drawers/AppStackDrawer.vue'
+import ColorAlphaPicker from '@/components/terrenos/ColorAlphaPicker.vue'
+import { colorToCss } from '@/utils/color'
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import type { CategoriaSubevento } from '@/modules/events/types'
@@ -189,7 +191,7 @@ watch(
 
     <ul v-else class="cat-list">
       <li v-for="item in items" :key="item.id" class="cat-list__item">
-        <span class="cat-list__icon" :style="{ color: item.color || undefined }">
+        <span class="cat-list__icon" :style="{ color: colorToCss(item.color) }">
           <i :class="item.icono || 'pi pi-tag'" />
         </span>
         <div class="cat-list__body">
@@ -235,7 +237,7 @@ watch(
       <div class="field-grid">
         <div class="field">
           <label>{{ t('events.wizard.catColor') }}</label>
-          <InputText v-model="form.color" class="w-full" placeholder="#2563eb" />
+          <ColorAlphaPicker v-model="form.color" />
         </div>
         <div class="field">
           <label>{{ t('events.wizard.catIcon') }}</label>

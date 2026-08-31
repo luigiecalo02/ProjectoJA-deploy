@@ -84,7 +84,7 @@ final class ElegibilidadCamaService
             ->first();
     }
 
-    public function resolveForLine(Event $event, EventoInscripcionPersona $linea): array
+    public function assertApprovedLine(Event $event, EventoInscripcionPersona $linea): void
     {
         $inscripcionValida = $linea->estado === EventoInscripcionPersona::ESTADO_CONFIRMADA
             && $linea->inscripcion()
@@ -94,6 +94,11 @@ final class ElegibilidadCamaService
         if (! $inscripcionValida) {
             throw ValidationException::withMessages(['inscripcion' => ['La persona no tiene inscripción aprobada en el evento.']]);
         }
+    }
+
+    public function resolveForLine(Event $event, EventoInscripcionPersona $linea): array
+    {
+        $this->assertApprovedLine($event, $linea);
         $reserva = EventoServicioReserva::query()
             ->where('evento_id', $event->id)
             ->where('inscripcion_persona_id', $linea->id)

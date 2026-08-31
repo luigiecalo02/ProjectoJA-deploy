@@ -6,6 +6,7 @@ import {
   type ClubLoaderKey,
 } from '@/modules/auth/clubLogin'
 import type { LoaderPreset } from '@/modules/settings/types'
+import { colorToCss, parseMapColor, serializeMapColor } from '@/utils/color'
 
 const props = withDefaults(
   defineProps<{
@@ -31,6 +32,11 @@ const duration = computed(() => {
   if (theme.value.speed === 'fast') return '0.7s'
   return '1.2s'
 })
+
+const glowShadow = computed(() => {
+  const parsed = parseMapColor(theme.value.glow, '#ffcc00', 1)
+  return colorToCss(serializeMapColor(parsed.hex, parsed.alpha * 0.25, parsed.hex), parsed.hex, 0.25)
+})
 </script>
 
 <template>
@@ -40,8 +46,8 @@ const duration = computed(() => {
         class="club-loader__ring"
         :class="`is-${theme.ring_animation}`"
         :style="{
-          borderTopColor: theme.ring_top,
-          borderRightColor: theme.ring_right,
+          borderTopColor: colorToCss(theme.ring_top, theme.ring_top, 1),
+          borderRightColor: colorToCss(theme.ring_right, theme.ring_right, 1),
           animationDuration: duration,
         }"
         aria-hidden="true"
@@ -54,12 +60,12 @@ const duration = computed(() => {
         alt=""
         draggable="false"
         :style="{
-          filter: `drop-shadow(0 10px 16px ${theme.glow}40)`,
+          filter: `drop-shadow(0 10px 16px ${glowShadow})`,
           animationDuration: duration,
         }"
       />
     </div>
-    <p v-if="label" class="club-loader__label" :style="{ color: theme.label_color }">
+    <p v-if="label" class="club-loader__label" :style="{ color: colorToCss(theme.label_color, theme.label_color, 1) }">
       {{ label }}
     </p>
   </div>

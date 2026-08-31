@@ -39,11 +39,21 @@ const activeTab = ref<'participants' | 'history' | 'decision'>('participants')
 const expandedParticipantIds = ref<Set<number>>(new Set())
 
 const eventId = computed(() => Number(route.params.id))
+function inscriptionTitle(item: EventoInscripcion): string {
+  if (item.tipo === 'individual') {
+    return item.persona?.full_name
+      || item.personas?.[0]?.nombre
+      || t('publicEventos.revisionIndividual')
+  }
+  return item.organizacion?.nombre || (item.organizacion_id ? `#${item.organizacion_id}` : t('publicEventos.revisionIndividual'))
+}
+
 const filteredInscripciones = computed(() => {
   const term = clubSearch.value.trim().toLocaleLowerCase('es')
   if (!term) return inscripciones.value
   return inscripciones.value.filter((item) =>
-    (item.organizacion?.nombre || '').toLocaleLowerCase('es').includes(term),
+    inscriptionTitle(item).toLocaleLowerCase('es').includes(term)
+    || (item.persona?.identificacion || '').toLocaleLowerCase('es').includes(term),
   )
 })
 
@@ -309,10 +319,10 @@ onMounted(() => {
               :src="item.organizacion.logo_url"
               :alt="item.organizacion.nombre"
             />
-            <span v-else>{{ initials(item.organizacion?.nombre) }}</span>
+            <span v-else>{{ initials(inscriptionTitle(item)) }}</span>
           </span>
           <span class="revision-list__content">
-            <strong>{{ item.organizacion?.nombre || `#${item.organizacion_id}` }}</strong>
+            <strong>{{ inscriptionTitle(item) }}</strong>
             <small>{{ item.personas?.length ?? 0 }} {{ t('events.revisionMembers') }}</small>
             <span class="revision-list__meta">
               <span class="status-pill" :class="`status-pill--${item.estado}`">
@@ -356,14 +366,21 @@ onMounted(() => {
                 :src="detail.organizacion.logo_url"
                 :alt="detail.organizacion.nombre"
               />
-              <span v-else>{{ initials(detail.organizacion?.nombre) }}</span>
+              <span v-else>{{ initials(inscriptionTitle(detail)) }}</span>
             </span>
             <div>
               <small>{{ t('events.revisionEnrollmentNumber', { number: detail.id }) }}</small>
-              <h2>{{ detail.organizacion?.nombre || `#${detail.organizacion_id}` }}</h2>
+              <h2>{{ inscriptionTitle(detail) }}</h2>
               <span class="status-pill" :class="`status-pill--${detail.estado}`">
                 {{ estadoLabel(detail.estado) }}
               </span>
+              <small v-if="detail.evento_lote">
+                {{ t('publicEventos.stepLote') }}:
+                {{ detail.evento_lote.nombre || detail.evento_lote.codigo }}
+              </small>
+              <small v-if="detail.evento_cabana">
+                {{ t('publicEventos.stepCabana') }}: {{ detail.evento_cabana.nombre }}
+              </small>
             </div>
           </div>
         </header>

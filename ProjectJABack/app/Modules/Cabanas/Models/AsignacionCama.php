@@ -19,7 +19,8 @@ class AsignacionCama extends Model
 
     protected $fillable = [
         'evento_id', 'evento_cabana_cama_id', 'inscripcion_persona_id',
-        'evento_servicio_reserva_id', 'estado', 'asignado_por', 'liberada_at',
+        'evento_servicio_reserva_id', 'evento_alojamiento_cupo_id',
+        'estado', 'asignado_por', 'liberada_at',
     ];
 
     protected function casts(): array
@@ -50,5 +51,10 @@ class AsignacionCama extends Model
     public function asignadoPor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'asignado_por');
+    }
+
+    public function cupo(): BelongsTo
+    {
+        return $this->belongsTo(EventoAlojamientoCupo::class, 'evento_alojamiento_cupo_id');
     }
 }

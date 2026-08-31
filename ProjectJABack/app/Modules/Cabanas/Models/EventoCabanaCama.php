@@ -12,12 +12,22 @@ class EventoCabanaCama extends Model
 
     protected $fillable = [
         'evento_cabana_cuarto_id', 'cabana_cama_id', 'codigo', 'nombre', 'capacidad',
+        'tipo', 'nivel_camarote', 'grupo_camarote', 'precio_sugerido', 'precio',
         'x', 'y', 'ancho', 'alto', 'rotacion', 'estado', 'orden',
     ];
 
     protected function casts(): array
     {
-        return ['capacidad' => 'integer', 'x' => 'float', 'y' => 'float', 'ancho' => 'float', 'alto' => 'float', 'rotacion' => 'float'];
+        return [
+            'capacidad' => 'integer',
+            'precio_sugerido' => 'decimal:2',
+            'precio' => 'decimal:2',
+            'x' => 'float',
+            'y' => 'float',
+            'ancho' => 'float',
+            'alto' => 'float',
+            'rotacion' => 'float',
+        ];
     }
 
     public function cuarto(): BelongsTo

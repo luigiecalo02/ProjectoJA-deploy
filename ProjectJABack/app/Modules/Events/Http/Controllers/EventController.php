@@ -299,6 +299,20 @@ final class EventController
             'descripcion' => $event->descripcion,
             'reglas' => $event->reglas,
             'lugar' => $event->lugar,
+            'lugar_id' => $event->lugar_id,
+            'lugar_catalogo' => $event->relationLoaded('catalogLugar') && $event->catalogLugar
+                ? [
+                    'id' => $event->catalogLugar->id,
+                    'nombre' => $event->catalogLugar->nombre,
+                    'descripcion' => $event->catalogLugar->descripcion,
+                    'latitud' => $event->catalogLugar->latitud,
+                    'longitud' => $event->catalogLugar->longitud,
+                    'nivel_zoom' => $event->catalogLugar->nivel_zoom,
+                    'estado' => $event->catalogLugar->estado,
+                ]
+                : null,
+            'usar_lotes' => (bool) $event->usar_lotes,
+            'usar_cabanas' => (bool) $event->usar_cabanas,
             'latitud' => $event->latitud !== null ? (float) $event->latitud : null,
             'longitud' => $event->longitud !== null ? (float) $event->longitud : null,
             'image_url' => $event->image_url,

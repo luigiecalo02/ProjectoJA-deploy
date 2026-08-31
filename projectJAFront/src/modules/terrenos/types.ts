@@ -71,6 +71,8 @@ export type ConfiguracionTerreno = {
 
 export type Terreno = {
   id: number
+  lugar_id?: number | null
+  lugar?: { id: number; nombre: string } | null
   nombre: string
   descripcion?: string | null
   latitud?: number | null
@@ -93,6 +95,7 @@ export type Terreno = {
 }
 
 export type TerrenoFormPayload = {
+  lugar_id: number
   nombre: string
   descripcion?: string | null
   latitud?: number | null

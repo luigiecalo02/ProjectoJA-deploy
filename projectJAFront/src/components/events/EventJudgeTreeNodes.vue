@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { JudgeNodeStatus, JudgeTreeNode } from '@/modules/events/types'
+import { cssColor } from '@/utils/color'
 
 const props = withDefaults(
   defineProps<{
@@ -67,7 +68,7 @@ function iconFor(node: JudgeTreeNode): string {
 
         <span
           class="judge-tree__thumb"
-          :style="!node.image_url && node.color ? { color: node.color } : undefined"
+          :style="!node.image_url && node.color ? { color: cssColor(node.color) } : undefined"
         >
           <img v-if="node.image_url" :src="node.image_url" :alt="node.name" />
           <i v-else :class="iconFor(node)" />

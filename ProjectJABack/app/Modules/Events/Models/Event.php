@@ -5,6 +5,7 @@ namespace App\Modules\Events\Models;
 use App\Models\User;
 use App\Modules\Events\Services\EventVisibilityService;
 use App\Modules\Organizations\Models\Organizacion;
+use App\Modules\Lugares\Models\Lugar;
 use App\Modules\Settings\Models\CuentaBancaria;
 use App\Modules\Organizations\Models\TipoOrganizacion;
 use Carbon\CarbonInterface;
@@ -46,6 +47,9 @@ class Event extends Model
         'descripcion',
         'reglas',
         'lugar',
+        'lugar_id',
+        'usar_lotes',
+        'usar_cabanas',
         'latitud',
         'longitud',
         'image_url',
@@ -125,6 +129,8 @@ class Event extends Model
             'fecha_limite_inscripcion' => 'datetime',
             'is_active' => 'boolean',
             'es_en_sitio' => 'boolean',
+            'usar_lotes' => 'boolean',
+            'usar_cabanas' => 'boolean',
             'es_calificable' => 'boolean',
             'puntaje_desde_hijos' => 'boolean',
             'puntaje_por_participar' => 'boolean',
@@ -380,6 +386,11 @@ class Event extends Model
     public function cuentaBancaria(): BelongsTo
     {
         return $this->belongsTo(CuentaBancaria::class, 'cuenta_bancaria_id');
+    }
+
+    public function catalogLugar(): BelongsTo
+    {
+        return $this->belongsTo(Lugar::class, 'lugar_id');
     }
 
     public function categoriaSubevento(): BelongsTo

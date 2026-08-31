@@ -7,12 +7,14 @@ import { useMediaQuery } from '@vueuse/core'
 import Button from 'primevue/button'
 import Drawer from 'primevue/drawer'
 import PageLoader from '@/components/PageLoader.vue'
+import ColorAlphaPicker from '@/components/terrenos/ColorAlphaPicker.vue'
 import TerrenoMapCanvas from '@/components/terrenos/TerrenoMapCanvas.vue'
 import TerrenoSidePanel from '@/components/terrenos/TerrenoSidePanel.vue'
 import type { MapFeature } from '@/components/terrenos/TerrenoMapCanvas.vue'
 import { terrenosService } from '@/services/terrenosService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import { DEFAULT_ESTRUCTURA_ALPHA, DEFAULT_ESTRUCTURA_HEX, serializeMapColor } from '@/utils/color'
 import { DEFAULT_MAP_ZOOM, isPathContainedInGeo, measurePaths } from '@/modules/terrenos/geometria'
 import type {
   ConfiguracionTerreno,
@@ -27,7 +29,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const { can } = usePermission()
+const { canCatalog } = usePermission()
 
 const terrenoId = computed(() => Number(route.params.id))
 const terreno = ref<Terreno | null>(null)
@@ -38,11 +40,12 @@ const tool = ref<MapToolMode>('select')
 const layer = ref<MapLayerMode>('roadmap')
 const selectedKind = ref<'terreno' | 'estructura' | null>('terreno')
 const selectedEstructura = ref<EstructuraTerreno | null>(null)
+const draftEstructuraColor = ref(serializeMapColor(DEFAULT_ESTRUCTURA_HEX, DEFAULT_ESTRUCTURA_ALPHA))
 const drawerOpen = ref(false)
 const isMobile = useMediaQuery('(max-width: 900px)')
 const mapRef = ref<InstanceType<typeof TerrenoMapCanvas> | null>(null)
 
-const canEdit = computed(() => can('terrenos.update'))
+const canEdit = computed(() => canCatalog('terrenos', 'update'))
 
 const drawTools = computed(() => [
   { label: t('terrenos.tool.drawTerreno'), value: 'draw_terreno' as MapToolMode, icon: 'pi pi-map' },
@@ -133,7 +136,7 @@ async function load(options: { quiet?: boolean } = {}): Promise<void> {
     }
   } catch (error) {
     toast.add({ severity: 'error', summary: t('common.error'), detail: getApiErrorMessage(error), life: 4000 })
-    if (!quiet) await router.push({ name: 'terrenos' })
+    if (!quiet) await router.push({ name: 'lugares' })
   } finally {
     if (!quiet) loading.value = false
   }
@@ -190,7 +193,7 @@ async function onDrawn(payload: { geometria: GeoJsonGeometry; path: Array<{ lat:
         geometria: payload.geometria,
         area: measures.area,
         perimetro: measures.perimetro,
-        color: '#6d4c41',
+        color: draftEstructuraColor.value,
       })
       await load({ quiet: true })
     }
@@ -351,7 +354,12 @@ onMounted(() => void load())
 <template>
   <section class="terreno-map-page">
     <header class="terreno-map-page__toolbar">
-      <Button icon="pi pi-arrow-left" text rounded @click="router.push({ name: 'terrenos' })" />
+      <Button
+        icon="pi pi-arrow-left"
+        text
+        rounded
+        @click="router.push(terreno?.lugar_id ? { name: 'lugares.edit', params: { id: terreno.lugar_id } } : { name: 'lugares' })"
+      />
       <div class="title">
         <h1 class="pj-display">{{ terreno?.nombre || t('terrenos.title') }}</h1>
       </div>
@@ -380,6 +388,14 @@ onMounted(() => void load())
           :outlined="tool !== opt.value"
           :disabled="!canEdit"
           @click="setDrawTool(opt.value)"
+        />
+        <ColorAlphaPicker
+          v-if="canEdit && tool === 'draw_estructura'"
+          v-model="draftEstructuraColor"
+          class="toolbar-color"
+          :default-hex="DEFAULT_ESTRUCTURA_HEX"
+          :default-alpha="DEFAULT_ESTRUCTURA_ALPHA"
+          compact
         />
       </div>
 
@@ -421,6 +437,7 @@ onMounted(() => void load())
           :selected-key="selectedKey"
           :editable-key="editableKey"
           :can-edit="canEdit"
+          :draw-color="tool === 'draw_estructura' ? draftEstructuraColor : null"
           @select="onSelectFeature"
           @drawn="onDrawn"
           @edited="onEdited"
@@ -508,6 +525,9 @@ onMounted(() => void load())
   background: color-mix(in srgb, var(--pj-muted, #667) 6%, transparent);
 }
 
+.toolbar-color {
+  min-width: 9.5rem;
+}
 .toolbar-group__label {
   display: block;
   width: 100%;

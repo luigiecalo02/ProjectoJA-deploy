@@ -16,6 +16,7 @@ class StoreTerrenoRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'lugar_id' => ['required', 'integer', 'exists:lugares,id'],
             'nombre' => ['required', 'string', 'max:255'],
             'descripcion' => ['nullable', 'string'],
             'latitud' => ['nullable', 'numeric', 'between:-90,90'],

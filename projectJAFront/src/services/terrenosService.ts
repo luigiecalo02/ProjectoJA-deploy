@@ -20,13 +20,14 @@ export interface TerrenosPage {
 }
 
 export const terrenosService = {
-  async list(params: { page?: number; per_page?: number; search?: string; estado?: string } = {}): Promise<TerrenosPage> {
+  async list(params: { page?: number; per_page?: number; search?: string; estado?: string; lugar_id?: number } = {}): Promise<TerrenosPage> {
     const { data } = await api.get<ApiEnvelope<Terreno[]>>('/api/v1/terrenos', {
       params: {
         page: params.page,
         per_page: params.per_page,
         q: params.search || undefined,
         estado: params.estado || undefined,
+        lugar_id: params.lugar_id || undefined,
       },
     })
     return { items: data.data ?? [], pagination: data.pagination }

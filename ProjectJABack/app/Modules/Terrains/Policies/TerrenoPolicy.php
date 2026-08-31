@@ -9,32 +9,33 @@ final class TerrenoPolicy
 {
     public function viewAny(User $actor): bool
     {
-        return $actor->hasPermission('terrenos.view');
+        return $actor->hasCatalogPermission('terrenos', 'view');
     }
 
     public function view(User $actor, Terreno $terreno): bool
     {
-        return $actor->hasPermission('terrenos.view');
+        return $actor->hasCatalogPermission('terrenos', 'view');
     }
 
     public function create(User $actor): bool
     {
-        return $actor->hasPermission('terrenos.create');
+        return $actor->hasCatalogPermission('terrenos', 'create');
     }
 
     public function update(User $actor, Terreno $terreno): bool
     {
-        return $actor->hasPermission('terrenos.update');
+        return $actor->hasCatalogPermission('terrenos', 'update');
     }
 
     public function delete(User $actor, Terreno $terreno): bool
     {
-        return $actor->hasPermission('terrenos.delete');
+        return $actor->hasCatalogPermission('terrenos', 'delete');
     }
 
     public function assign(User $actor, Terreno $terreno): bool
     {
-        return $actor->hasPermission('terrenos.assign') || $actor->hasPermission('terrenos.update');
+        return $actor->hasPermission('terrenos.assign')
+            || $actor->hasCatalogPermission('terrenos', 'update');
     }
 
     public function overrideCapacity(User $actor): bool

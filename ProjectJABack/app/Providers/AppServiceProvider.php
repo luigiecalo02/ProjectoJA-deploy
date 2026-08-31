@@ -17,6 +17,8 @@ use App\Modules\Events\Models\EventoServicioReserva;
 use App\Modules\Events\Policies\EventPolicy;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Policies\OrganizacionPolicy;
+use App\Modules\Lugares\Models\Lugar;
+use App\Modules\Lugares\Policies\LugarPolicy;
 use App\Modules\Terrains\Models\Terreno;
 use App\Modules\Terrains\Policies\TerrenoPolicy;
 use App\Modules\Auth\Services\PasswordResetMailFactory;
@@ -47,6 +49,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Organizacion::class, OrganizacionPolicy::class);
         Gate::policy(Terreno::class, TerrenoPolicy::class);
         Gate::policy(Cabana::class, CabanaPolicy::class);
+        Gate::policy(Lugar::class, LugarPolicy::class);
         EventoServicioReserva::observe(EventoServicioReservaObserver::class);
 
         Gate::before(function (User $user, ?string $ability = null) {

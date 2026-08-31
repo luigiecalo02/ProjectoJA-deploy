@@ -29,6 +29,8 @@ final class EventoCabanaService
 
     public function attach(Event $event, Cabana $cabana): EventoCabana
     {
+        $this->assertEventAllowsCabana($event, $cabana);
+
         return DB::transaction(function () use ($event, $cabana) {
             $cabana = Cabana::query()->with('pisos.cuartos.camas')->lockForUpdate()->findOrFail($cabana->id);
             if (EventoCabana::query()->where('evento_id', $event->id)->where('cabana_id', $cabana->id)->exists()) {
@@ -59,10 +61,16 @@ final class EventoCabanaService
                         'orden' => $cuarto->orden,
                     ]);
                     foreach ($cuarto->camas as $cama) {
+                        $sugerido = $cama->precio_sugerido !== null ? (float) $cama->precio_sugerido : null;
                         EventoCabanaCama::query()->create([
                             'evento_cabana_cuarto_id' => $ec->id, 'cabana_cama_id' => $cama->id,
                             'codigo' => $cama->codigo, 'nombre' => $cama->nombre,
                             'capacidad' => $cama->capacidad,
+                            'tipo' => $cama->tipo ?? 'sencilla',
+                            'nivel_camarote' => $cama->nivel_camarote,
+                            'grupo_camarote' => $cama->grupo_camarote,
+                            'precio_sugerido' => $sugerido,
+                            'precio' => $sugerido,
                             'x' => $cama->x, 'y' => $cama->y, 'ancho' => $cama->ancho,
                             'alto' => $cama->alto, 'rotacion' => $cama->rotacion,
                             'estado' => $cama->estado, 'orden' => $cama->orden,
@@ -106,12 +114,56 @@ final class EventoCabanaService
             }
 
             foreach ($items as $item) {
+                $cabana = Cabana::query()->findOrFail($item['cabana_id']);
+                $this->assertEventAllowsCabana($event, $cabana);
                 $snapshot = $current->get((int) $item['cabana_id'])
-                    ?? $this->attach($event, Cabana::query()->findOrFail($item['cabana_id']));
+                    ?? $this->attach($event, $cabana);
                 $snapshot->update(['orden' => $item['orden']]);
             }
 
             return $this->list($event);
         });
+    }
+
+    /**
+     * @param  list<array{id: int, precio: float|int|null}>  $items
+     */
+    public function updateBedPrices(Event $event, array $items): Collection
+    {
+        return DB::transaction(function () use ($event, $items) {
+            foreach ($items as $item) {
+                $cama = EventoCabanaCama::query()
+                    ->whereKey((int) $item['id'])
+                    ->whereHas('cuarto.piso.eventoCabana', fn ($query) => $query->where('evento_id', $event->id))
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                $cama->update([
+                    'precio' => isset($item['precio']) ? (float) $item['precio'] : null,
+                ]);
+            }
+
+            return $this->list($event);
+        });
+    }
+
+    private function assertEventAllowsCabana(Event $event, Cabana $cabana): void
+    {
+        if (! $event->usar_cabanas) {
+            throw ValidationException::withMessages([
+                'cabana_id' => ['Este evento no usa cabañas. Active “Usar cabañas” en el evento.'],
+            ]);
+        }
+
+        if (! $event->lugar_id) {
+            throw ValidationException::withMessages([
+                'lugar_id' => ['Seleccione un lugar en el evento antes de asociar cabañas.'],
+            ]);
+        }
+
+        if ((int) $cabana->lugar_id !== (int) $event->lugar_id) {
+            throw ValidationException::withMessages([
+                'cabana_id' => ['La cabaña no pertenece al lugar del evento.'],
+            ]);
+        }
     }
 }

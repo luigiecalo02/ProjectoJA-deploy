@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Modules\Cabanas\Models\AsignacionCama;
 use App\Modules\Cabanas\Models\EventoCabanaCama;
+use App\Modules\Lugares\Models\Lugar;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoInscripcion;
@@ -25,10 +26,19 @@ class CabanasApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    private Lugar $lugar;
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->seed(RolePermissionSeeder::class);
+        $this->lugar = Lugar::query()->create([
+            'nombre' => 'Campo de prueba',
+            'estado' => 'activo',
+            'latitud' => 4.711,
+            'longitud' => -74.0721,
+            'nivel_zoom' => 14,
+        ]);
     }
 
     public function test_guarda_croquis_y_crea_snapshot_independiente_por_evento(): void
@@ -93,7 +103,10 @@ class CabanasApiTest extends TestCase
         Storage::fake('public');
         Sanctum::actingAs($this->admin());
 
-        $cabanaId = $this->postJson('/api/v1/cabanas', ['nombre' => 'Con foto'])
+        $cabanaId = $this->postJson('/api/v1/cabanas', [
+            'nombre' => 'Con foto',
+            'lugar_id' => $this->lugar->id,
+        ])
             ->assertCreated()
             ->json('data.id');
 
@@ -233,6 +246,124 @@ class CabanasApiTest extends TestCase
         $this->assertStringNotContainsString($ready['persona']->identificacion, (string) $encoded);
     }
 
+    public function test_admin_sincroniza_cupos_de_alojamiento(): void
+    {
+        $ready = $this->readyAssignmentContext();
+        $holder = $this->guestUser($this->createPersona(['sexo' => 'F']));
+        Sanctum::actingAs($this->admin());
+
+        $this->putJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos", [
+            'items' => [['user_id' => $holder->id, 'cupos' => 2]],
+        ])->assertOk()
+            ->assertJsonPath('data.items.0.user_id', $holder->id)
+            ->assertJsonPath('data.items.0.cupos', 2)
+            ->assertJsonPath('data.items.0.restantes', 2)
+            ->assertJsonPath('data.capacidad', 2)
+            ->assertJsonPath('data.reservados', 2)
+            ->assertJsonPath('data.libres', 0);
+
+        $this->getJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos")
+            ->assertOk()
+            ->assertJsonCount(1, 'data.items');
+    }
+
+    public function test_sync_de_cupos_no_puede_superar_la_capacidad(): void
+    {
+        $ready = $this->readyAssignmentContext();
+        $holder = $this->guestUser($this->createPersona(['sexo' => 'F']));
+        Sanctum::actingAs($this->admin());
+
+        $this->putJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos", [
+            'items' => [['user_id' => $holder->id, 'cupos' => 3]],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['items']);
+    }
+
+    public function test_cupos_abiertos_apartan_capacidad_de_la_autoasignacion_publica(): void
+    {
+        $ready = $this->readyAssignmentContext();
+        $holder = $this->guestUser($this->createPersona(['sexo' => 'F']));
+        Sanctum::actingAs($this->admin());
+        $this->putJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos", [
+            'items' => [['user_id' => $holder->id, 'cupos' => 2]],
+        ])->assertOk();
+
+        Sanctum::actingAs($ready['user']);
+        $this->postJson("/api/v1/eventos-cabanas-camas/{$ready['beds'][0]->id}/autoasignacion")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['cama']);
+    }
+
+    public function test_titular_asigna_personas_hasta_el_tope_del_cupo_sin_reserva_pagada(): void
+    {
+        $ready = $this->readyAssignmentContext();
+        $first = $this->addApprovedPerson($ready['event'], 'M');
+        $second = $this->addApprovedPerson($ready['event'], 'F');
+        $third = $this->addApprovedPerson($ready['event'], 'M');
+        Sanctum::actingAs($this->admin());
+        $cupoId = $this->putJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos", [
+            'items' => [['user_id' => $ready['user']->id, 'cupos' => 2]],
+        ])->assertOk()->json('data.items.0.id');
+
+        Sanctum::actingAs($ready['user']);
+        $this->getJson("/api/v1/events/{$ready['event']->id}/alojamiento")
+            ->assertOk()
+            ->assertJsonPath('data.cupo.cupos', 2)
+            ->assertJsonPath('data.cupo.restantes', 2)
+            ->assertJsonPath('data.puede_seleccionar', true);
+
+        $this->getJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos/candidatos")
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $camaId = $ready['beds'][0]->id;
+        $this->postJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos/{$cupoId}/asignaciones", [
+            'inscripcion_persona_id' => $first['linea']->id,
+            'evento_cabana_cama_id' => $camaId,
+        ])->assertCreated();
+        $this->postJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos/{$cupoId}/asignaciones", [
+            'inscripcion_persona_id' => $second['linea']->id,
+            'evento_cabana_cama_id' => $camaId,
+        ])->assertCreated();
+        $this->postJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos/{$cupoId}/asignaciones", [
+            'inscripcion_persona_id' => $third['linea']->id,
+            'evento_cabana_cama_id' => $camaId,
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['cupo']);
+
+        $this->assertSame(2, AsignacionCama::query()
+            ->where('evento_alojamiento_cupo_id', $cupoId)
+            ->where('estado', 'activa')
+            ->count());
+    }
+
+    public function test_cerrar_cupo_libera_sobrantes_para_autoasignacion(): void
+    {
+        $ready = $this->readyAssignmentContext();
+        $person = $this->addApprovedPerson($ready['event'], 'F');
+        Sanctum::actingAs($this->admin());
+        $cupoId = $this->putJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos", [
+            'items' => [['user_id' => $ready['user']->id, 'cupos' => 2]],
+        ])->assertOk()->json('data.items.0.id');
+
+        Sanctum::actingAs($ready['user']);
+        $this->postJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos/{$cupoId}/asignaciones", [
+            'inscripcion_persona_id' => $person['linea']->id,
+            'evento_cabana_cama_id' => $ready['beds'][0]->id,
+        ])->assertCreated();
+
+        $this->postJson("/api/v1/eventos-cabanas-camas/{$ready['beds'][0]->id}/autoasignacion")
+            ->assertUnprocessable();
+
+        $this->postJson("/api/v1/events/{$ready['event']->id}/alojamiento/cupos/{$cupoId}/cerrar")
+            ->assertOk()
+            ->assertJsonPath('data.estado', 'cerrado')
+            ->assertJsonPath('data.usados', 1);
+
+        $this->postJson("/api/v1/eventos-cabanas-camas/{$ready['beds'][0]->id}/autoasignacion")
+            ->assertCreated();
+    }
+
     private function admin(): User
     {
         return User::factory()->create(['is_super' => true, 'is_admin' => true]);
@@ -271,6 +402,8 @@ class CabanasApiTest extends TestCase
             'name' => 'Campamento',
             'starts_at' => now(),
             'ends_at' => now()->addDay(),
+            'lugar_id' => $this->lugar->id,
+            'usar_cabanas' => true,
         ]);
     }
 
@@ -280,7 +413,7 @@ class CabanasApiTest extends TestCase
     private function createCabanaWithLayout(string $nombre = 'Cabaña Norte', string $codigo = 'A-1', string $genero = 'MIXTO', int $capacidad = 2, bool $extraBed = false): array
     {
         $cabanaId = $this->postJson('/api/v1/cabanas', [
-            'nombre' => $nombre, 'ancho' => 900, 'alto' => 600,
+            'nombre' => $nombre, 'ancho' => 900, 'alto' => 600, 'lugar_id' => $this->lugar->id,
         ])->assertCreated()->json('data.id');
 
         $camas = [[
@@ -396,5 +529,33 @@ class CabanasApiTest extends TestCase
         ]);
 
         return compact('user', 'persona', 'linea', 'reserva');
+    }
+
+    /**
+     * @return array{user: User, persona: Persona, linea: EventoInscripcionPersona}
+     */
+    private function addApprovedPerson(Event $event, string $sexo): array
+    {
+        $persona = $this->createPersona(['sexo' => $sexo]);
+        $user = $this->guestUser($persona);
+        $inscripcion = EventoInscripcion::query()->create([
+            'evento_id' => $event->id,
+            'tipo' => 'individual',
+            'persona_id' => $persona->id,
+            'estado' => EventoInscripcion::ESTADO_APROBADA,
+            'total_declarado' => 0,
+            'inscrito_por' => $user->id,
+        ]);
+        $linea = EventoInscripcionPersona::query()->create([
+            'inscripcion_id' => $inscripcion->id,
+            'persona_id' => $persona->id,
+            'tipo' => EventoInscripcionPersona::TIPO_MIEMBRO,
+            'nombre_snapshot' => $persona->full_name,
+            'identificacion_snapshot' => $persona->identificacion,
+            'estado' => EventoInscripcionPersona::ESTADO_CONFIRMADA,
+            'valor_inscripcion' => 0,
+        ]);
+
+        return compact('user', 'persona', 'linea');
     }
 }

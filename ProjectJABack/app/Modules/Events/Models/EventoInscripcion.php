@@ -3,8 +3,10 @@
 namespace App\Modules\Events\Models;
 
 use App\Models\User;
+use App\Modules\Cabanas\Models\EventoCabana;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\Organizacion;
+use App\Modules\Terrains\Models\EventoLote;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -12,6 +14,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class EventoInscripcion extends Model
 {
     protected $table = 'evento_inscripcion';
+
+    public const TIPO_CLUB = 'club';
+
+    public const TIPO_INDIVIDUAL = 'individual';
 
     public const ESTADO_PENDIENTE_REVISION = 'pendiente_revision';
 
@@ -28,6 +34,8 @@ class EventoInscripcion extends Model
         'evento_id',
         'tipo',
         'persona_id',
+        'evento_lote_id',
+        'evento_cabana_id',
         'organizacion_id',
         'estado',
         'total_declarado',
@@ -53,6 +61,16 @@ class EventoInscripcion extends Model
     public function persona(): BelongsTo
     {
         return $this->belongsTo(Persona::class, 'persona_id');
+    }
+
+    public function eventoLote(): BelongsTo
+    {
+        return $this->belongsTo(EventoLote::class, 'evento_lote_id');
+    }
+
+    public function eventoCabana(): BelongsTo
+    {
+        return $this->belongsTo(EventoCabana::class, 'evento_cabana_id');
     }
 
     public function organizacion(): BelongsTo

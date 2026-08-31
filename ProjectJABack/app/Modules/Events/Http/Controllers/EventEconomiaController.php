@@ -353,6 +353,9 @@ final class EventEconomiaController
             'seguros',
             'reservas',
             'organizacion.club',
+            'persona',
+            'eventoLote',
+            'eventoCabana',
             'movimientos.comprobantes.archivo',
             'movimientos.comprobantes.comentarios.autor',
         ]);
@@ -488,6 +491,21 @@ final class EventEconomiaController
                 'id' => $i->organizacion->id,
                 'nombre' => $i->organizacion->nombre,
                 'logo_url' => $i->organizacion->club?->logo,
+            ] : null,
+            'persona' => $i->persona ? [
+                'id' => $i->persona->id,
+                'full_name' => $i->persona->full_name,
+                'identificacion' => $i->persona->identificacion,
+                'correo' => $i->persona->correo,
+            ] : null,
+            'evento_lote' => $i->eventoLote ? [
+                'id' => $i->eventoLote->id,
+                'codigo' => $i->eventoLote->codigo,
+                'nombre' => $i->eventoLote->nombre,
+            ] : null,
+            'evento_cabana' => $i->eventoCabana ? [
+                'id' => $i->eventoCabana->id,
+                'nombre' => $i->eventoCabana->nombre,
             ] : null,
             'estado' => $i->estado,
             'total_declarado' => $i->total_declarado,

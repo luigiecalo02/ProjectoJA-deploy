@@ -41,11 +41,13 @@ return new class extends Migration
                 ->constrained('configuraciones_terreno')->cascadeOnDelete();
         });
 
-        DB::statement('
-            UPDATE zonas_terreno z
-            INNER JOIN configuraciones_terreno c ON c.terreno_id = z.terreno_id AND c.es_default = 1
-            SET z.configuracion_terreno_id = c.id
-        ');
+        if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+            DB::statement('
+                UPDATE zonas_terreno z
+                INNER JOIN configuraciones_terreno c ON c.terreno_id = z.terreno_id AND c.es_default = 1
+                SET z.configuracion_terreno_id = c.id
+            ');
+        }
 
         Schema::table('zonas_terreno', function (Blueprint $table) {
             $table->dropForeign(['terreno_id']);
@@ -57,19 +59,21 @@ return new class extends Migration
                 ->constrained('configuraciones_terreno')->cascadeOnDelete();
         });
 
-        DB::statement('
-            UPDATE lotes_terreno l
-            INNER JOIN zonas_terreno z ON z.id = l.zona_terreno_id
-            SET l.configuracion_terreno_id = z.configuracion_terreno_id
-            WHERE l.configuracion_terreno_id IS NULL AND l.zona_terreno_id IS NOT NULL
-        ');
+        if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+            DB::statement('
+                UPDATE lotes_terreno l
+                INNER JOIN zonas_terreno z ON z.id = l.zona_terreno_id
+                SET l.configuracion_terreno_id = z.configuracion_terreno_id
+                WHERE l.configuracion_terreno_id IS NULL AND l.zona_terreno_id IS NOT NULL
+            ');
 
-        DB::statement('
-            UPDATE lotes_terreno l
-            INNER JOIN configuraciones_terreno c ON c.terreno_id = l.terreno_id AND c.es_default = 1
-            SET l.configuracion_terreno_id = c.id
-            WHERE l.configuracion_terreno_id IS NULL
-        ');
+            DB::statement('
+                UPDATE lotes_terreno l
+                INNER JOIN configuraciones_terreno c ON c.terreno_id = l.terreno_id AND c.es_default = 1
+                SET l.configuracion_terreno_id = c.id
+                WHERE l.configuracion_terreno_id IS NULL
+            ');
+        }
 
         Schema::table('lotes_terreno', function (Blueprint $table) {
             $table->dropForeign(['terreno_id']);

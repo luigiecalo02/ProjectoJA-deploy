@@ -9,6 +9,7 @@ import Dialog from 'primevue/dialog'
 import Drawer from 'primevue/drawer'
 import InputText from 'primevue/inputtext'
 import PageLoader from '@/components/PageLoader.vue'
+import ColorAlphaPicker from '@/components/terrenos/ColorAlphaPicker.vue'
 import TerrenoMapCanvas from '@/components/terrenos/TerrenoMapCanvas.vue'
 import TerrenoSidePanel from '@/components/terrenos/TerrenoSidePanel.vue'
 import type { MapFeature } from '@/components/terrenos/TerrenoMapCanvas.vue'
@@ -16,6 +17,7 @@ import { terrenosService } from '@/services/terrenosService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import { DEFAULT_MAP_ZOOM, isPathContainedInGeo, measurePaths, pathIntersectsGeo } from '@/modules/terrenos/geometria'
+import { DEFAULT_ZONA_ALPHA, DEFAULT_ZONA_HEX, serializeMapColor } from '@/utils/color'
 import type {
   ConfiguracionTerreno,
   GeoJsonGeometry,
@@ -30,7 +32,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const { can } = usePermission()
+const { canCatalog } = usePermission()
 
 const terrenoId = computed(() => Number(route.params.id))
 const configId = computed(() => Number(route.params.configId))
@@ -38,6 +40,7 @@ const config = ref<ConfiguracionTerreno | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const tool = ref<MapToolMode>('select')
+const draftZonaColor = ref(serializeMapColor(DEFAULT_ZONA_HEX, DEFAULT_ZONA_ALPHA))
 const layer = ref<MapLayerMode>('roadmap')
 const selectedKind = ref<'terreno' | 'zona' | 'lote' | 'estructura' | null>('zona')
 const selectedZona = ref<ZonaTerreno | null>(null)
@@ -59,7 +62,7 @@ const pendingLote = ref<{
   zona: ZonaTerreno | null
 } | null>(null)
 
-const canEdit = computed(() => can('terrenos.update'))
+const canEdit = computed(() => canCatalog('terrenos', 'update'))
 
 const editableKey = computed(() => {
   if (!canEdit.value || tool.value !== 'select') return null
@@ -269,6 +272,7 @@ async function onDrawn(payload: { geometria: GeoJsonGeometry; path: Array<{ lat:
         geometria: payload.geometria,
         area: measures.area,
         perimetro: measures.perimetro,
+        color: draftZonaColor.value,
       })
       await load({ quiet: true })
       setTool('select')
@@ -597,6 +601,14 @@ onMounted(() => void load())
           :disabled="!canEdit"
           @click="setTool(opt.value)"
         />
+        <ColorAlphaPicker
+          v-if="canEdit && tool === 'draw_zona'"
+          v-model="draftZonaColor"
+          class="toolbar-color"
+          :default-hex="DEFAULT_ZONA_HEX"
+          :default-alpha="DEFAULT_ZONA_ALPHA"
+          compact
+        />
       </div>
 
       <div class="toolbar-group toolbar-group--view">
@@ -633,6 +645,7 @@ onMounted(() => void load())
           :selected-key="selectedKey"
           :editable-key="editableKey"
           :can-edit="canEdit"
+          :draw-color="tool === 'draw_zona' ? draftZonaColor : null"
           @select="onSelectFeature"
           @drawn="onDrawn"
           @edited="onEdited"
@@ -731,6 +744,9 @@ onMounted(() => void load())
 }
 .toolbar-group--view {
   border-style: dashed;
+}
+.toolbar-color {
+  min-width: 9.5rem;
 }
 .toolbar-group__label {
   width: 100%;

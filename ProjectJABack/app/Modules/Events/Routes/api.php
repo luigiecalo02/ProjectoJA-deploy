@@ -7,8 +7,15 @@ use App\Modules\Events\Http\Controllers\EventEconomiaController;
 use App\Modules\Events\Http\Controllers\EventJudgeController;
 use App\Modules\Events\Http\Controllers\EventParticipationController;
 use App\Modules\Events\Http\Controllers\EventStandingsController;
+use App\Modules\Events\Http\Controllers\PublicEventoController;
 use App\Modules\Events\Http\Controllers\SeguroConsultaController;
 use Illuminate\Support\Facades\Route;
+
+Route::prefix('public/eventos')->group(function () {
+    Route::get('/', [PublicEventoController::class, 'index'])->middleware('throttle:30,1');
+    Route::get('{event}', [PublicEventoController::class, 'show'])->middleware('throttle:30,1');
+    Route::post('{event}/inscribir', [PublicEventoController::class, 'store'])->middleware('throttle:5,1');
+});
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('events/tipos', [EventController::class, 'tipos']);

@@ -182,35 +182,17 @@ class RolePermissionSeeder extends Seeder
                 ],
             ],
             [
-                'key' => 'terrenos',
-                'name' => 'Terrenos',
-                'route_name' => 'terrenos',
-                'icon' => 'pi pi-map',
-                'sort_order' => 57,
-                'description' => 'Administración de terrenos y distribución de espacios en eventos',
+                'key' => 'lugares',
+                'name' => 'Lugares',
+                'route_name' => 'lugares',
+                'icon' => 'pi pi-map-marker',
+                'sort_order' => 56,
+                'description' => 'Catálogo de sedes: mapa, terrenos/lotes y cabañas',
                 'permissions' => [
-                    ['action' => 'view', 'display_name' => 'Ver terrenos', 'sort_order' => 1],
-                    ['action' => 'create', 'display_name' => 'Crear terrenos', 'sort_order' => 2],
-                    ['action' => 'update', 'display_name' => 'Actualizar terrenos', 'sort_order' => 3],
-                    ['action' => 'delete', 'display_name' => 'Eliminar terrenos', 'sort_order' => 4],
-                    ['action' => 'assign', 'display_name' => 'Asignar lotes a clubes', 'sort_order' => 5],
-                    ['action' => 'override_capacity', 'display_name' => 'Sobreasignar capacidad', 'sort_order' => 6],
-                ],
-            ],
-            [
-                'key' => 'cabanas',
-                'name' => 'Cabañas',
-                'route_name' => 'cabanas',
-                'icon' => 'pi pi-home',
-                'sort_order' => 58,
-                'description' => 'Administración de cabañas, croquis y camas por evento',
-                'permissions' => [
-                    ['action' => 'view', 'display_name' => 'Ver cabañas', 'sort_order' => 1],
-                    ['action' => 'create', 'display_name' => 'Crear cabañas', 'sort_order' => 2],
-                    ['action' => 'update', 'display_name' => 'Actualizar cabañas', 'sort_order' => 3],
-                    ['action' => 'delete', 'display_name' => 'Eliminar cabañas', 'sort_order' => 4],
-                    ['action' => 'assign', 'display_name' => 'Asignar camas', 'sort_order' => 5],
-                    ['action' => 'self_assign', 'display_name' => 'Elegir cama propia', 'sort_order' => 6],
+                    ['action' => 'view', 'display_name' => 'Ver lugares, terrenos y cabañas', 'sort_order' => 1],
+                    ['action' => 'create', 'display_name' => 'Crear lugares, terrenos y cabañas', 'sort_order' => 2],
+                    ['action' => 'update', 'display_name' => 'Actualizar lugares, terrenos y cabañas', 'sort_order' => 3],
+                    ['action' => 'delete', 'display_name' => 'Eliminar lugares, terrenos y cabañas', 'sort_order' => 4],
                 ],
             ],
         ];
@@ -238,6 +220,8 @@ class RolePermissionSeeder extends Seeder
                 );
             }
         }
+
+        $this->reparentCatalogPages();
 
         $systemRoles = [
             [
@@ -555,6 +539,37 @@ class RolePermissionSeeder extends Seeder
                     DB::table($table)->where('id', $row->id)->update([$column => $toRoleId]);
                 }
             }
+        }
+    }
+
+    private function reparentCatalogPages(): void
+    {
+        $lugar = Page::query()->where('key', 'lugares')->first();
+        if (! $lugar) {
+            return;
+        }
+
+        Page::query()->whereIn('key', ['terrenos', 'cabanas'])->update(['is_active' => false]);
+
+        $kept = [
+            'terrenos.assign' => ['Asignar lotes a clubes', 'assign', 11],
+            'terrenos.override_capacity' => ['Sobreasignar capacidad de lotes', 'override_capacity', 12],
+            'cabanas.view' => ['Ver cabañas', 'view', 13],
+            'cabanas.assign' => ['Asignar camas', 'assign', 14],
+            'cabanas.self_assign' => ['Elegir cama propia', 'self_assign', 15],
+        ];
+
+        foreach ($kept as $name => [$displayName, $action, $sortOrder]) {
+            Permission::query()->updateOrCreate(
+                ['name' => $name],
+                [
+                    'page_id' => $lugar->id,
+                    'module' => 'lugares',
+                    'action' => $action,
+                    'display_name' => $displayName,
+                    'sort_order' => $sortOrder,
+                ]
+            );
         }
     }
 }

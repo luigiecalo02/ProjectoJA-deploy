@@ -1,6 +1,9 @@
 import { api } from '@/services/api'
 import type { ApiEnvelope, PaginationMeta } from '@/types/api'
 import type {
+  AlojamientoCandidato,
+  AlojamientoCupo,
+  AlojamientoCupoPool,
   AlojamientoEvento,
   AsignacionCama,
   Cabana,
@@ -86,13 +89,14 @@ function normalizeAlojamiento(payload: AlojamientoEvento): AlojamientoEvento {
 }
 
 export const cabanasService = {
-  async list(params: { page?: number; per_page?: number; search?: string; estado?: string } = {}): Promise<CabanasPage> {
+  async list(params: { page?: number; per_page?: number; search?: string; estado?: string; lugar_id?: number } = {}): Promise<CabanasPage> {
     const { data } = await api.get<ApiEnvelope<Cabana[]>>('/api/v1/cabanas', {
       params: {
         page: params.page,
         per_page: params.per_page,
         q: params.search || undefined,
         estado: params.estado || undefined,
+        lugar_id: params.lugar_id || undefined,
       },
     })
     return { items: data.data ?? [], pagination: data.pagination }
@@ -160,6 +164,10 @@ export const cabanasService = {
             alto: bed.alto ?? 26,
             rotacion: bed.rotacion ?? 0,
             capacidad: bed.capacidad,
+            tipo: bed.tipo ?? (bed.capacidad >= 3 ? 'multiple' : bed.capacidad === 2 ? 'doble' : 'sencilla'),
+            nivel_camarote: bed.nivel_camarote ?? null,
+            grupo_camarote: bed.grupo_camarote ?? null,
+            precio_sugerido: bed.precio_sugerido ?? null,
             estado: bed.estado === 'mantenimiento' || bed.estado === 'no_disponible' ? bed.estado : 'disponible',
           })),
         })),
@@ -183,6 +191,17 @@ export const cabanasService = {
     return unwrapItems<EventoCabana>(data.data).map((item) => normalizeEventCabana(item))
   },
 
+  async updateEventBedPrices(
+    eventId: number,
+    items: Array<{ id: number; precio: number | null }>,
+  ): Promise<EventoCabana[]> {
+    const { data } = await api.put<ApiEnvelope<{ items: EventoCabana[] } | EventoCabana[]>>(
+      `/api/v1/events/${eventId}/cabanas/precios`,
+      { items },
+    )
+    return unwrapItems<EventoCabana>(data.data).map((item) => normalizeEventCabana(item))
+  },
+
   async getAlojamiento(eventId: number): Promise<AlojamientoEvento> {
     const { data } = await api.get<ApiEnvelope<AlojamientoEvento>>(`/api/v1/events/${eventId}/alojamiento`)
     return normalizeAlojamiento(data.data)
@@ -197,5 +216,56 @@ export const cabanasService = {
 
   async releaseAssignment(assignmentId: number): Promise<void> {
     await api.post(`/api/v1/asignaciones-cama/${assignmentId}/liberar`)
+  },
+
+  async getAlojamientoCupos(eventId: number): Promise<AlojamientoCupoPool> {
+    const { data } = await api.get<ApiEnvelope<AlojamientoCupoPool>>(`/api/v1/events/${eventId}/alojamiento/cupos`)
+    return {
+      items: data.data.items ?? [],
+      capacidad: Number(data.data.capacidad ?? 0),
+      ocupadas: Number(data.data.ocupadas ?? 0),
+      reservados: Number(data.data.reservados ?? 0),
+      libres: Number(data.data.libres ?? 0),
+    }
+  },
+
+  async syncAlojamientoCupos(
+    eventId: number,
+    items: Array<{ user_id: number; cupos: number }>,
+  ): Promise<AlojamientoCupoPool> {
+    const { data } = await api.put<ApiEnvelope<AlojamientoCupoPool>>(`/api/v1/events/${eventId}/alojamiento/cupos`, { items })
+    return {
+      items: data.data.items ?? [],
+      capacidad: Number(data.data.capacidad ?? 0),
+      ocupadas: Number(data.data.ocupadas ?? 0),
+      reservados: Number(data.data.reservados ?? 0),
+      libres: Number(data.data.libres ?? 0),
+    }
+  },
+
+  async getAlojamientoCandidatos(eventId: number): Promise<AlojamientoCandidato[]> {
+    const { data } = await api.get<ApiEnvelope<{ items: AlojamientoCandidato[] }>>(
+      `/api/v1/events/${eventId}/alojamiento/cupos/candidatos`,
+    )
+    return data.data.items ?? []
+  },
+
+  async assignFromCupo(
+    eventId: number,
+    cupoId: number,
+    payload: { inscripcion_persona_id: number; evento_cabana_cama_id: number },
+  ): Promise<AsignacionCama> {
+    const { data } = await api.post<ApiEnvelope<AsignacionCama>>(
+      `/api/v1/events/${eventId}/alojamiento/cupos/${cupoId}/asignaciones`,
+      payload,
+    )
+    return data.data
+  },
+
+  async closeAlojamientoCupo(eventId: number, cupoId: number): Promise<AlojamientoCupo> {
+    const { data } = await api.post<ApiEnvelope<AlojamientoCupo>>(
+      `/api/v1/events/${eventId}/alojamiento/cupos/${cupoId}/cerrar`,
+    )
+    return data.data
   },
 }

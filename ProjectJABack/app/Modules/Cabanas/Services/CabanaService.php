@@ -22,9 +22,10 @@ final class CabanaService
     {
         $paginator = Cabana::query()
             ->withCount('pisos')
-            ->with(['pisos.cuartos.camas:id,cabana_cuarto_id,capacidad,estado'])
+            ->with(['lugar:id,nombre', 'pisos.cuartos.camas:id,cabana_cuarto_id,capacidad,estado'])
             ->when($filters['q'] ?? null, fn ($q, $value) => $q->where('nombre', 'like', "%{$value}%"))
             ->when($filters['estado'] ?? null, fn ($q, $value) => $q->where('estado', $value))
+            ->when($filters['lugar_id'] ?? null, fn ($q, $value) => $q->where('lugar_id', (int) $value))
             ->orderBy('nombre')
             ->paginate(min(max($perPage, 1), 100));
 
@@ -46,7 +47,7 @@ final class CabanaService
 
     public function find(int $id): Cabana
     {
-        return Cabana::query()->with('pisos.cuartos.camas')->findOrFail($id);
+        return Cabana::query()->with(['lugar:id,nombre', 'pisos.cuartos.camas'])->findOrFail($id);
     }
 
     public function create(User $actor, array $data): Cabana
@@ -127,6 +128,10 @@ final class CabanaService
                             'codigo' => $camaData['codigo'],
                             'nombre' => $camaData['nombre'] ?? null,
                             'capacidad' => $camaData['capacidad'],
+                            'tipo' => $camaData['tipo'] ?? $this->tipoFromCapacidad((int) $camaData['capacidad']),
+                            'nivel_camarote' => $camaData['nivel_camarote'] ?? null,
+                            'grupo_camarote' => $camaData['grupo_camarote'] ?? null,
+                            'precio_sugerido' => $camaData['precio_sugerido'] ?? null,
                             'x' => $camaData['x'], 'y' => $camaData['y'],
                             'ancho' => $camaData['ancho'] ?? 36, 'alto' => $camaData['alto'] ?? 26,
                             'rotacion' => $camaData['rotacion'] ?? 0,
@@ -202,5 +207,14 @@ final class CabanaService
         }
 
         return $inside;
+    }
+
+    private function tipoFromCapacidad(int $capacidad): string
+    {
+        return match (true) {
+            $capacidad >= 3 => 'multiple',
+            $capacidad === 2 => 'doble',
+            default => 'sencilla',
+        };
     }
 }

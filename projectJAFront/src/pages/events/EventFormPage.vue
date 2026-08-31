@@ -27,6 +27,7 @@ import { clubsService } from '@/services/clubsService'
 import { organizacionesService } from '@/services/organizacionesService'
 import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { cuentasBancariasService } from '@/services/cuentasBancariasService'
+import { lugaresService } from '@/services/lugaresService'
 import { useAuthStore } from '@/stores/auth'
 import { usePageChrome } from '@/composables/usePageChrome'
 import type { OrganizacionTreeNode, TipoOrganizacion } from '@/modules/organizaciones/types'
@@ -38,6 +39,7 @@ import {
 import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
 import type { Club } from '@/modules/clubs/types'
 import type { CuentaBancaria } from '@/modules/settings/types'
+import type { Lugar } from '@/modules/lugares/types'
 import type {
   ClubEvent,
   EventFormPayload,
@@ -147,6 +149,9 @@ const form = reactive({
   name: '',
   descripcion: '',
   lugar: '',
+  lugar_id: null as number | null,
+  usar_lotes: false,
+  usar_cabanas: false,
   starts_at: null as Date | null,
   ends_at: null as Date | null,
   is_active: true,
@@ -196,6 +201,11 @@ const form = reactive({
 const selectedCuentaBancaria = computed(
   () => cuentasBancarias.value.find((item) => item.id === form.cuenta_bancaria_id) ?? null,
 )
+const lugares = ref<Lugar[]>([])
+const lugarOptions = computed(() =>
+  lugares.value.map((item) => ({ label: item.nombre, value: item.id })),
+)
+const selectedLugar = computed(() => lugares.value.find((item) => item.id === form.lugar_id) ?? null)
 
 const terrenoSummary = ref<{ terrenoNombre: string | null; lotes: number; capacidad: number }>({
   terrenoNombre: null,
@@ -204,19 +214,45 @@ const terrenoSummary = ref<{ terrenoNombre: string | null; lotes: number; capaci
 })
 const cabanasSummary = ref({ cabanas: 0, capacidad: 0 })
 
-const steps = computed(() => [
-  { key: 'basica' as const, label: t('events.wizard.stepBasic'), icon: 'pi pi-calendar' },
-  { key: 'organizaciones' as const, label: t('events.wizard.stepOrgs'), icon: 'pi pi-sitemap' },
-  { key: 'configuracion' as const, label: t('events.wizard.stepConfig'), icon: 'pi pi-cog' },
-  { key: 'terreno' as const, label: t('events.wizard.stepTerreno'), icon: 'pi pi-map' },
-  { key: 'alojamiento' as const, label: t('events.wizard.stepCabanas'), icon: 'pi pi-building' },
-  { key: 'subeventos' as const, label: t('events.wizard.stepSubevents'), icon: 'pi pi-share-alt' },
-  { key: 'revision' as const, label: t('events.wizard.stepReview'), icon: 'pi pi-check-circle' },
-])
+const steps = computed(() => {
+  const all: Array<{ key: WizardStep; label: string; icon: string }> = [
+    { key: 'basica', label: t('events.wizard.stepBasic'), icon: 'pi pi-calendar' },
+    { key: 'organizaciones', label: t('events.wizard.stepOrgs'), icon: 'pi pi-sitemap' },
+    { key: 'configuracion', label: t('events.wizard.stepConfig'), icon: 'pi pi-cog' },
+  ]
+  if (form.usar_lotes) {
+    all.push({ key: 'terreno', label: t('events.wizard.stepTerreno'), icon: 'pi pi-map' })
+  }
+  if (form.usar_cabanas) {
+    all.push({ key: 'alojamiento', label: t('events.wizard.stepCabanas'), icon: 'pi pi-building' })
+  }
+  all.push(
+    { key: 'subeventos', label: t('events.wizard.stepSubevents'), icon: 'pi pi-share-alt' },
+    { key: 'revision', label: t('events.wizard.stepReview'), icon: 'pi pi-check-circle' },
+  )
+  return all
+})
 
 const stepIndex = computed(() => steps.value.findIndex((s) => s.key === currentStep.value))
 const isFirstStep = computed(() => stepIndex.value <= 0)
 const isLastStep = computed(() => stepIndex.value >= steps.value.length - 1)
+
+watch(
+  () => form.lugar_id,
+  (id) => {
+    const lugar = lugares.value.find((item) => item.id === id)
+    if (lugar) form.lugar = lugar.nombre
+    if (!id) {
+      form.usar_lotes = false
+      form.usar_cabanas = false
+    }
+  },
+)
+
+watch(steps, (list) => {
+  if (list.some((step) => step.key === currentStep.value) || !list.length) return
+  currentStep.value = list.find((step) => step.key === 'configuracion')?.key ?? list[0].key
+})
 const isEditMode = computed(() => persistedId.value != null)
 
 const clubAudienceOptions = computed(() => [
@@ -529,7 +565,10 @@ function buildPayload(estado: string): EventFormPayload {
   return {
     name: form.name.trim() || t('events.wizard.untitled'),
     descripcion: form.descripcion.trim() || null,
-    lugar: form.lugar.trim() || null,
+    lugar: selectedLugar.value?.nombre ?? (form.lugar.trim() || null),
+    lugar_id: form.lugar_id,
+    usar_lotes: form.usar_lotes,
+    usar_cabanas: form.usar_cabanas,
     starts_at: dates.starts_at,
     ends_at: dates.ends_at,
     is_active: form.is_active,
@@ -769,13 +808,14 @@ watch(
 )
 
 async function loadCatalogs(): Promise<void> {
-  const [tree, tipos, clubsPage, tiposSeguro, productos, cuentas] = await Promise.all([
+  const [tree, tipos, clubsPage, tiposSeguro, productos, cuentas, lugaresPage] = await Promise.all([
     organizacionesService.tree(),
     organizacionesService.tipos(),
     clubsService.list({ per_page: 500, is_active: true }),
     eventsService.tiposSeguro(),
     eventsService.productosServicios(),
     cuentasBancariasService.list({ activas: true }).catch(() => [] as CuentaBancaria[]),
+    lugaresService.list({ per_page: 200, estado: 'activo' }).catch(() => ({ items: [] as Lugar[], pagination: null })),
   ])
   orgTree.value = tree
   orgOptions.value = flattenOrgs(tree)
@@ -784,6 +824,7 @@ async function loadCatalogs(): Promise<void> {
   tiposSeguroOptions.value = tiposSeguro
   productosCatalog.value = productos
   cuentasBancarias.value = cuentas
+  lugares.value = lugaresPage.items
   applyHomeOrganization()
 }
 
@@ -857,7 +898,10 @@ async function loadEvent(): Promise<void> {
   const event = await eventsService.get(persistedId.value)
   form.name = event.name
   form.descripcion = (event.descripcion || '').slice(0, descMax)
-  form.lugar = event.lugar || ''
+  form.lugar = event.lugar || event.lugar_catalogo?.nombre || ''
+  form.lugar_id = event.lugar_id ?? null
+  form.usar_lotes = event.usar_lotes ?? false
+  form.usar_cabanas = event.usar_cabanas ?? false
   form.starts_at = dateOnly(event.starts_at)
   form.ends_at = dateOnly(event.ends_at)
   form.is_active = event.is_active
@@ -1067,7 +1111,25 @@ onBeforeUnmount(() => {
             <div class="field-grid">
               <div class="field">
                 <label for="lugar">{{ t('events.lugar') }}</label>
-                <InputText id="lugar" v-model="form.lugar" class="w-full" />
+                <Select
+                  input-id="lugar"
+                  v-model="form.lugar_id"
+                  :options="lugarOptions"
+                  option-label="label"
+                  option-value="value"
+                  filter
+                  show-clear
+                  class="w-full"
+                  :placeholder="t('events.lugar')"
+                />
+              </div>
+              <div class="field field--row">
+                <label for="usar_lotes">{{ t('events.wizard.useLots') }}</label>
+                <ToggleSwitch input-id="usar_lotes" v-model="form.usar_lotes" :disabled="!form.lugar_id" />
+              </div>
+              <div class="field field--row">
+                <label for="usar_cabanas">{{ t('events.wizard.useCabins') }}</label>
+                <ToggleSwitch input-id="usar_cabanas" v-model="form.usar_cabanas" :disabled="!form.lugar_id" />
               </div>
               <div class="field field--row">
                 <label for="es_en_sitio">{{ t('events.esEnSitio') }}</label>
@@ -1630,6 +1692,7 @@ onBeforeUnmount(() => {
         <EventTerrenoStep
           :event-id="persistedId"
           :event-name="form.name"
+          :lugar-id="form.lugar_id"
           @summary="onTerrenoSummary"
           @apply-cupo="applyTerrenoCupo"
         />
@@ -1639,6 +1702,7 @@ onBeforeUnmount(() => {
       <div v-show="currentStep === 'alojamiento'" class="step-block">
         <EventCabanasStep
           :event-id="persistedId"
+          :lugar-id="form.lugar_id"
           @summary="cabanasSummary = $event"
         />
       </div>
@@ -1675,7 +1739,9 @@ onBeforeUnmount(() => {
                 <dt>{{ t('events.wizard.shortDescription') }}</dt>
                 <dd>{{ form.descripcion || '—' }}</dd>
               </div>
-              <div><dt>{{ t('events.lugar') }}</dt><dd>{{ form.lugar || '—' }}</dd></div>
+              <div><dt>{{ t('events.lugar') }}</dt><dd>{{ selectedLugar?.nombre || form.lugar || '—' }}</dd></div>
+              <div><dt>{{ t('events.wizard.useLots') }}</dt><dd>{{ form.usar_lotes ? t('common.yes') : t('common.no') }}</dd></div>
+              <div><dt>{{ t('events.wizard.useCabins') }}</dt><dd>{{ form.usar_cabanas ? t('common.yes') : t('common.no') }}</dd></div>
               <div><dt>{{ t('events.startsAt') }}</dt><dd>{{ previewDates }}</dd></div>
               <div><dt>{{ t('events.wizard.participants') }}</dt><dd>{{ previewCupo }}</dd></div>
             </dl>
@@ -1741,7 +1807,7 @@ onBeforeUnmount(() => {
               @click="goStep('configuracion')"
             />
           </div>
-          <div class="review-card">
+          <div v-if="form.usar_lotes" class="review-card">
             <h3>{{ t('events.wizard.stepTerreno') }}</h3>
             <dl>
               <div>
@@ -1771,7 +1837,7 @@ onBeforeUnmount(() => {
               @click="goStep('terreno')"
             />
           </div>
-          <div class="review-card">
+          <div v-if="form.usar_cabanas" class="review-card">
             <h3>{{ t('events.wizard.stepCabanas') }}</h3>
             <dl>
               <div><dt>{{ t('cabanas.cabins') }}</dt><dd>{{ cabanasSummary.cabanas }}</dd></div>

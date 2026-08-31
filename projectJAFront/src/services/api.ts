@@ -40,6 +40,7 @@ api.interceptors.response.use(
         && !path.startsWith('/recuperar-contrasena')
         && !path.startsWith('/restablecer-contrasena')
         && !path.startsWith('/confirmar-cuenta')
+        && !path.startsWith('/eventos-publicos')
         && !path.startsWith('/auth/callback')
       ) {
         window.location.assign('/login')

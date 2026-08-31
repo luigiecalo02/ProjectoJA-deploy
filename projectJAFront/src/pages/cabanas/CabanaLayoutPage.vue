@@ -7,7 +7,7 @@ import Button from 'primevue/button'
 import PageLoader from '@/components/PageLoader.vue'
 import CabanaLayoutEditor from '@/components/cabanas/CabanaLayoutEditor.vue'
 import { cabanasService } from '@/services/cabanasService'
-import { getApiErrorMessage } from '@/services/api'
+import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import type { Cabana, CabanaLayoutPayload } from '@/modules/cabanas/types'
 
@@ -15,7 +15,7 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const toast = useToast()
-const { can } = usePermission()
+const { canCatalog } = usePermission()
 const cabanaId = computed(() => Number(route.params.id))
 const cabana = ref<Cabana | null>(null)
 const catalog = ref<Cabana[]>([])
@@ -33,7 +33,7 @@ async function load(): Promise<void> {
     catalog.value = list.items
   } catch (error) {
     toast.add({ severity: 'error', summary: t('common.error'), detail: getApiErrorMessage(error), life: 4000 })
-    await router.push({ name: 'cabanas' })
+    await router.push({ name: 'lugares' })
   } finally {
     loading.value = false
   }
@@ -58,9 +58,14 @@ watch(cabanaId, () => void load(), { immediate: true })
   <section class="pj-page layout-page">
     <header class="pj-page__header">
       <div class="heading">
-        <Button icon="pi pi-arrow-left" text rounded @click="router.push({ name: 'cabanas' })" />
-        <span v-if="cabana?.image_url" class="layout-thumb">
-          <img :src="cabana.image_url" :alt="cabana.nombre" />
+        <Button
+          icon="pi pi-arrow-left"
+          text
+          rounded
+          @click="router.push(cabana?.lugar_id ? { name: 'lugares.edit', params: { id: cabana.lugar_id } } : { name: 'lugares' })"
+        />
+        <span v-if="resolveFileUrl(cabana?.image_url)" class="layout-thumb">
+          <img :src="resolveFileUrl(cabana?.image_url)!" :alt="cabana.nombre" />
         </span>
         <div>
           <h1 class="pj-display">{{ cabana?.nombre || t('cabanas.layout') }}</h1>
@@ -74,7 +79,7 @@ watch(cabanaId, () => void load(), { immediate: true })
         :cabana="cabana"
         :catalog="catalog"
         :saving="saving"
-        :readonly="!can('cabanas.update')"
+        :readonly="!canCatalog('cabanas', 'update')"
         @save="save"
         @open-cabana="(id) => router.push({ name: 'cabanas.layout', params: { id } })"
       />
@@ -94,5 +99,29 @@ watch(cabanaId, () => void load(), { immediate: true })
   flex-shrink: 0;
 }
 .layout-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.editor-panel { padding: 1rem; min-width: 0; }
+.layout-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--pj-topbar-height) - 2.5rem);
+}
+.editor-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+}
+.editor-panel :deep(.studio) {
+  flex: 1;
+  min-height: 0;
+}
+@media (min-width: 900px) {
+  .layout-page {
+    height: calc(100dvh - var(--pj-topbar-height) - 7rem);
+    max-height: calc(100dvh - var(--pj-topbar-height) - 7rem);
+    min-height: 0;
+    overflow: hidden;
+  }
+}
 </style>

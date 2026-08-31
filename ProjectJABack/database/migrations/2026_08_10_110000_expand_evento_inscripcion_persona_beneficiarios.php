@@ -11,7 +11,9 @@ return new class extends Migration
     {
         $this->dropColumnForeignKey('evento_inscripcion_persona', 'persona_id');
 
-        DB::statement('ALTER TABLE evento_inscripcion_persona MODIFY persona_id BIGINT UNSIGNED NULL');
+        Schema::table('evento_inscripcion_persona', function (Blueprint $table) {
+            $table->unsignedBigInteger('persona_id')->nullable()->change();
+        });
 
         Schema::table('evento_inscripcion_persona', function (Blueprint $table) {
             $table->foreign('persona_id')->references('id')->on('personas')->nullOnDelete();
@@ -41,7 +43,9 @@ return new class extends Migration
 
         $this->dropColumnForeignKey('evento_servicio_reserva', 'persona_id');
 
-        DB::statement('ALTER TABLE evento_servicio_reserva MODIFY persona_id BIGINT UNSIGNED NULL');
+        Schema::table('evento_servicio_reserva', function (Blueprint $table) {
+            $table->unsignedBigInteger('persona_id')->nullable()->change();
+        });
 
         Schema::table('evento_servicio_reserva', function (Blueprint $table) {
             $table->foreign('persona_id')->references('id')->on('personas')->nullOnDelete();
@@ -52,14 +56,16 @@ return new class extends Migration
                 ->cascadeOnDelete();
         });
 
-        DB::statement(
-            'UPDATE evento_servicio_reserva r
-             INNER JOIN evento_inscripcion_persona ip
-                ON ip.inscripcion_id = r.inscripcion_id
-               AND ip.persona_id = r.persona_id
-             SET r.inscripcion_persona_id = ip.id
-             WHERE r.inscripcion_persona_id IS NULL'
-        );
+        if (Schema::getConnection()->getDriverName() !== 'sqlite') {
+            DB::statement(
+                'UPDATE evento_servicio_reserva r
+                 INNER JOIN evento_inscripcion_persona ip
+                    ON ip.inscripcion_id = r.inscripcion_id
+                   AND ip.persona_id = r.persona_id
+                 SET r.inscripcion_persona_id = ip.id
+                 WHERE r.inscripcion_persona_id IS NULL'
+            );
+        }
     }
 
     public function down(): void

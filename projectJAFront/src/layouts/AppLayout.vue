@@ -131,8 +131,7 @@ const navItems = computed(() => {
       icon: 'pi pi-box',
       show: can('productos_servicios.view'),
     },
-    { to: { name: 'terrenos' }, label: t('nav.terrenos'), icon: 'pi pi-map', show: can('terrenos.view') },
-    { to: { name: 'cabanas' }, label: t('nav.cabanas'), icon: 'pi pi-building', show: can('cabanas.view') },
+    { to: { name: 'lugares' }, label: t('nav.lugares'), icon: 'pi pi-map-marker', show: can('lugares.view') },
   ]
   return items.filter((item) => item.show)
 })
@@ -148,6 +147,7 @@ function isActive(name: string): boolean {
     name === 'personas' ||
     name === 'integrantes' ||
     name === 'organizaciones' ||
+    name === 'lugares' ||
     name === 'terrenos' ||
     name === 'cabanas' ||
     name === 'segurosConsulta' ||

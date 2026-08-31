@@ -36,6 +36,24 @@ final class DistribucionEventoService
         ConfiguracionTerreno $config,
         ?string $descripcion = null,
     ): EventoTerreno {
+        if (! $event->usar_lotes) {
+            throw ValidationException::withMessages([
+                'terreno_id' => ['Este evento no usa lotes. Active “Usar lotes” en el evento.'],
+            ]);
+        }
+
+        if (! $event->lugar_id) {
+            throw ValidationException::withMessages([
+                'lugar_id' => ['Seleccione un lugar en el evento antes de asociar un terreno.'],
+            ]);
+        }
+
+        if ((int) $terreno->lugar_id !== (int) $event->lugar_id) {
+            throw ValidationException::withMessages([
+                'terreno_id' => ['El terreno no pertenece al lugar del evento.'],
+            ]);
+        }
+
         if ((int) $config->terreno_id !== (int) $terreno->id) {
             throw ValidationException::withMessages([
                 'configuracion_terreno_id' => ['La configuración no pertenece al terreno seleccionado.'],

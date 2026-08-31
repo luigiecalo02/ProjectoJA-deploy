@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import Select from 'primevue/select'
 import type { CabanaBed, CabanaFloor, CabanaRoom, EventoCabana } from '@/modules/cabanas/types'
-import { bedState, cabanaCapacity, cabanaFloors, cabanaLabel, occupancyOf, roomState, rotateTransform } from '@/modules/cabanas/layout'
+import { bedFlipped, bedVisualUnits, cabanaCapacity, cabanaFloors, cabanaLabel, occupancyOf, roomState, visualBedStatus } from '@/modules/cabanas/layout'
+import BedVisual from '@/components/cabanas/BedVisual.vue'
 
 const props = defineProps<{
   cabanas: EventoCabana[]
@@ -42,14 +43,18 @@ watch(activeCabanaId, () => {
 
 function selectBed(bed: CabanaBed, room: CabanaRoom): void {
   if (!activeCabana.value || !activeFloor.value || props.disabled) return
-  const state = bedState(bed, stateOptions.value)
-  if (state === 'bloqueada' || state === 'completa') return
+  const state = visualBedStatus(bed, stateOptions.value)
+  if (state === 'bloqueada' || state === 'ocupada') return
   emit('update:modelValue', bed.id)
   emit('select', bed, room, activeFloor.value, activeCabana.value)
 }
 
 function bedAriaLabel(bed: CabanaBed, room: CabanaRoom): string {
-  return `${bed.nombre || bed.codigo}, ${room.nombre}, ${occupancyOf(bed)} de ${bed.capacidad} ocupadas, ${bedState(bed, stateOptions.value)}`
+  return `${bed.nombre || bed.codigo}, ${room.nombre}, ${occupancyOf(bed)} de ${bed.capacidad} ocupadas, ${visualBedStatus(bed, stateOptions.value)}`
+}
+
+function unitCodigo(unit: { anchor: CabanaBed }): string {
+  return unit.anchor.codigo.replace(/-A[BR]$/i, '')
 }
 </script>
 
@@ -124,22 +129,25 @@ function bedAriaLabel(bed: CabanaBed, room: CabanaRoom): string {
             {{ occupancyOf(room) }}/{{ room.capacidad }}
           </text>
           <g
-            v-for="bed in room.camas"
-            :key="bed.id"
+            v-for="unit in bedVisualUnits(room.camas)"
+            :key="unit.key"
             class="bed"
-            :class="`state-${bedState(bed, stateOptions)}`"
-            :transform="rotateTransform({ x: bed.x - 18, y: bed.y - 13, ancho: 36, alto: 26, rotacion: bed.rotacion })"
-            role="button"
-            tabindex="0"
-            :aria-label="bedAriaLabel(bed, room)"
-            :aria-disabled="disabled || ['bloqueada', 'completa'].includes(bedState(bed, stateOptions))"
-            @click.stop="selectBed(bed, room)"
-            @keydown.enter.stop="selectBed(bed, room)"
-            @keydown.space.prevent.stop="selectBed(bed, room)"
           >
-            <rect :x="bed.x - 18" :y="bed.y - 13" width="36" height="26" rx="6" />
-            <path :d="`M ${bed.x - 12} ${bed.y - 5} h 24 M ${bed.x - 12} ${bed.y + 5} h 24`" />
-            <text :x="bed.x" :y="bed.y + 3">{{ bed.codigo }}</text>
+            <BedVisual
+              :x="unit.anchor.x"
+              :y="unit.anchor.y"
+              :width="unit.anchor.ancho ?? 120"
+              :height="unit.anchor.alto ?? (unit.mode === 'single' ? 72 : 100)"
+              :codigo="unitCodigo(unit)"
+              :mode="unit.mode"
+              :status="visualBedStatus(unit.anchor, stateOptions)"
+              :status-top="unit.top ? visualBedStatus(unit.top, stateOptions) : null"
+              :status-bottom="unit.bottom ? visualBedStatus(unit.bottom, stateOptions) : null"
+              :selected="unit.beds.some((bed) => bed.id === modelValue || bed.id === assignedBedId)"
+              :flipped="bedFlipped(unit.anchor)"
+              :interactive="!disabled"
+              @pick="(level) => selectBed(level === 'arriba' ? (unit.top ?? unit.anchor) : level === 'abajo' ? (unit.bottom ?? unit.anchor) : unit.anchor, room)"
+            />
           </g>
         </g>
       </svg>
@@ -147,8 +155,8 @@ function bedAriaLabel(bed: CabanaBed, room: CabanaRoom): string {
 
     <div class="legend" aria-label="Leyenda">
       <span class="state-disponible"><i /> Disponible</span>
-      <span class="state-parcial"><i /> Parcial</span>
-      <span class="state-completa"><i /> Completa</span>
+      <span class="state-reservada"><i /> Reservada</span>
+      <span class="state-ocupada"><i /> Ocupada</span>
       <span class="state-seleccionada"><i /> Seleccionada</span>
       <span class="state-bloqueada"><i /> Bloqueada</span>
     </div>
@@ -194,8 +202,8 @@ function bedAriaLabel(bed: CabanaBed, room: CabanaRoom): string {
 .legend span { display: inline-flex; align-items: center; gap: .3rem; }
 .legend i { width: .75rem; height: .75rem; border-radius: 3px; border: 2px solid; }
 .legend .state-disponible i { background: #d1fae5; border-color: #059669; }
-.legend .state-parcial i { background: #fef3c7; border-color: #d97706; }
-.legend .state-completa i { background: #fee2e2; border-color: #dc2626; }
+.legend .state-reservada i { background: #fde68a; border-color: #d97706; }
+.legend .state-ocupada i { background: #fecaca; border-color: #dc2626; }
 .legend .state-seleccionada i { background: #dbeafe; border-color: #2563eb; }
 .legend .state-bloqueada i { background: #e2e8f0; border-color: #64748b; }
 @media (max-width: 720px) {
