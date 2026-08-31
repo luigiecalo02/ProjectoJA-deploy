@@ -119,9 +119,17 @@ const bedStatusOptions = [
   { label: 'No disponible', value: 'no_disponible' },
 ]
 
+function cabanaLugarId(item: Cabana): number | null {
+  return item.lugar_id ?? item.lugar?.id ?? null
+}
+
 const cabanaOptions = computed(() => {
   const items = props.catalog?.length ? props.catalog : [props.cabana]
-  return items.map((item) => ({ label: item.nombre, value: item.id }))
+  const lugarId = cabanaLugarId(props.cabana)
+  const scoped = lugarId
+    ? items.filter((item) => item.id === props.cabana.id || cabanaLugarId(item) === lugarId)
+    : items
+  return scoped.map((item) => ({ label: item.nombre, value: item.id }))
 })
 const floorOptions = computed(() => floors.value.map((floor) => ({ label: floor.nombre, value: floor.id })))
 const roomOptions = computed(() =>

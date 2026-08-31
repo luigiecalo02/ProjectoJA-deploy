@@ -25,12 +25,14 @@ const saving = ref(false)
 async function load(): Promise<void> {
   loading.value = true
   try {
-    const [current, list] = await Promise.all([
-      cabanasService.get(cabanaId.value),
-      cabanasService.list({ per_page: 200 }),
-    ])
+    const current = await cabanasService.get(cabanaId.value)
+    const lugarId = current.lugar_id ?? current.lugar?.id ?? null
+    const list = lugarId
+      ? await cabanasService.list({ per_page: 200, lugar_id: lugarId })
+      : { items: [] as Cabana[] }
     cabana.value = current
-    catalog.value = list.items
+    const others = list.items.filter((item) => item.id !== current.id)
+    catalog.value = [current, ...others]
   } catch (error) {
     toast.add({ severity: 'error', summary: t('common.error'), detail: getApiErrorMessage(error), life: 4000 })
     await router.push({ name: 'lugares' })
