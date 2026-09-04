@@ -55,6 +55,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('events/{event}/evidencias', [EventParticipationController::class, 'storeEvidencia']);
     Route::delete('events/evidencias/{eventoEvidencia}', [EventParticipationController::class, 'destroyEvidencia']);
     Route::post('events/{event}/observacion-director', [EventParticipationController::class, 'storeDirectorObservacion']);
+    Route::get('events/judge/offline-pack', [EventJudgeController::class, 'offlinePack']);
     Route::get('events/{event}/judge', [EventJudgeController::class, 'show']);
     Route::get('events/{event}/judge/evaluaciones', [EventJudgeController::class, 'evaluaciones']);
     Route::post('events/{event}/calificaciones', [EventJudgeController::class, 'storeScore']);

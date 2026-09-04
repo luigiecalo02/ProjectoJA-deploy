@@ -37,6 +37,22 @@ export default {
     androidHint:
       'Abre el menú del navegador (⋮) y elige “Instalar aplicación” o “Añadir a pantalla de inicio”.',
   },
+  fieldMode: {
+    prepare: 'Preparar para el campo',
+    prepared: 'Listo para el campo: {count} eventos descargados.',
+    preparedEmpty: 'No hay eventos calificables en sitio asignados a ti.',
+    needPack: 'Conéctate y pulsa “Preparar para el campo” para calificar sin internet.',
+    downloadedAt: 'Paquete descargado: {date}',
+    offline: 'Sin conexión. Puedes calificar con el paquete descargado.',
+    offlinePending: 'Sin conexión · {count} notas por sincronizar',
+    pending: '{count} notas por sincronizar',
+    failed: '{count} notas no se pudieron sincronizar',
+    syncing: 'Sincronizando calificaciones…',
+    retry: 'Reintentar',
+    savedOffline: 'Calificación guardada en el teléfono. Se enviará al volver la red.',
+    usingPack: 'Mostrando eventos descargados para el campo.',
+    logoutBlocked: 'No puedes cerrar sesión sin internet. Así se conservan tu usuario y las calificaciones.',
+  },
   nav: {
     dashboard: 'Inicio',
     users: 'Usuarios',
@@ -1208,6 +1224,10 @@ export default {
       subTeamsMin: 'Equipos mín.',
       subTeamsMax: 'Equipos máx.',
       subOptionsLead: 'Activa solo lo que necesites. Los campos aparecen al marcar cada opción.',
+      subTabCalificaciones: 'Calificaciones',
+      subTabControl: 'Control',
+      subTabEvidencias: 'Evidencias',
+      subTabJueces: 'Jueces',
       subOptScore: 'Maneja puntaje',
       subOptScoreFromChildren: 'Traer puntos de subeventos hijos',
       subOptScoreFromChildrenHint:

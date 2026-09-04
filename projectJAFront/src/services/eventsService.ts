@@ -36,6 +36,7 @@ import type {
   EventStandingsTree,
   SeguroConsultaResultado,
 } from '@/modules/events/types'
+import type { FieldOfflinePack } from '@/modules/fieldMode/types'
 
 export interface EventsPage {
   items: ClubEvent[]
@@ -460,6 +461,11 @@ export const eventsService = {
 
   async removeEvidencia(evidenciaId: number): Promise<void> {
     await api.delete(`/api/v1/events/evidencias/${evidenciaId}`)
+  },
+
+  async judgeOfflinePack(): Promise<FieldOfflinePack> {
+    const { data } = await api.get<ApiEnvelope<FieldOfflinePack>>('/api/v1/events/judge/offline-pack')
+    return data.data
   },
 
   async judgeBoard(

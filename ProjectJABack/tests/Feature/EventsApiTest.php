@@ -362,6 +362,67 @@ class EventsApiTest extends TestCase
         $this->assertFalse($event->isVisibleTo($conqUser));
     }
 
+    public function test_judge_offline_pack_includes_on_site_calificable_events(): void
+    {
+        $admin = $this->admin();
+        Sanctum::actingAs($admin);
+
+        $root = Event::query()->create([
+            'name' => 'Camporee campo',
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDays(3),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_PUBLICADO,
+            'es_en_sitio' => true,
+        ]);
+
+        $activity = Event::query()->create([
+            'name' => 'Nudo de salvamento',
+            'evento_padre_id' => $root->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDays(2),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_PUBLICADO,
+            'es_en_sitio' => true,
+            'es_calificable' => true,
+            'puntaje_maximo' => 100,
+        ]);
+
+        Event::query()->create([
+            'name' => 'Evento remoto',
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDays(2),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_PUBLICADO,
+            'es_en_sitio' => false,
+            'es_calificable' => true,
+            'puntaje_maximo' => 50,
+        ]);
+
+        $response = $this->getJson('/api/v1/events/judge/offline-pack');
+
+        $response->assertOk()
+            ->assertJsonPath('success', true);
+
+        $events = $response->json('data.events');
+        $this->assertIsArray($events);
+        $this->assertCount(1, $events);
+        $this->assertSame($root->id, $events[0]['event']['id']);
+        $activityIds = array_column($events[0]['activities'], 'actividad_id');
+        $this->assertContains($activity->id, $activityIds);
+        $this->assertNotEmpty($events[0]['board']['arbol'] ?? []);
+    }
+
+    public function test_user_without_evaluate_cannot_download_offline_pack(): void
+    {
+        Sanctum::actingAs(User::factory()->create());
+
+        $this->getJson('/api/v1/events/judge/offline-pack')->assertForbidden();
+    }
+
     private function userInOrg(int $organizacionId): User
     {
         $user = User::factory()->create();

@@ -1,7 +1,8 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { authService } from '@/services/authService'
-import { TOKEN_KEY } from '@/services/api'
+import { TOKEN_KEY, isNetworkError, isUnauthorizedError } from '@/services/api'
+import { clearAllFieldData, clearFieldDataForUser } from '@/modules/fieldMode/db'
 import type { AuthContextOption, AuthUser, LoginPayload } from '@/modules/auth/types'
 import { clubLoaderKeyFromContext, persistClubLoader } from '@/modules/auth/clubLogin'
 
@@ -77,15 +78,26 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout(): Promise<void> {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return
+    }
     if (isImpersonating.value) {
       await stopImpersonation()
       return
     }
+    const userId = user.value?.id
     try {
       if (token.value) {
         await authService.logout()
       }
+    } catch {
+      // Sin red el token local igual debe limpiarse.
     } finally {
+      if (userId) {
+        await clearFieldDataForUser(userId).catch(() => undefined)
+      } else {
+        await clearAllFieldData().catch(() => undefined)
+      }
       clearSession()
     }
   }
@@ -111,7 +123,15 @@ export const useAuthStore = defineStore('auth', () => {
       const me = await authService.me()
       persistUser(me)
       return me
-    } catch {
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        await clearAllFieldData().catch(() => undefined)
+        clearSession()
+        return null
+      }
+      if (isNetworkError(error) || user.value) {
+        return user.value
+      }
       clearSession()
       return null
     } finally {

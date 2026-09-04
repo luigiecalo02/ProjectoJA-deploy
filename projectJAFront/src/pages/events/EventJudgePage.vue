@@ -16,10 +16,13 @@ import EventJudgeActivityCard from '@/components/events/EventJudgeActivityCard.v
 import { eventsService } from '@/services/eventsService'
 import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
 import { extractBannerHeroVars } from '@/utils/dominantColor'
-import { getApiErrorMessage } from '@/services/api'
+import { getApiErrorMessage, isNetworkError } from '@/services/api'
+import { FieldPackMissingError } from '@/services/fieldModeService'
+import { useFieldModeStore } from '@/stores/fieldMode'
 import type {
   EventoEvidenciaItem,
   JudgeBoard,
+  JudgeCalificacion,
   JudgeClub,
   JudgeClubResumen,
   JudgeDetailTab,
@@ -36,6 +39,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const fieldMode = useFieldModeStore()
 
 const loading = ref(true)
 const saving = ref(false)
@@ -537,11 +541,7 @@ async function load(keepClub = false): Promise<void> {
         }
       }
     }
-    board.value = await eventsService.judgeBoard(
-      eventId.value,
-      selectedSubeventoId.value,
-      selectedActividadId.value,
-    )
+    board.value = await loadJudgeBoard()
     if (board.value.arbol?.length && !treeInitialized.value) {
       syncExpandedTree(board.value.arbol)
       treeInitialized.value = true
@@ -573,15 +573,47 @@ async function load(keepClub = false): Promise<void> {
     // Fase 1: no auto-seleccionar club; el juez elige primero.
     hydrateForm(activityClubForOrg(selectedOrgId.value))
   } catch (error) {
+    if (keepClub && board.value && (error instanceof FieldPackMissingError || isNetworkError(error))) {
+      return
+    }
     toast.add({
-      severity: 'error',
+      severity: error instanceof FieldPackMissingError ? 'warn' : 'error',
       summary: t('common.error'),
-      detail: getApiErrorMessage(error),
+      detail:
+        error instanceof FieldPackMissingError
+          ? t('fieldMode.needPack')
+          : getApiErrorMessage(error),
       life: 4000,
     })
     router.push({ name: 'events' })
   } finally {
     loading.value = false
+  }
+}
+
+async function loadJudgeBoard() {
+  if (!fieldMode.online) {
+    return fieldMode.getJudgeBoard(
+      eventId.value,
+      selectedSubeventoId.value,
+      selectedActividadId.value,
+    )
+  }
+  try {
+    return await eventsService.judgeBoard(
+      eventId.value,
+      selectedSubeventoId.value,
+      selectedActividadId.value,
+    )
+  } catch (error) {
+    if (isNetworkError(error)) {
+      return fieldMode.getJudgeBoard(
+        eventId.value,
+        selectedSubeventoId.value,
+        selectedActividadId.value,
+      )
+    }
+    throw error
   }
 }
 
@@ -633,6 +665,50 @@ function clubStatusMeta(estado: string): { label: string; css: string } {
     return { label: t('events.statusScored'), css: 'is-scored' }
   }
   return { label: t('events.statusPending'), css: 'is-pending' }
+}
+
+function applyLocalBoardScore(calificacion: JudgeCalificacion): void {
+  if (!board.value || !selectedOrgId.value || !actividad.value) return
+  const orgId = selectedOrgId.value
+  const actId = actividad.value.id
+  const score = Number(calificacion.puntaje_obtenido) || 0
+  const max = actividad.value.puntaje_maximo
+  const orgKey = String(orgId)
+  const actKey = String(actId)
+  board.value = {
+    ...board.value,
+    clubes: board.value.clubes.map((club) =>
+      club.organizacion_id === orgId
+        ? {
+            ...club,
+            estado: 'evaluado',
+            puntaje_obtenido: score,
+            porcentaje: max ? Math.round((score / max) * 100) : club.porcentaje,
+            calificacion: {
+              ...calificacion,
+              observaciones_director: club.calificacion?.observaciones_director ?? club.observaciones_director,
+            },
+          }
+        : club,
+    ),
+    clubes_resumen: (board.value.clubes_resumen ?? []).map((club) => {
+      if (club.organizacion_id !== orgId) return club
+      const wasPending = club.estado !== 'evaluado'
+      return {
+        ...club,
+        estado: 'evaluado',
+        eventos_evaluados: wasPending ? club.eventos_evaluados + 1 : club.eventos_evaluados,
+        eventos_pendientes: wasPending ? Math.max(0, club.eventos_pendientes - 1) : club.eventos_pendientes,
+      }
+    }),
+    evaluados: {
+      ...(board.value.evaluados ?? {}),
+      [orgKey]: {
+        ...(board.value.evaluados?.[orgKey] ?? {}),
+        [actKey]: score,
+      },
+    },
+  }
 }
 
 function evidenceLabel(ev: EventoEvidenciaItem): string {
@@ -712,11 +788,16 @@ async function saveAndMaybeNext(goNext: boolean): Promise<void> {
 
   saving.value = true
   try {
-    await eventsService.saveCalificacion(actividad.value.id, scorePayload())
+    const result = await fieldMode.saveCalificacion(
+      eventId.value,
+      actividad.value.id,
+      scorePayload(),
+    )
+    applyLocalBoardScore(result.calificacion)
     toast.add({
       severity: 'success',
       summary: t('common.success'),
-      detail: t('events.judgeSaved'),
+      detail: result.queued ? t('fieldMode.savedOffline') : t('events.judgeSaved'),
       life: 2500,
     })
     await load(true)
@@ -751,11 +832,16 @@ async function saveJudgeObservacion(): Promise<void> {
   if (!actividad.value || !selectedOrgId.value) return
   saving.value = true
   try {
-    await eventsService.saveCalificacion(actividad.value.id, scorePayload())
+    const result = await fieldMode.saveCalificacion(
+      eventId.value,
+      actividad.value.id,
+      scorePayload(),
+    )
+    applyLocalBoardScore(result.calificacion)
     toast.add({
       severity: 'success',
       summary: t('common.success'),
-      detail: t('events.directorObsSaved'),
+      detail: result.queued ? t('fieldMode.savedOffline') : t('events.directorObsSaved'),
       life: 2500,
     })
     await load(true)
@@ -844,6 +930,7 @@ onMounted(() => {
             </div>
           </div>
           <Button
+            v-if="fieldMode.online"
             type="button"
             outlined
             icon="pi pi-list"

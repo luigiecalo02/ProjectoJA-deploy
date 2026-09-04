@@ -28,6 +28,9 @@ defineProps<{
           <span class="event-banner-card__status" :class="statusCss">{{ statusLabel }}</span>
         </slot>
       </div>
+      <div class="event-banner-card__menu-slot">
+        <slot name="menu" />
+      </div>
       <img
         v-if="logoUrl"
         class="event-banner-card__logo"
@@ -101,6 +104,13 @@ defineProps<{
   top: 0.65rem;
   left: 0.65rem;
   z-index: 4;
+}
+
+.event-banner-card__menu-slot {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  z-index: 5;
 }
 
 .event-banner-card__status {

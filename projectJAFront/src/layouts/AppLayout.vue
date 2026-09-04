@@ -12,6 +12,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { useBrandStore } from '@/stores/brand'
 import { usePermission } from '@/composables/usePermission'
+import { useFieldModeStore } from '@/stores/fieldMode'
+import FieldModeBanner from '@/components/fieldMode/FieldModeBanner.vue'
 import { brandConfig } from '@/config/brand'
 
 const { t } = useI18n()
@@ -21,6 +23,7 @@ const auth = useAuthStore()
 const theme = useThemeStore()
 const brand = useBrandStore()
 const { can } = usePermission()
+const fieldMode = useFieldModeStore()
 
 const drawerOpen = ref(false)
 const loggingOut = ref(false)
@@ -163,7 +166,10 @@ const pageIcon = computed(() => {
   return match?.icon || 'pi pi-th-large'
 })
 
+const canLogout = computed(() => fieldMode.online)
+
 async function logout(): Promise<void> {
+  if (!canLogout.value) return
   loggingOut.value = true
   try {
     await auth.logout()
@@ -206,6 +212,7 @@ onMounted(() => {
   mobileMedia = window.matchMedia('(max-width: 899px)')
   syncMobileChrome(mobileMedia)
   mobileMedia.addEventListener('change', syncMobileChrome)
+  void fieldMode.init()
 })
 
 onBeforeUnmount(() => {
@@ -221,6 +228,7 @@ onBeforeUnmount(() => {
       '--pj-pattern': brand.patternCss,
     }"
   >
+    <FieldModeBanner />
     <div v-if="auth.isImpersonating" class="impersonation-banner" role="status">
       <span>
         <i class="pi pi-eye" />
@@ -354,7 +362,9 @@ onBeforeUnmount(() => {
               rounded
               icon="pi pi-sign-out"
               :loading="loggingOut"
-              :aria-label="t('nav.logout')"
+              :disabled="!canLogout"
+              :aria-label="canLogout ? t('nav.logout') : t('fieldMode.logoutBlocked')"
+              v-tooltip.bottom="canLogout ? t('nav.logout') : t('fieldMode.logoutBlocked')"
               @click="logout"
             />
           </div>
@@ -444,8 +454,11 @@ onBeforeUnmount(() => {
           icon="pi pi-sign-out"
           :label="t('nav.logout')"
           :loading="loggingOut"
+          :disabled="!canLogout"
+          v-tooltip.top="canLogout ? undefined : t('fieldMode.logoutBlocked')"
           @click="logout"
         />
+        <p v-if="!canLogout" class="mobile-drawer__offline-hint">{{ t('fieldMode.logoutBlocked') }}</p>
         <p class="app-sidebar__legal app-sidebar__legal--drawer">
           <strong>{{ t('app.name') }}</strong>
           <small>{{ t('app.copyright') }}</small>
@@ -872,6 +885,13 @@ html.dark .p-drawer.mobile-drawer .p-drawer-footer {
   margin: 0;
   font-size: 0.82rem;
   font-weight: 600;
+  color: var(--pj-text-muted);
+}
+
+.mobile-drawer__offline-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
   color: var(--pj-text-muted);
 }
 

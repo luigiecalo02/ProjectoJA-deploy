@@ -71,6 +71,31 @@ final class EventJudgeService
     }
 
     /**
+     * Paquete para calificar sin red: eventos asignados, calificables y en sitio.
+     *
+     * @return array{downloaded_at: string, events: list<array<string, mixed>>}
+     */
+    public function offlinePack(User $actor): array
+    {
+        if (! $actor->hasPermission('events.evaluate')) {
+            throw new AccessDeniedHttpException('No puedes evaluar eventos.');
+        }
+
+        $items = [];
+        foreach ($this->findOfflineRootEvents($actor) as $root) {
+            $pack = $this->buildOfflineEventPack($actor, $root);
+            if ($pack !== null) {
+                $items[] = $pack;
+            }
+        }
+
+        return [
+            'downloaded_at' => now()->toIso8601String(),
+            'events' => $items,
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function board(User $actor, Event $event, ?int $subeventoId = null, ?int $actividadId = null): array
@@ -1815,6 +1840,185 @@ final class EventJudgeService
         foreach ($event->hijos as $hijo) {
             $this->eagerLoadTree($hijo, $depth - 1);
         }
+    }
+
+    /**
+     * @return list<Event>
+     */
+    private function findOfflineRootEvents(User $actor): array
+    {
+        $candidates = Event::query()
+            ->whereNull('evento_padre_id')
+            ->where('is_active', true)
+            ->whereIn('estado', [Event::ESTADO_PUBLICADO, Event::ESTADO_EN_PROCESO])
+            ->orderBy('starts_at')
+            ->get();
+
+        $roots = [];
+        foreach ($candidates as $root) {
+            if (! $actor->can('evaluate', $root)) {
+                continue;
+            }
+            $this->eagerLoadTree($root, 8);
+            $scope = $this->resolveJudgeScope($root, $actor);
+            if ($this->collectOfflineActivityIds($root, $scope) === []) {
+                continue;
+            }
+            $roots[] = $root;
+        }
+
+        return $roots;
+    }
+
+    /**
+     * @param  array{open: bool, assigned_ids: array<int, true>, visible_ids: array<int, true>}  $scope
+     * @return list<int>
+     */
+    private function collectOfflineActivityIds(Event $root, array $scope): array
+    {
+        $ids = [];
+        $walk = function (Event $node) use (&$walk, &$ids, $scope): void {
+            $onSite = $node->es_en_sitio ?? true;
+            if ($onSite && $this->canScoreInScope($node, $scope)) {
+                $ids[] = (int) $node->id;
+            }
+            foreach ($node->hijos ?? [] as $hijo) {
+                $walk($hijo);
+            }
+        };
+        $walk($root);
+
+        return $ids;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function buildOfflineEventPack(User $actor, Event $root): ?array
+    {
+        $this->eagerLoadTree($root, 8);
+        $scope = $this->resolveJudgeScope($root, $actor);
+        $activityIds = $this->collectOfflineActivityIds($root, $scope);
+        if ($activityIds === []) {
+            return null;
+        }
+
+        $board = $this->board($actor, $root);
+        $selectables = $this->collectSelectables($root, $scope);
+        $activities = [];
+
+        foreach ($activityIds as $activityId) {
+            $target = $this->findInTree($root, $activityId);
+            if (! $target) {
+                continue;
+            }
+
+            $this->prepareNodeForJudgeMap($target);
+
+            $selectedMeta = collect($selectables)->first(
+                fn (array $s) => (int) $s['id'] === $activityId
+                    || in_array($activityId, $s['actividad_ids'] ?? [], true)
+            );
+            $subeventoId = $selectedMeta ? (int) $selectedMeta['id'] : $activityId;
+            $branch = $this->findInTree($root, $subeventoId) ?? $target;
+            $this->prepareNodeForJudgeMap($branch);
+            $hijos = $this->calificableDescendants($branch, $scope);
+
+            $activities[] = [
+                'actividad_id' => $activityId,
+                'subevento_id' => $subeventoId,
+                'subevento' => $this->mapSubevento($branch, $hijos, $scope, $root),
+                'actividad' => $this->mapSubevento($target, [], $scope, $root),
+                'clubes' => $this->clubsForScope($branch, $target, $actor),
+            ];
+        }
+
+        if ($activities === []) {
+            return null;
+        }
+
+        return [
+            'event' => $this->mapOfflineListEvent($root, $actor),
+            'board' => $board,
+            'activities' => $activities,
+        ];
+    }
+
+    private function prepareNodeForJudgeMap(Event $node): void
+    {
+        $node->load([
+            'criterios' => fn ($q) => $q->orderByPivot('orden'),
+            'tipoEvento:id,nombre,slug,color,icono',
+            'categoriaSubevento:id,nombre,slug,color,icono,maneja_puntos,maneja_fecha_inicio,maneja_fecha_fin',
+            'jueces:id,name,email',
+            'supervisores:id,name,email',
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mapOfflineListEvent(Event $root, User $actor): array
+    {
+        $juezIds = $root->ownJueces()
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+        $juezIds[] = (int) $actor->id;
+
+        return [
+            'id' => (int) $root->id,
+            'name' => $root->name,
+            'descripcion' => $root->descripcion,
+            'lugar' => $root->lugar,
+            'starts_at' => $root->starts_at?->toIso8601String() ?? '',
+            'ends_at' => $root->ends_at?->toIso8601String() ?? '',
+            'estado' => $root->estado,
+            'image_url' => $root->image_url,
+            'banner_url' => $root->banner_url,
+            'es_en_sitio' => (bool) $root->es_en_sitio,
+            'es_calificable' => (bool) $root->es_calificable,
+            'puntaje_maximo' => $root->puntaje_maximo !== null ? (float) $root->puntaje_maximo : null,
+            'puntaje_desde_hijos' => (bool) $root->puntaje_desde_hijos,
+            'evento_padre_id' => null,
+            'juez_ids' => array_values(array_unique($juezIds)),
+            'organizacion_ids' => [],
+            'organizaciones' => [],
+            'tipo_organizacion_ids' => [],
+            'tipos_organizacion' => [],
+            'requiere_pago' => (bool) $root->requiere_pago,
+            'cupo_ilimitado' => (bool) ($root->cupo_ilimitado ?? true),
+            'hijos_count' => count($root->hijos ?? []),
+            'hijos' => $this->mapOfflineListChildren($root),
+        ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function mapOfflineListChildren(Event $node): array
+    {
+        $out = [];
+        foreach ($node->hijos ?? [] as $hijo) {
+            $out[] = [
+                'id' => (int) $hijo->id,
+                'name' => $hijo->name,
+                'evento_padre_id' => (int) $node->id,
+                'estado' => $hijo->estado,
+                'es_en_sitio' => (bool) $hijo->es_en_sitio,
+                'es_calificable' => (bool) $hijo->es_calificable,
+                'puntaje_maximo' => $hijo->puntaje_maximo !== null ? (float) $hijo->puntaje_maximo : null,
+                'puntaje_desde_hijos' => (bool) $hijo->puntaje_desde_hijos,
+                'image_url' => $hijo->image_url,
+                'starts_at' => $hijo->starts_at?->toIso8601String() ?? '',
+                'ends_at' => $hijo->ends_at?->toIso8601String() ?? '',
+                'juez_ids' => $hijo->ownJueces()->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
+                'hijos' => $this->mapOfflineListChildren($hijo),
+            ];
+        }
+
+        return $out;
     }
 
     /**

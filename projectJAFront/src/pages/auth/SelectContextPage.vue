@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useOnline } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
@@ -16,6 +17,7 @@ const { t } = useI18n()
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+const online = useOnline()
 
 const loading = ref(false)
 const selectingKey = ref<string | null>(null)
@@ -67,6 +69,10 @@ async function enter(option: AuthContextOption): Promise<void> {
 }
 
 async function logout(): Promise<void> {
+  if (!online.value) {
+    errorMessage.value = t('fieldMode.logoutBlocked')
+    return
+  }
   await auth.logout()
   await router.replace({ name: 'login' })
 }
@@ -94,7 +100,15 @@ onMounted(async () => {
       <p>{{ t('auth.selectContextSubtitle') }}</p>
       <div class="context-page__user">
         <span>{{ auth.user?.name }}</span>
-        <button type="button" class="link-btn" @click="logout">{{ t('nav.logout') }}</button>
+        <button
+          type="button"
+          class="link-btn"
+          :disabled="!online"
+          :title="online ? t('nav.logout') : t('fieldMode.logoutBlocked')"
+          @click="logout"
+        >
+          {{ t('nav.logout') }}
+        </button>
       </div>
     </header>
 
@@ -199,6 +213,11 @@ onMounted(async () => {
   font-weight: 600;
   cursor: pointer;
   padding: 0;
+}
+
+.link-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .empty {

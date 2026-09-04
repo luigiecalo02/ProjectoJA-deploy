@@ -79,6 +79,7 @@ const criterioPoints = reactive<Record<number, number | null>>({})
 const search = ref('')
 const selectedId = ref<number | null>(null)
 const detailTab = ref<'info' | 'reglas' | 'puntaje' | 'categoria'>('info')
+const optionsTab = ref<'calificaciones' | 'control' | 'evidencias' | 'jueces'>('calificaciones')
 const drawerVisible = ref(false)
 const editingId = ref<number | null>(null)
 const editingParentId = ref<number | null>(null)
@@ -155,6 +156,13 @@ const opts = reactive({
 
 const childrenScoreSum = ref(0)
 const loadingChildrenScore = ref(false)
+
+const optionsTabHasConfig = computed(() => ({
+  calificaciones: opts.manejaPuntaje || opts.configCalificacion || opts.manejaPenalizaciones,
+  control: opts.controlParticipantes || opts.esConjunto || opts.manejaFechaFin || opts.tieneValor,
+  evidencias: opts.requiereEvidencia,
+  jueces: form.juez_ids.length > 0 || form.supervisor_ids.length > 0,
+}))
 
 const estadoOptions = computed(() => [
   { label: t('events.estadoPublicado'), value: 'publicado' },
@@ -590,6 +598,7 @@ function resetForm(): void {
   opts.manejaPenalizaciones = false
   opts.tieneValor = false
   opts.requiereEvidencia = false
+  optionsTab.value = 'calificaciones'
   childrenScoreSum.value = 0
   formImageUrl.value = null
   clearPendingImage()
@@ -1993,6 +2002,50 @@ onBeforeUnmount(() => {
         <div class="sub-options">
           <p class="sub-options__lead">{{ t('events.wizard.subOptionsLead') }}</p>
 
+          <div class="sub-tabs sub-tabs--options">
+            <button
+              type="button"
+              :class="{
+                'is-active': optionsTab === 'calificaciones',
+                'has-config': optionsTabHasConfig.calificaciones,
+              }"
+              @click="optionsTab = 'calificaciones'"
+            >
+              {{ t('events.wizard.subTabCalificaciones') }}
+            </button>
+            <button
+              type="button"
+              :class="{
+                'is-active': optionsTab === 'control',
+                'has-config': optionsTabHasConfig.control,
+              }"
+              @click="optionsTab = 'control'"
+            >
+              {{ t('events.wizard.subTabControl') }}
+            </button>
+            <button
+              type="button"
+              :class="{
+                'is-active': optionsTab === 'evidencias',
+                'has-config': optionsTabHasConfig.evidencias,
+              }"
+              @click="optionsTab = 'evidencias'"
+            >
+              {{ t('events.wizard.subTabEvidencias') }}
+            </button>
+            <button
+              type="button"
+              :class="{
+                'is-active': optionsTab === 'jueces',
+                'has-config': optionsTabHasConfig.jueces,
+              }"
+              @click="optionsTab = 'jueces'"
+            >
+              {{ t('events.wizard.subTabJueces') }}
+            </button>
+          </div>
+
+          <div v-show="optionsTab === 'calificaciones'" class="sub-options__pane">
           <div class="sub-option">
             <label class="sub-option__toggle">
               <ToggleSwitch v-model="opts.manejaPuntaje" />
@@ -2103,6 +2156,37 @@ onBeforeUnmount(() => {
 
           <div class="sub-option">
             <label class="sub-option__toggle">
+              <ToggleSwitch v-model="opts.manejaPenalizaciones" />
+              <span>{{ t('events.wizard.subOptPenalties') }}</span>
+            </label>
+            <div v-if="opts.manejaPenalizaciones" class="sub-option__fields">
+              <small class="pj-muted">{{ t('events.wizard.subPenaltyLead') }}</small>
+              <div class="field">
+                <label>{{ t('events.wizard.subPenaltyPoints') }}</label>
+                <InputNumber
+                  v-model="form.puntos_penalizacion"
+                  class="w-full"
+                  :min="0"
+                  suffix=" pts"
+                />
+              </div>
+              <div class="field">
+                <label>{{ t('events.wizard.subPenaltyRules') }}</label>
+                <Textarea
+                  v-model="form.reglas_penalizacion"
+                  rows="3"
+                  class="w-full"
+                  auto-resize
+                  :placeholder="t('events.wizard.subPenaltyRulesPlaceholder')"
+                />
+              </div>
+            </div>
+          </div>
+          </div>
+
+          <div v-show="optionsTab === 'control'" class="sub-options__pane">
+          <div class="sub-option">
+            <label class="sub-option__toggle">
               <ToggleSwitch
                 v-model="opts.controlParticipantes"
                 @update:model-value="(on) => {
@@ -2205,35 +2289,6 @@ onBeforeUnmount(() => {
 
           <div class="sub-option">
             <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.manejaPenalizaciones" />
-              <span>{{ t('events.wizard.subOptPenalties') }}</span>
-            </label>
-            <div v-if="opts.manejaPenalizaciones" class="sub-option__fields">
-              <small class="pj-muted">{{ t('events.wizard.subPenaltyLead') }}</small>
-              <div class="field">
-                <label>{{ t('events.wizard.subPenaltyPoints') }}</label>
-                <InputNumber
-                  v-model="form.puntos_penalizacion"
-                  class="w-full"
-                  :min="0"
-                  suffix=" pts"
-                />
-              </div>
-              <div class="field">
-                <label>{{ t('events.wizard.subPenaltyRules') }}</label>
-                <Textarea
-                  v-model="form.reglas_penalizacion"
-                  rows="3"
-                  class="w-full"
-                  auto-resize
-                  :placeholder="t('events.wizard.subPenaltyRulesPlaceholder')"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div class="sub-option">
-            <label class="sub-option__toggle">
               <ToggleSwitch v-model="opts.tieneValor" />
               <span>{{ t('events.wizard.subOptValue') }}</span>
             </label>
@@ -2252,7 +2307,9 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
+          </div>
 
+          <div v-show="optionsTab === 'evidencias'" class="sub-options__pane">
           <div class="sub-option">
             <label class="sub-option__toggle">
               <ToggleSwitch v-model="opts.requiereEvidencia" />
@@ -2274,7 +2331,9 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
+          </div>
 
+          <div v-show="optionsTab === 'jueces'" class="sub-options__pane">
           <div class="field">
             <label>{{ t('events.wizard.subJudge') }}</label>
             <MultiSelect
@@ -2305,6 +2364,7 @@ onBeforeUnmount(() => {
               :empty-message="t('events.wizard.subSupervisorNoneAvailable')"
             />
             <small class="pj-muted">{{ t('events.wizard.subSupervisorHint') }}</small>
+          </div>
           </div>
         </div>
       </div>
@@ -2738,6 +2798,17 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, #2563eb 10%, transparent);
 }
 
+.sub-tabs--options button.has-config::after {
+  content: '';
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-left: 0.35rem;
+  border-radius: 50%;
+  background: #16a34a;
+  vertical-align: middle;
+}
+
 .sub-detail__body h4 {
   margin: 0 0 0.35rem;
   font-size: 0.82rem;
@@ -2839,6 +2910,12 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 0.82rem;
   color: var(--pj-text-muted);
+}
+
+.sub-options__pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 
 .sub-option {

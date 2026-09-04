@@ -15,10 +15,11 @@ import EventChildrenAccordion from '@/components/events/EventChildrenAccordion.v
 import EventBannerCard from '@/components/events/EventBannerCard.vue'
 import EventEstadoSelect from '@/components/events/EventEstadoSelect.vue'
 import { eventsService } from '@/services/eventsService'
-import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
+import { getApiErrorMessage, isNetworkError, resolveFileUrl } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
 import { useAuthStore } from '@/stores/auth'
+import { useFieldModeStore } from '@/stores/fieldMode'
 import type { ClubEvent } from '@/modules/events/types'
 import type { PaginationMeta } from '@/types/api'
 import {
@@ -33,21 +34,39 @@ const router = useRouter()
 const toast = useToast()
 const { can, canCatalog } = usePermission()
 const auth = useAuthStore()
-const canCreateEvent = computed(() => can('events.create'))
+const fieldMode = useFieldModeStore()
+const canCreateEvent = computed(() => can('events.create') && fieldMode.online)
+const canPrepareField = computed(() => can('events.evaluate'))
+const usingOfflinePack = ref(false)
 
 usePageChrome(() => ({
   title: t('events.title'),
   subtitle: t('events.subtitle'),
-  actions: canCreateEvent.value
-    ? [
-        {
-          key: 'new',
-          label: t('events.new'),
-          icon: 'pi pi-plus',
-          onClick: () => void router.push({ name: 'events.create' }),
-        },
-      ]
-    : [],
+  actions: [
+    ...(canPrepareField.value
+      ? [
+          {
+            key: 'field-pack',
+            label: t('fieldMode.prepare'),
+            icon: 'pi pi-cloud-download',
+            outlined: true,
+            loading: fieldMode.downloading,
+            disabled: !fieldMode.online,
+            onClick: () => void prepareFieldPack(),
+          },
+        ]
+      : []),
+    ...(canCreateEvent.value
+      ? [
+          {
+            key: 'new',
+            label: t('events.new'),
+            icon: 'pi pi-plus',
+            onClick: () => void router.push({ name: 'events.create' }),
+          },
+        ]
+      : []),
+  ],
 }))
 
 const events = ref<ClubEvent[]>([])
@@ -431,14 +450,35 @@ function matchesFecha(event: ClubEvent): boolean {
 const visibleEvents = computed(() =>
   events.value.filter((e) => {
     if (e.evento_padre_id) return false
-    if (!isEventsAdmin.value) return true
+    if (usingOfflinePack.value || !isEventsAdmin.value) return true
     return matchesAudiencia(e) && matchesFecha(e)
   }),
 )
 
+const emptyListMessage = computed(() => {
+  if (usingOfflinePack.value && !fieldMode.lastDownloadedAt) {
+    return t('fieldMode.needPack')
+  }
+  return t('events.empty')
+})
+
+async function applyCachedEvents(): Promise<boolean> {
+  const cached = await fieldMode.cachedEvents()
+  usingOfflinePack.value = true
+  events.value = cached
+  pagination.value = null
+  expandedChildren.value = new Set()
+  return cached.length > 0
+}
+
 async function loadEvents(): Promise<void> {
   loading.value = true
+  usingOfflinePack.value = false
   try {
+    if (!fieldMode.online && canPrepareField.value) {
+      await applyCachedEvents()
+      return
+    }
     const result = await eventsService.list({
       page: filters.page,
       per_page: isEventsAdmin.value ? filters.per_page : 20,
@@ -448,15 +488,19 @@ async function loadEvents(): Promise<void> {
     })
     events.value = result.items
     pagination.value = result.pagination
-    // Expandir raíces con hijos para ver el árbol de una vez.
-    const next = new Set(expandedChildren.value)
-    for (const ev of result.items) {
-      if ((ev.hijos_count ?? ev.hijos?.length ?? 0) > 0) {
-        next.add(ev.id)
-      }
-    }
-    expandedChildren.value = next
+    expandedChildren.value = new Set()
   } catch (error) {
+    if (isNetworkError(error) && canPrepareField.value) {
+      const hadPack = await applyCachedEvents()
+      if (hadPack) return
+      toast.add({
+        severity: 'warn',
+        summary: t('common.warning'),
+        detail: t('fieldMode.needPack'),
+        life: 5000,
+      })
+      return
+    }
     toast.add({
       severity: 'error',
       summary: t('common.error'),
@@ -465,6 +509,28 @@ async function loadEvents(): Promise<void> {
     })
   } finally {
     loading.value = false
+  }
+}
+
+async function prepareFieldPack(): Promise<void> {
+  try {
+    const count = await fieldMode.downloadPack()
+    toast.add({
+      severity: count ? 'success' : 'info',
+      summary: t('common.success'),
+      detail: count ? t('fieldMode.prepared', { count }) : t('fieldMode.preparedEmpty'),
+      life: 3500,
+    })
+    if (!fieldMode.online) {
+      await applyCachedEvents()
+    }
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: getApiErrorMessage(error),
+      life: 4000,
+    })
   }
 }
 
@@ -509,11 +575,30 @@ function menuItemsFor(event: ClubEvent): MenuItem[] {
       command: () => router.push({ name: 'events.edit', params: { id: event.id } }),
     })
   }
-  if (can('events.update')) {
+  if (canReviewInscripciones(event)) {
     items.push({
       label: t('events.revisionMenu'),
       icon: 'pi pi-inbox',
-      command: () => router.push({ name: 'events.inscripcionesRevision', params: { id: event.id } }),
+      command: () => goInscripcionesRevision(event),
+    })
+  }
+  if (canJudge(event)) {
+    items.push({
+      label: t('events.judge'),
+      icon: 'pi pi-star',
+      command: () => goJudge(event),
+    })
+  }
+  if (canViewStandings(event)) {
+    items.push({
+      label: t('events.standings'),
+      icon: 'pi pi-chart-bar',
+      command: () => goStandings(event),
+    })
+    items.push({
+      label: t('events.standingsTree'),
+      icon: 'pi pi-sitemap',
+      command: () => goStandingsTree(event),
     })
   }
   if (canAccessDistribucion(event)) {
@@ -637,13 +722,35 @@ onMounted(() => {
         <h1 class="pj-page__title">{{ t('events.title') }}</h1>
         <p class="pj-page__subtitle">{{ t('events.subtitle') }}</p>
       </div>
-      <Button
-        v-if="can('events.create')"
-        icon="pi pi-plus"
-        :label="t('events.new')"
-        @click="router.push({ name: 'events.create' })"
-      />
+      <div class="events-page__actions">
+        <Button
+          v-if="canPrepareField"
+          icon="pi pi-cloud-download"
+          outlined
+          :label="t('fieldMode.prepare')"
+          :loading="fieldMode.downloading"
+          :disabled="!fieldMode.online"
+          @click="prepareFieldPack()"
+        />
+        <Button
+          v-if="canCreateEvent"
+          icon="pi pi-plus"
+          :label="t('events.new')"
+          @click="router.push({ name: 'events.create' })"
+        />
+      </div>
     </header>
+
+    <p v-if="usingOfflinePack || fieldMode.lastDownloadedAt" class="pj-muted field-pack-hint">
+      <template v-if="usingOfflinePack">{{ t('fieldMode.usingPack') }}</template>
+      <template v-if="fieldMode.lastDownloadedAt">
+        {{
+          t('fieldMode.downloadedAt', {
+            date: new Date(fieldMode.lastDownloadedAt).toLocaleString(),
+          })
+        }}
+      </template>
+    </p>
 
     <div v-if="isEventsAdmin" class="events-toolbar">
       <AppSearchField
@@ -695,7 +802,7 @@ onMounted(() => {
     <PageLoader v-if="loading && !events.length" :label="t('common.loading')" />
 
     <div v-else class="events-list" :class="{ 'events-list--banner': listView === 'banner' }">
-      <p v-if="!visibleEvents.length" class="pj-muted events-empty">{{ t('events.empty') }}</p>
+      <p v-if="!visibleEvents.length" class="pj-muted events-empty">{{ emptyListMessage }}</p>
 
       <article
         v-for="event in visibleEvents"
@@ -728,7 +835,27 @@ onMounted(() => {
               @update:model-value="changeEventEstado(event, $event)"
             />
           </template>
-          <div class="event-card__side event-card__side--banner">
+          <template #menu>
+            <Button
+              v-if="menuItemsFor(event).length"
+              type="button"
+              icon="pi pi-ellipsis-v"
+              text
+              rounded
+              class="event-card__menu-btn event-card__menu-btn--overlay"
+              :aria-label="t('common.moreActions')"
+              @click="toggleMenu(event.id, $event)"
+            />
+            <Menu
+              :ref="(el) => setMenuRef(event.id, el)"
+              :model="menuItemsFor(event)"
+              popup
+            />
+          </template>
+          <div
+            v-if="inscripcionStatusMeta(event.inscripcion_estado) || canEnroll(event) || canParticipate(event)"
+            class="event-card__side event-card__side--banner"
+          >
             <span
               v-if="inscripcionStatusMeta(event.inscripcion_estado)"
               class="inscripcion-chip"
@@ -737,7 +864,7 @@ onMounted(() => {
               {{ inscripcionStatusMeta(event.inscripcion_estado)?.label }}
             </span>
             <div
-              v-if="canEnroll(event) || canParticipate(event) || canJudge(event) || canViewStandings(event) || canReviewInscripciones(event) || canAccessAlojamiento(event) || canCatalog('terrenos', 'view') || can('terrenos.assign')"
+              v-if="canEnroll(event) || canParticipate(event)"
               class="event-card__actions"
             >
               <Button
@@ -749,15 +876,6 @@ onMounted(() => {
                 @click="goEnroll(event)"
               />
               <Button
-                v-if="canReviewInscripciones(event)"
-                type="button"
-                size="small"
-                severity="secondary"
-                icon="pi pi-inbox"
-                :label="t('events.revisionMenu')"
-                @click="goInscripcionesRevision(event)"
-              />
-              <Button
                 v-if="canParticipate(event)"
                 type="button"
                 size="small"
@@ -766,67 +884,7 @@ onMounted(() => {
                 :label="t('events.participate')"
                 @click="goParticipate(event)"
               />
-              <Button
-                v-if="canJudge(event)"
-                type="button"
-                size="small"
-                severity="help"
-                icon="pi pi-pencil"
-                :label="t('events.judge')"
-                @click="goJudge(event)"
-              />
-              <Button
-                v-if="canViewStandings(event)"
-                type="button"
-                size="small"
-                outlined
-                icon="pi pi-chart-bar"
-                :label="t('events.standings')"
-                @click="goStandings(event)"
-              />
-              <Button
-                v-if="canViewStandings(event)"
-                type="button"
-                size="small"
-                outlined
-                icon="pi pi-sitemap"
-                :label="t('events.standingsTree')"
-                @click="goStandingsTree(event)"
-              />
-              <span v-if="canAccessDistribucion(event)">
-                <Button
-                  type="button"
-                  size="small"
-                  outlined
-                  icon="pi pi-map"
-                  :label="distribucionButtonLabel()"
-                  @click="router.push({ name: 'events.distribucion', params: { id: event.id } })"
-                />
-              </span>
-              <Button
-                v-if="canAccessAlojamiento(event)"
-                type="button"
-                size="small"
-                outlined
-                icon="pi pi-building"
-                :label="event.alojamiento_asignado ? t('alojamiento.change') : t('alojamiento.action')"
-                @click="router.push({ name: 'events.alojamiento', params: { id: event.id } })"
-              />
             </div>
-            <Button
-              v-if="menuItemsFor(event).length"
-              type="button"
-              icon="pi pi-ellipsis-v"
-              text
-              rounded
-              class="event-card__menu-btn"
-              @click="toggleMenu(event.id, $event)"
-            />
-            <Menu
-              :ref="(el) => setMenuRef(event.id, el)"
-              :model="menuItemsFor(event)"
-              popup
-            />
           </div>
         </EventBannerCard>
           <div v-if="listView === 'tree'" class="event-card__media">
@@ -895,15 +953,32 @@ onMounted(() => {
           </div>
 
         <div v-if="listView === 'tree'" class="event-card__side">
-            <EventEstadoSelect
-              v-if="canChangeEstado()"
-              :model-value="event.estado || 'borrador'"
-              :loading="updatingEstadoId === event.id"
-              @update:model-value="changeEventEstado(event, $event)"
-            />
-            <span v-else class="status-pill" :class="estadoMeta(event).css">
-              {{ estadoMeta(event).label }}
-            </span>
+            <div class="event-card__side-top">
+              <EventEstadoSelect
+                v-if="canChangeEstado()"
+                :model-value="event.estado || 'borrador'"
+                :loading="updatingEstadoId === event.id"
+                @update:model-value="changeEventEstado(event, $event)"
+              />
+              <span v-else class="status-pill" :class="estadoMeta(event).css">
+                {{ estadoMeta(event).label }}
+              </span>
+              <Button
+                v-if="menuItemsFor(event).length"
+                type="button"
+                icon="pi pi-ellipsis-v"
+                text
+                rounded
+                class="event-card__menu-btn"
+                :aria-label="t('common.moreActions')"
+                @click="toggleMenu(event.id, $event)"
+              />
+              <Menu
+                :ref="(el) => setMenuRef(event.id, el)"
+                :model="menuItemsFor(event)"
+                popup
+              />
+            </div>
             <span
               v-if="inscripcionStatusMeta(event.inscripcion_estado)"
               class="inscripcion-chip"
@@ -912,7 +987,7 @@ onMounted(() => {
               {{ inscripcionStatusMeta(event.inscripcion_estado)?.label }}
             </span>
             <div
-              v-if="canEnroll(event) || canParticipate(event) || canJudge(event) || canViewStandings(event) || canReviewInscripciones(event) || canAccessAlojamiento(event) || canCatalog('terrenos', 'view') || can('terrenos.assign')"
+              v-if="canEnroll(event) || canParticipate(event)"
               class="event-card__actions"
             >
               <Button
@@ -924,15 +999,6 @@ onMounted(() => {
                 @click="goEnroll(event)"
               />
               <Button
-                v-if="canReviewInscripciones(event)"
-                type="button"
-                size="small"
-                severity="secondary"
-                icon="pi pi-inbox"
-                :label="t('events.revisionMenu')"
-                @click="goInscripcionesRevision(event)"
-              />
-              <Button
                 v-if="canParticipate(event)"
                 type="button"
                 size="small"
@@ -941,69 +1007,7 @@ onMounted(() => {
                 :label="t('events.participate')"
                 @click="goParticipate(event)"
               />
-              <Button
-                v-if="canJudge(event)"
-                type="button"
-                size="small"
-                severity="help"
-                icon="pi pi-pencil"
-                :label="t('events.judge')"
-                @click="goJudge(event)"
-              />
-              <Button
-                v-if="canViewStandings(event)"
-                type="button"
-                size="small"
-                outlined
-                icon="pi pi-chart-bar"
-                :label="t('events.standings')"
-                @click="goStandings(event)"
-              />
-              <Button
-                v-if="canViewStandings(event)"
-                type="button"
-                size="small"
-                outlined
-                icon="pi pi-sitemap"
-                :label="t('events.standingsTree')"
-                @click="goStandingsTree(event)"
-              />
-              <span
-                v-if="canAccessDistribucion(event)"
-              >
-                <Button
-                  type="button"
-                  size="small"
-                  outlined
-                  icon="pi pi-map"
-                  :label="distribucionButtonLabel()"
-                  @click="router.push({ name: 'events.distribucion', params: { id: event.id } })"
-                />
-              </span>
-              <Button
-                v-if="canAccessAlojamiento(event)"
-                type="button"
-                size="small"
-                outlined
-                icon="pi pi-building"
-                :label="event.alojamiento_asignado ? t('alojamiento.change') : t('alojamiento.action')"
-                @click="router.push({ name: 'events.alojamiento', params: { id: event.id } })"
-              />
             </div>
-            <Button
-              v-if="menuItemsFor(event).length"
-              type="button"
-              icon="pi pi-ellipsis-v"
-              text
-              rounded
-              class="event-card__menu-btn"
-              @click="toggleMenu(event.id, $event)"
-            />
-            <Menu
-              :ref="(el) => setMenuRef(event.id, el)"
-              :model="menuItemsFor(event)"
-              popup
-            />
         </div>
         </div>
 
@@ -1019,7 +1023,7 @@ onMounted(() => {
       </article>
     </div>
 
-    <div v-if="!(loading && !events.length)" class="events-footer">
+    <div v-if="!(loading && !events.length) && !usingOfflinePack" class="events-footer">
       <p class="pj-muted">{{ rangeLabel }}</p>
       <Paginator
         :rows="filters.per_page"
@@ -1054,6 +1058,16 @@ onMounted(() => {
 .events-page {
   flex: 1;
   min-height: calc(100dvh - 8.75rem);
+}
+
+.events-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.field-pack-hint {
+  margin: -0.35rem 0 0.85rem;
 }
 
 .events-toolbar {
@@ -1295,6 +1309,18 @@ onMounted(() => {
   gap: 0.55rem;
   align-self: stretch;
   justify-content: space-between;
+}
+
+.event-card__side-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.event-card__menu-btn--overlay {
+  background: color-mix(in srgb, #fff 90%, transparent);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.16);
 }
 
 .event-card__actions {

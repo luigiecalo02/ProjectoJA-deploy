@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import type { ApiEnvelope } from '@/types/api'
+import { clearAllFieldData } from '@/modules/fieldMode/db'
 
 const TOKEN_KEY = 'projectja_token'
 
@@ -33,6 +34,7 @@ api.interceptors.response.use(
       localStorage.removeItem('projectja_user')
       localStorage.removeItem('projectja_impersonator_token')
       localStorage.removeItem('projectja_impersonator_user')
+      void clearAllFieldData()
       const path = window.location.pathname
       if (
         !path.startsWith('/login')
@@ -49,6 +51,14 @@ api.interceptors.response.use(
     return Promise.reject(error)
   },
 )
+
+export function isNetworkError(error: unknown): boolean {
+  return axios.isAxiosError(error) && !error.response
+}
+
+export function isUnauthorizedError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 401
+}
 
 export function getApiErrorMessage(error: unknown, fallback = 'Error inesperado'): string {
   if (!axios.isAxiosError(error)) {

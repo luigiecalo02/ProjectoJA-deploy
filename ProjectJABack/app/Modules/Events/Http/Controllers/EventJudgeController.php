@@ -13,6 +13,11 @@ final class EventJudgeController
 {
     public function __construct(private readonly EventJudgeService $service) {}
 
+    public function offlinePack(Request $request): JsonResponse
+    {
+        return ApiResponse::success($this->service->offlinePack($request->user()));
+    }
+
     public function show(Request $request, Event $event): JsonResponse
     {
         $subeventoId = $request->query('subevento_id');
