@@ -602,13 +602,19 @@ final class EventService
             ->except(['id', 'created_at', 'updated_at', 'deleted_at'])
             ->all();
 
+        foreach (['categoria_ids', 'criterio_disponible_ids', 'tipos_evidencia', 'descuentos_directiva'] as $jsonKey) {
+            $attrs[$jsonKey] = Event::normalizeJsonArray($source->getAttribute($jsonKey) ?? $attrs[$jsonKey] ?? []);
+        }
+
         $attrs['evento_padre_id'] = $newParentId;
         $attrs['created_by'] = $actor->id;
 
         if ($isEntryPoint) {
-            $attrs['name'] = trim((string) ($options['name'] ?? '')) !== ''
-                ? (string) $options['name']
-                : $source->name.' (copia)';
+            $requestedName = trim((string) ($options['name'] ?? ''));
+            $attrs['name'] = $this->uniqueCopyName(
+                $requestedName !== '' ? $requestedName : $source->name,
+                $newParentId,
+            );
             $attrs['estado'] = Event::ESTADO_BORRADOR;
             // Si se duplica un hijo, queda como hermano bajo el mismo padre.
             if ($newParentId) {
@@ -1128,6 +1134,34 @@ final class EventService
             }
             $current = $parent;
         }
+    }
+
+    private function uniqueCopyName(string $baseName, ?int $parentId): string
+    {
+        $baseName = trim($baseName);
+        if ($baseName === '') {
+            $baseName = 'Evento';
+        }
+
+        $baseName = (string) preg_replace('/\s+\(copia(?:\s+\d+)?\)$/u', '', $baseName);
+
+        $candidate = $baseName.' (copia)';
+        $suffix = 2;
+        while (
+            Event::query()
+                ->when(
+                    $parentId,
+                    fn ($q) => $q->where('evento_padre_id', $parentId),
+                    fn ($q) => $q->whereNull('evento_padre_id'),
+                )
+                ->where('name', $candidate)
+                ->exists()
+        ) {
+            $candidate = $baseName.' (copia '.$suffix.')';
+            $suffix++;
+        }
+
+        return $candidate;
     }
 
     /**

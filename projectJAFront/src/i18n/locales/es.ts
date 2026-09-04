@@ -593,7 +593,7 @@ export default {
     updateSuccess: 'Evento actualizado correctamente',
     deleteSuccess: 'Evento eliminado',
     duplicate: 'Duplicar',
-    duplicateSuccess: 'Evento duplicado. Quedó como borrador para que lo revises.',
+    duplicateSuccess: 'Se creó “{name}” como copia aparte, en borrador. El evento original no cambió.',
     enroll: 'Inscribirse',
     participate: 'Participar',
     judge: 'Calificar',

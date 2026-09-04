@@ -484,4 +484,52 @@ class Event extends Model
     {
         return app(EventVisibilityService::class)->applyVisibleScope($query, $user);
     }
+
+    /**
+     * @return list<int>
+     */
+    public function intIdList(string $attribute): array
+    {
+        return self::normalizeIntIdList($this->getAttribute($attribute));
+    }
+
+    /**
+     * @return list<int>
+     */
+    public static function normalizeIntIdList(mixed $value): array
+    {
+        return array_values(array_map('intval', self::normalizeJsonArray($value)));
+    }
+
+    /**
+     * @return list<mixed>
+     */
+    public static function normalizeJsonArray(mixed $value): array
+    {
+        if ($value === null || $value === '') {
+            return [];
+        }
+
+        if (is_array($value)) {
+            return array_values($value);
+        }
+
+        if (! is_string($value)) {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+        if (is_array($decoded)) {
+            return array_values($decoded);
+        }
+
+        if (is_string($decoded)) {
+            $again = json_decode($decoded, true);
+            if (is_array($again)) {
+                return array_values($again);
+            }
+        }
+
+        return [];
+    }
 }

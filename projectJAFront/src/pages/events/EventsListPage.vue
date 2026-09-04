@@ -654,11 +654,10 @@ async function duplicateEvent(event: ClubEvent): Promise<void> {
     toast.add({
       severity: 'success',
       summary: t('common.success'),
-      detail: t('events.duplicateSuccess'),
-      life: 2500,
+      detail: t('events.duplicateSuccess', { name: cloned.name }),
+      life: 3000,
     })
     await loadEvents()
-    await router.push({ name: 'events.edit', params: { id: cloned.id } })
   } catch (error) {
     toast.add({
       severity: 'error',

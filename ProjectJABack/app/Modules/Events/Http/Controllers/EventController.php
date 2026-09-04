@@ -392,8 +392,8 @@ final class EventController
             'puntos_inscripcion_fuera_tiempo' => $event->puntos_inscripcion_fuera_tiempo !== null
                 ? (float) $event->puntos_inscripcion_fuera_tiempo
                 : null,
-            'categoria_ids' => array_values(array_map('intval', $event->categoria_ids ?? [])),
-            'criterio_disponible_ids' => array_values(array_map('intval', $event->criterio_disponible_ids ?? [])),
+            'categoria_ids' => $event->intIdList('categoria_ids'),
+            'criterio_disponible_ids' => $event->intIdList('criterio_disponible_ids'),
             'criterios' => $event->relationLoaded('criterios')
                 ? $event->criterios->map(fn ($c) => [
                     'id' => $c->id,
