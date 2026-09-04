@@ -59,11 +59,15 @@ const props = defineProps<{
   catalog?: Cabana[]
   saving?: boolean
   readonly?: boolean
+  priceMode?: boolean
+  priceDisabled?: boolean
+  eventPrices?: Record<number, number | null>
 }>()
 
 const emit = defineEmits<{
   save: [payload: CabanaLayoutPayload]
   'open-cabana': [id: number]
+  'update-bed-price': [id: number, precio: number | null]
 }>()
 
 const floors = ref<CabanaFloor[]>([])
@@ -299,8 +303,33 @@ watch(
     tool.value = !props.readonly && empty ? 'draw-square' : 'select'
     past.value = []
     future.value = []
+    applyEventPrices(props.eventPrices)
   },
   { immediate: true },
+)
+
+function applyEventPrices(prices?: Record<number, number | null>): void {
+  if (!props.priceMode || !prices) return
+  for (const floor of floors.value) {
+    for (const room of floor.cuartos) {
+      for (const bed of room.camas) {
+        if (Object.prototype.hasOwnProperty.call(prices, bed.id)) {
+          bed.precio = prices[bed.id]
+        }
+      }
+    }
+  }
+}
+
+function setEventPrice(bed: CabanaBed, value: number | null): void {
+  bed.precio = value
+  emit('update-bed-price', bed.id, value)
+}
+
+watch(
+  () => props.eventPrices,
+  (prices) => applyEventPrices(prices),
+  { deep: true },
 )
 
 onMounted(() => {
@@ -1801,7 +1830,7 @@ function save(): void {
               @update:model-value="setBunkLevel(selectedBed, $event)"
             />
           </label>
-          <label>
+          <label v-if="!priceMode">
             Precio sugerido {{ selectedBed.tipo === 'camarote' ? (selectedBed.nivel_camarote === 'arriba' ? 'arriba' : 'abajo') : '' }}
             <InputNumber
               v-model="selectedBed.precio_sugerido"
@@ -1811,7 +1840,7 @@ function save(): void {
               :disabled="readonly"
             />
           </label>
-          <label v-if="selectedBed.tipo === 'camarote' && bunkSibling(selection.room, selectedBed)">
+          <label v-if="!priceMode && selectedBed.tipo === 'camarote' && bunkSibling(selection.room, selectedBed)">
             Precio sugerido {{ selectedBed.nivel_camarote === 'arriba' ? 'abajo' : 'arriba' }}
             <InputNumber
               v-model="bunkSibling(selection.room, selectedBed)!.precio_sugerido"
@@ -1821,7 +1850,34 @@ function save(): void {
               :disabled="readonly"
             />
           </label>
-          <small class="tip">El precio final de arriba y abajo se ajusta en la configuración de cada evento.</small>
+          <small v-if="!priceMode" class="tip">El precio final de arriba y abajo se ajusta en la configuración de cada evento.</small>
+          <template v-if="priceMode">
+            <p class="tip">
+              Sugerido: {{ selectedBed.precio_sugerido != null ? selectedBed.precio_sugerido : '—' }}
+            </p>
+            <label>
+              Precio del evento
+              <InputNumber
+                :model-value="selectedBed.precio"
+                :min="0"
+                :max-fraction-digits="0"
+                prefix="$ "
+                :disabled="priceDisabled"
+                @update:model-value="setEventPrice(selectedBed, $event)"
+              />
+            </label>
+            <label v-if="selectedBed.tipo === 'camarote' && bunkSibling(selection.room, selectedBed)">
+              Precio del evento {{ selectedBed.nivel_camarote === 'arriba' ? 'abajo' : 'arriba' }}
+              <InputNumber
+                :model-value="bunkSibling(selection.room, selectedBed)!.precio"
+                :min="0"
+                :max-fraction-digits="0"
+                prefix="$ "
+                :disabled="priceDisabled"
+                @update:model-value="setEventPrice(bunkSibling(selection.room, selectedBed)!, $event)"
+              />
+            </label>
+          </template>
           <label>
             Estado
             <Select

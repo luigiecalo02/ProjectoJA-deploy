@@ -44,6 +44,7 @@ final class EventService
             'criterios:id,nombre,descripcion,estado,orden',
             'cuentaBancaria.qrFile',
             'catalogLugar:id,nombre,descripcion,latitud,longitud,nivel_zoom,estado',
+            'archivos.file',
         ])->withCount('hijos');
 
         $manageAll = $actor->hasPermission('events.create')
@@ -119,6 +120,7 @@ final class EventService
                 'criterios:id,nombre,descripcion,estado,orden',
                 'cuentaBancaria.qrFile',
                 'catalogLugar:id,nombre,descripcion,latitud,longitud,nivel_zoom,estado',
+                'archivos.file',
             ])
             ->withCount('hijos');
 
@@ -147,6 +149,7 @@ final class EventService
                         'jueces:id,name,email',
                         'supervisores:id,name,email',
                         'criterios:id,nombre,descripcion,estado,orden',
+                        'archivos.file',
                     ])
                     ->orderBy('orden')
                     ->orderBy('id');
@@ -252,6 +255,7 @@ final class EventService
             'starts_at' => $event->starts_at?->toDateTimeString(),
             'ends_at' => $event->ends_at?->toDateTimeString(),
             'tipo_evento_id' => $event->tipo_evento_id,
+            'es_en_sitio' => $event->es_en_sitio,
         ], $event);
 
         if ($beforeId !== null) {
@@ -923,7 +927,7 @@ final class EventService
             ]);
         }
 
-        if ($padre->evento_padre_id === null && ! $padre->tiene_subeventos) {
+        if (! $padre->tiene_subeventos) {
             throw ValidationException::withMessages([
                 'evento_padre_id' => ['Este evento no tiene habilitada la configuración de subeventos.'],
             ]);
@@ -938,11 +942,11 @@ final class EventService
             }
         }
 
-        if (! $padre->es_en_sitio) {
-            return;
-        }
+        $childOnSite = array_key_exists('es_en_sitio', $data)
+            ? filter_var($data['es_en_sitio'], FILTER_VALIDATE_BOOLEAN)
+            : ($current?->es_en_sitio ?? true);
 
-        if ($this->allowsDatesOutsideParentRange($data)) {
+        if (! $childOnSite) {
             return;
         }
 
@@ -957,40 +961,10 @@ final class EventService
 
         if ($startsAt < $padreStart || $endsAt > $padreEnd) {
             throw ValidationException::withMessages([
-                'starts_at' => ['Con el padre en sitio, las fechas del subevento deben estar dentro del rango del evento padre.'],
-                'ends_at' => ['Con el padre en sitio, las fechas del subevento deben estar dentro del rango del evento padre.'],
+                'starts_at' => ['Las fechas del subevento en sitio deben estar dentro del rango de su evento padre.'],
+                'ends_at' => ['Las fechas del subevento en sitio deben estar dentro del rango de su evento padre.'],
             ]);
         }
-    }
-
-    /**
-     * Precamporee / subeventos con fecha fin propia pueden ocurrir fuera del rango del evento principal.
-     *
-     * @param  array<string, mixed>  $data
-     */
-    private function allowsDatesOutsideParentRange(array $data): bool
-    {
-        if (! empty($data['maneja_fecha_fin'])) {
-            return true;
-        }
-
-        $tipoId = isset($data['tipo_evento_id']) && $data['tipo_evento_id'] !== null
-            ? (int) $data['tipo_evento_id']
-            : null;
-
-        if ($tipoId === null) {
-            return false;
-        }
-
-        $slug = TipoEvento::query()
-            ->where('id', $tipoId)
-            ->value('slug');
-
-        if (! is_string($slug) || $slug === '') {
-            return false;
-        }
-
-        return str_contains(strtolower($slug), 'precamporee');
     }
 
     /**

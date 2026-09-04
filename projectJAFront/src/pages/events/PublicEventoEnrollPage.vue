@@ -16,6 +16,7 @@ import {
   type PublicEventoEnrollResult,
 } from '@/services/publicEventosService'
 import { resolveAssetUrl } from '@/modules/settings/assetUrl'
+import EventMaterialsViewer from '@/components/events/EventMaterialsViewer.vue'
 import { evaluatePasswordStrength, PASSWORD_MAX_LENGTH } from '@/utils/passwordStrength'
 
 const { t } = useI18n()
@@ -217,6 +218,7 @@ onMounted(async () => {
       <h1>{{ evento?.name || t('publicEventos.enrollTitle') }}</h1>
       <p v-if="evento">{{ formatRange(evento.starts_at, evento.ends_at) }}</p>
     </header>
+    <EventMaterialsViewer v-if="evento?.archivos?.length" :files="evento.archivos" />
 
     <p v-if="loading" class="pj-muted">{{ t('common.loading') }}</p>
 

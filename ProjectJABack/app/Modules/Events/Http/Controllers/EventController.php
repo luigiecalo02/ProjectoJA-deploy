@@ -7,6 +7,7 @@ use App\Modules\Events\Http\Requests\StoreEventRequest;
 use App\Modules\Events\Http\Requests\UpdateEventRequest;
 use App\Modules\Events\Http\Requests\UploadEventImageRequest;
 use App\Modules\Events\Models\Event;
+use App\Modules\Events\Services\EventArchivoService;
 use App\Modules\Events\Services\EventListEnricher;
 use App\Modules\Events\Services\EventParticipationService;
 use App\Modules\Events\Services\EventService;
@@ -24,6 +25,7 @@ final class EventController
         private readonly EventParticipationService $participationService,
         private readonly EventListEnricher $listEnricher,
         private readonly CuentaBancariaService $cuentasBancarias,
+        private readonly EventArchivoService $archivos,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -36,12 +38,15 @@ final class EventController
             (int) $request->integer('per_page', 15),
         );
 
+        $pageIds = collect($paginator->items())->pluck('id')->map(fn ($id) => (int) $id)->all();
         $enrolledMap = $this->participationService->enrolledMap(
             $request->user(),
-            collect($paginator->items())->pluck('id')->map(fn ($id) => (int) $id)->all(),
+            $pageIds,
         );
+        $inscritosMap = Event::inscritosCounts($pageIds);
 
-        $paginator->getCollection()->transform(function (Event $event) use ($enrolledMap, $request) {
+        $paginator->getCollection()->transform(function (Event $event) use ($enrolledMap, $inscritosMap, $request) {
+            $event->setAttribute('inscritos_count', $inscritosMap[(int) $event->id] ?? 0);
             $payload = $this->payload($event, $request->user());
             $payload['inscrito'] = (bool) ($enrolledMap[$event->id] ?? false);
 
@@ -317,6 +322,10 @@ final class EventController
             'longitud' => $event->longitud !== null ? (float) $event->longitud : null,
             'image_url' => $event->image_url,
             'banner_url' => $event->banner_url,
+            'archivos' => $this->archivos->list($event),
+            'inscritos_count' => array_key_exists('inscritos_count', $event->getAttributes())
+                ? (int) $event->getAttribute('inscritos_count')
+                : (Event::inscritosCounts([(int) $event->id])[(int) $event->id] ?? 0),
             'starts_at' => $event->starts_at?->toIso8601String(),
             'ends_at' => $event->ends_at?->toIso8601String(),
             'is_active' => (bool) $event->is_active,

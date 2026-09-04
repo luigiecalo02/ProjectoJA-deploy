@@ -1,5 +1,6 @@
 import { api } from '@/services/api'
 import type { ApiEnvelope } from '@/types/api'
+import type { EventoArchivoMaterial } from '@/modules/events/types'
 
 export type PublicEventoLote = {
   id: number
@@ -66,6 +67,7 @@ export type PublicEventoDetail = PublicEventoCard & {
   oferta_cabana?: PublicEventoOfertaCabana | null
   lotes: PublicEventoLote[]
   cabanas: PublicEventoCabana[]
+  archivos?: EventoArchivoMaterial[]
 }
 
 export type PublicEventoEnrollPayload = {

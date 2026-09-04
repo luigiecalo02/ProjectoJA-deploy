@@ -13,6 +13,7 @@ import { cabanasService } from '@/services/cabanasService'
 import { usersService } from '@/services/usersService'
 import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
+import CabanaLayoutEditor from '@/components/cabanas/CabanaLayoutEditor.vue'
 import type { Cabana, CabanaBed, AlojamientoCupo, EventoCabana } from '@/modules/cabanas/types'
 import type { User } from '@/modules/auth/types'
 
@@ -46,6 +47,27 @@ const priceRows = ref<PriceRow[]>([])
 const bulkTop = ref<number | null>(null)
 const bulkBottom = ref<number | null>(null)
 const bulkSingle = ref<number | null>(null)
+const boardCabanaId = ref<number | null>(null)
+const eventPrices = computed(() =>
+  Object.fromEntries(priceRows.value.map((row) => [row.id, row.precio])),
+)
+const boardCabana = computed<Cabana | null>(() => {
+  const ev = configured.value.find((item) => item.cabana_id === boardCabanaId.value)
+  if (!ev) return null
+  const catalogItem = catalog.value.find((item) => item.id === ev.cabana_id)
+  return {
+    id: ev.cabana_id,
+    nombre: ev.nombre,
+    descripcion: ev.descripcion ?? catalogItem?.descripcion ?? null,
+    image_url: ev.image_url ?? catalogItem?.image_url,
+    estado: 'activa',
+    capacidad_total: ev.capacidad_total ?? catalogItem?.capacidad_total,
+    pisos: ev.pisos?.length ? ev.pisos : catalogItem?.pisos ?? [],
+  }
+})
+const boardOptions = computed(() =>
+  configured.value.map((item) => ({ id: item.cabana_id, nombre: item.nombre })),
+)
 const canManage = computed(() => can('events.update') || can('cabanas.assign'))
 const quotaRows = ref<AlojamientoCupo[]>([])
 const quotaPool = ref({ capacidad: 0, ocupadas: 0, reservados: 0, libres: 0 })
@@ -68,10 +90,6 @@ const selectedCabanas = computed(() =>
   selectedIds.value.map((id) => catalog.value.find((item) => item.id === id)).filter((item): item is Cabana => !!item),
 )
 const totalCapacity = computed(() => selectedCabanas.value.reduce((sum, item) => sum + Number(item.capacidad_total ?? 0), 0))
-
-function money(value: number): string {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value)
-}
 
 function emitSummary(): void {
   emit('summary', { cabanas: selectedIds.value.length, capacidad: totalCapacity.value })
@@ -102,6 +120,9 @@ async function load(): Promise<void> {
       }
     }
     hydratePrices(configured.value)
+    if (!boardCabanaId.value || !configured.value.some((item) => item.cabana_id === boardCabanaId.value)) {
+      boardCabanaId.value = configured.value[0]?.cabana_id ?? null
+    }
     emitSummary()
   } catch (error) {
     toast.add({ severity: 'error', summary: t('common.error'), detail: getApiErrorMessage(error), life: 4000 })
@@ -163,6 +184,11 @@ function applyBulkPrice(kind: 'arriba' | 'abajo' | 'sencilla'): void {
   })
 }
 
+function setBoardPrice(id: number, precio: number | null): void {
+  if (!canManage.value) return
+  priceRows.value = priceRows.value.map((row) => (row.id === id ? { ...row, precio } : row))
+}
+
 async function savePrices(): Promise<void> {
   if (!props.eventId || !canManage.value || !priceRows.value.length) return
   savingPrices.value = true
@@ -189,6 +215,9 @@ async function save(): Promise<void> {
       selectedIds.value.map((cabanaId, index) => ({ cabana_id: cabanaId, orden: index + 1 })),
     )
     hydratePrices(configured.value)
+    if (!boardCabanaId.value || !configured.value.some((item) => item.cabana_id === boardCabanaId.value)) {
+      boardCabanaId.value = configured.value[0]?.cabana_id ?? null
+    }
     toast.add({ severity: 'success', summary: t('common.success'), detail: t('cabanas.eventSaved'), life: 2500 })
   } catch (error) {
     toast.add({ severity: 'error', summary: t('common.error'), detail: getApiErrorMessage(error), life: 4000 })
@@ -341,27 +370,29 @@ onMounted(() => void load())
             </span>
           </label>
         </div>
-        <div class="price-table">
-          <div class="price-head">
-            <span>{{ t('cabanas.bed') }}</span>
-            <span>{{ t('cabanas.suggestedPrice') }}</span>
-            <span>{{ t('cabanas.eventPrice') }}</span>
-          </div>
-          <label v-for="row in priceRows" :key="row.id" class="price-row">
-            <span>
-              <strong>{{ row.codigo }}</strong>
-              <small>{{ row.tipo }}{{ row.nivel ? ` · ${row.nivel}` : '' }} · {{ row.cabana }} · {{ row.cuarto }}</small>
-            </span>
-            <em>{{ row.sugerido != null ? money(row.sugerido) : '—' }}</em>
-            <InputNumber
-              v-model="row.precio"
-              :min="0"
-              :max-fraction-digits="0"
-              prefix="$ "
-              :disabled="!canManage"
+        <div v-if="boardOptions.length > 1" class="price-board-pick">
+          <label>
+            {{ t('cabanas.cabins') }}
+            <Select
+              v-model="boardCabanaId"
+              :options="boardOptions"
+              option-label="nombre"
+              option-value="id"
+              class="w-full"
             />
           </label>
         </div>
+        <p class="price-board-hint">{{ t('cabanas.eventPricesBoardHint') }}</p>
+        <CabanaLayoutEditor
+          v-if="boardCabana"
+          :key="boardCabana.id"
+          :cabana="boardCabana"
+          readonly
+          price-mode
+          :price-disabled="!canManage"
+          :event-prices="eventPrices"
+          @update-bed-price="setBoardPrice"
+        />
         <div v-if="canManage" class="actions">
           <Button
             :label="t('cabanas.savePrices')"
@@ -480,18 +511,9 @@ onMounted(() => void load())
 .actions { display: flex; justify-content: flex-end; }
 .price-panel { display: grid; gap: .65rem; padding: .85rem; border: 1px solid var(--pj-border); border-radius: 12px; }
 .price-panel p { margin: .2rem 0 0; color: var(--pj-text-muted); font-size: .85rem; }
-.price-table { display: grid; gap: .4rem; }
-.price-head, .price-row {
-  display: grid;
-  grid-template-columns: minmax(10rem, 1.4fr) 8rem 10rem;
-  gap: .65rem;
-  align-items: center;
-}
-.price-head { font-size: .75rem; font-weight: 700; color: var(--pj-text-muted); text-transform: uppercase; }
-.price-row { padding: .45rem 0; border-top: 1px solid color-mix(in srgb, var(--pj-border) 55%, transparent); }
-.price-row span { display: flex; flex-direction: column; gap: .1rem; }
-.price-row small { color: var(--pj-text-muted); font-size: .75rem; }
-.price-row em { font-style: normal; font-weight: 600; }
+.price-board-pick { max-width: 22rem; }
+.price-board-pick label { display: grid; gap: 0.3rem; font-size: 0.82rem; font-weight: 700; }
+.price-board-hint { margin: 0; color: var(--pj-text-muted); font-size: 0.85rem; }
 .price-bulk {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
@@ -517,7 +539,6 @@ onMounted(() => void load())
 .quota-row small { color: var(--pj-text-muted); font-size: .75rem; }
 .quota-row em { font-style: normal; font-weight: 600; }
 @media (max-width: 720px) {
-  .price-head, .price-row { grid-template-columns: 1fr; }
   .quota-add, .quota-head, .quota-row { grid-template-columns: 1fr; }
 }
 </style>

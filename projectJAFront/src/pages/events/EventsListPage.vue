@@ -300,7 +300,7 @@ function onTreeNodeOpen(node: ClubEvent, rootId: number): void {
 }
 
 function cupoLabel(event: ClubEvent): string {
-  if (event.cupo_ilimitado) return t('events.wizard.cupoIlimitado')
+  if (event.cupo_ilimitado) return String(event.inscritos_count ?? 0)
   if (event.cupo_maximo) return String(event.cupo_maximo)
   return '—'
 }
@@ -831,6 +831,8 @@ onMounted(() => {
           :score-label="enrollmentLabel(event)"
           :cupo-caption="t('events.wizard.participants')"
           :score-caption="t('events.enrollmentValue')"
+          :starts-at="event.starts_at"
+          :ends-at="event.ends_at"
         >
           <template v-if="canChangeEstado()" #status>
             <EventEstadoSelect

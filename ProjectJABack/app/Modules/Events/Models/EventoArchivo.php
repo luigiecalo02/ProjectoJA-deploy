@@ -8,11 +8,28 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class EventoArchivo extends Model
 {
+    public const TIPO_PDF = 'pdf';
+
+    public const TIPO_IMAGEN = 'imagen';
+
+    public const TIPO_VIDEO = 'video';
+
+    public const TIPO_YOUTUBE = 'youtube';
+
+    public const TIPOS = [
+        self::TIPO_PDF,
+        self::TIPO_IMAGEN,
+        self::TIPO_VIDEO,
+        self::TIPO_YOUTUBE,
+    ];
+
     protected $table = 'evento_archivo';
 
     protected $fillable = [
         'evento_id',
         'file_id',
+        'url',
+        'titulo',
         'tipo',
         'orden',
     ];

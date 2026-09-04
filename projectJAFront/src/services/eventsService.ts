@@ -26,6 +26,7 @@ import type {
   CriterioEvaluacionPayload,
   ActivityRoster,
   EventParticipation,
+  EventoArchivoMaterial,
   EventoEvidenciaItem,
   JudgeBoard,
   JudgeCalificacion,
@@ -642,5 +643,35 @@ export const eventsService = {
   async uploadBanner(id: number, file: File): Promise<ClubEvent> {
     assertEventImageFile(file, 10 * 1024 * 1024, 'El banner no puede superar 10 MB.')
     return postEventMedia(`/api/v1/events/${id}/banner`, file)
+  },
+
+  async listArchivos(id: number): Promise<EventoArchivoMaterial[]> {
+    const { data } = await api.get<ApiEnvelope<EventoArchivoMaterial[]>>(`/api/v1/events/${id}/archivos`)
+    return data.data
+  },
+
+  async addArchivoFile(id: number, file: File, titulo?: string): Promise<EventoArchivoMaterial> {
+    const body = new FormData()
+    body.append('archivo', file)
+    if (titulo) body.append('titulo', titulo)
+    const { data } = await api.post<ApiEnvelope<EventoArchivoMaterial>>(
+      `/api/v1/events/${id}/archivos`,
+      body,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+    return data.data
+  },
+
+  async addArchivoYoutube(id: number, url: string, titulo?: string): Promise<EventoArchivoMaterial> {
+    const { data } = await api.post<ApiEnvelope<EventoArchivoMaterial>>(`/api/v1/events/${id}/archivos`, {
+      tipo: 'youtube',
+      url,
+      titulo: titulo || null,
+    })
+    return data.data
+  },
+
+  async removeArchivo(eventId: number, archivoId: number): Promise<void> {
+    await api.delete<ApiEnvelope<null>>(`/api/v1/events/${eventId}/archivos/${archivoId}`)
   },
 }

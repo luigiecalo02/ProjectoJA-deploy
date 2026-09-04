@@ -22,6 +22,7 @@ import { eventsService } from '@/services/eventsService'
 import MediaCoverUpload from '@/components/media/MediaCoverUpload.vue'
 import MediaProfileUpload from '@/components/media/MediaProfileUpload.vue'
 import EventBannerCard from '@/components/events/EventBannerCard.vue'
+import EventMaterialsPanel from '@/components/events/EventMaterialsPanel.vue'
 import { clubsService } from '@/services/clubsService'
 import { organizacionesService } from '@/services/organizacionesService'
 import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
@@ -44,6 +45,7 @@ import type {
   ClubEvent,
   CriterioEvaluacion,
   EventFormPayload,
+  EventoArchivoMaterial,
   EventoDescuentoDirectiva,
   EventoVisibilidad,
   ProductoServicio,
@@ -92,6 +94,9 @@ const clubAudience = ref<ClubAudienceKey[]>(['libre'])
 const pendingImage = ref<File | null>(null)
 const pendingPreview = ref<string | null>(null)
 const pendingBanner = ref<File | null>(null)
+const materiales = ref<EventoArchivoMaterial[]>([])
+const pendingMaterialFiles = ref<File[]>([])
+const pendingYoutube = ref<Array<{ url: string; titulo?: string }>>([])
 const pendingBannerPreview = ref<string | null>(null)
 const configTab = ref<'inscripcion' | 'descuentos' | 'calificaciones' | 'servicios'>(
   'inscripcion',
@@ -345,7 +350,7 @@ const previewDates = computed(() => {
 })
 
 const previewCupo = computed(() => {
-  if (form.cupo_ilimitado) return t('events.wizard.cupoIlimitado')
+  if (form.cupo_ilimitado) return '0'
   if (form.cupo_maximo) return String(form.cupo_maximo)
   return t('events.wizard.previewPending')
 })
@@ -747,6 +752,21 @@ async function uploadPendingImage(id: number): Promise<void> {
   }
 }
 
+async function flushPendingMaterials(id: number): Promise<void> {
+  const files = [...pendingMaterialFiles.value]
+  const links = [...pendingYoutube.value]
+  pendingMaterialFiles.value = []
+  pendingYoutube.value = []
+  for (const file of files) {
+    const created = await eventsService.addArchivoFile(id, file, file.name)
+    materiales.value = [...materiales.value, created]
+  }
+  for (const link of links) {
+    const created = await eventsService.addArchivoYoutube(id, link.url, link.titulo)
+    materiales.value = [...materiales.value, created]
+  }
+}
+
 async function uploadPendingBanner(id: number): Promise<void> {
   if (!pendingBanner.value) return
   uploading.value = true
@@ -769,11 +789,13 @@ async function persistEvent(estado: string): Promise<ClubEvent> {
     saved = await eventsService.update(persistedId.value, payload)
     if (pendingImage.value) await uploadPendingImage(persistedId.value)
     if (pendingBanner.value) await uploadPendingBanner(persistedId.value)
+    await flushPendingMaterials(persistedId.value)
   } else {
     saved = await eventsService.create(payload)
     persistedId.value = saved.id
     if (pendingImage.value) await uploadPendingImage(saved.id)
     if (pendingBanner.value) await uploadPendingBanner(saved.id)
+    await flushPendingMaterials(saved.id)
     await router.replace({ name: 'events.edit', params: { id: saved.id } })
   }
 
@@ -1065,6 +1087,7 @@ async function loadEvent(): Promise<void> {
   form.puntos_inscripcion_fuera_tiempo = event.puntos_inscripcion_fuera_tiempo ?? null
   form.image_url = event.image_url
   form.banner_url = event.banner_url ?? null
+  materiales.value = event.archivos ?? []
   applyHomeOrganization()
 }
 
@@ -1177,6 +1200,15 @@ onBeforeUnmount(() => {
               />
             </div>
           </div>
+
+          <EventMaterialsPanel
+            :event-id="persistedId"
+            :files="materiales"
+            @queued="pendingMaterialFiles = [...pendingMaterialFiles, ...$event]"
+            @queued-youtube="pendingYoutube = [...pendingYoutube, $event]"
+            @uploaded="materiales = [...materiales, $event]"
+            @removed="materiales = materiales.filter((item) => item.id !== $event)"
+          />
 
           <div class="field">
             <label for="name">{{ t('events.name') }}</label>
@@ -1493,9 +1525,12 @@ onBeforeUnmount(() => {
             <label for="requiere_pago">{{ t('events.enrollmentRequires') }}</label>
             <ToggleSwitch input-id="requiere_pago" v-model="form.requiere_pago" />
           </div>
-          <div v-if="form.requiere_pago" class="field-grid">
-            <div class="field">
-              <label for="precio">{{ t('events.enrollmentValue') }}</label>
+          <div v-if="form.requiere_pago" class="price-list">
+            <div class="price-row">
+              <div>
+                <label for="precio">{{ t('events.enrollmentValue') }}</label>
+                <small class="pj-muted">{{ t('events.wizard.enrollmentValueHint') }}</small>
+              </div>
               <InputNumber
                 id="precio"
                 v-model="form.precio"
@@ -1506,8 +1541,11 @@ onBeforeUnmount(() => {
                 :min="0"
               />
             </div>
-            <div class="field">
-              <label for="precio_acompanante">{{ t('events.companionPrice') }}</label>
+            <div class="price-row">
+              <div>
+                <label for="precio_acompanante">{{ t('events.companionPrice') }}</label>
+                <small class="pj-muted">{{ t('events.wizard.companionPriceHint') }}</small>
+              </div>
               <InputNumber
                 id="precio_acompanante"
                 v-model="form.precio_acompanante"
@@ -1518,8 +1556,11 @@ onBeforeUnmount(() => {
                 :min="0"
               />
             </div>
-            <div class="field">
-              <label for="precio_acompanante_menor">{{ t('events.companionMinorPrice') }}</label>
+            <div class="price-row">
+              <div>
+                <label for="precio_acompanante_menor">{{ t('events.companionMinorPrice') }}</label>
+                <small class="pj-muted">{{ t('events.wizard.companionMinorPriceHint') }}</small>
+              </div>
               <InputNumber
                 id="precio_acompanante_menor"
                 v-model="form.precio_acompanante_menor"
@@ -1530,8 +1571,11 @@ onBeforeUnmount(() => {
                 :min="0"
               />
             </div>
-            <div class="field">
-              <label for="precio_directiva">{{ t('events.directivePrice') }}</label>
+            <div class="price-row">
+              <div>
+                <label for="precio_directiva">{{ t('events.directivePrice') }}</label>
+                <small class="pj-muted">{{ t('events.directivePriceHint') }}</small>
+              </div>
               <InputNumber
                 id="precio_directiva"
                 v-model="form.precio_directiva"
@@ -1541,10 +1585,12 @@ onBeforeUnmount(() => {
                 class="w-full"
                 :min="0"
               />
-              <small class="pj-muted">{{ t('events.directivePriceHint') }}</small>
             </div>
-            <div class="field">
-              <label for="precio_fuera_tiempo">{{ t('events.lateEnrollmentPrice') }}</label>
+            <div class="price-row">
+              <div>
+                <label for="precio_fuera_tiempo">{{ t('events.lateEnrollmentPrice') }}</label>
+                <small class="pj-muted">{{ t('events.latePriceHint') }}</small>
+              </div>
               <InputNumber
                 id="precio_fuera_tiempo"
                 v-model="form.precio_fuera_tiempo"
@@ -1554,12 +1600,12 @@ onBeforeUnmount(() => {
                 class="w-full"
                 :min="0"
               />
-              <small class="pj-muted">{{ t('events.latePriceHint') }}</small>
             </div>
-            <div class="field">
-              <label for="precio_acompanante_fuera_tiempo">
-                {{ t('events.lateCompanionPrice') }}
-              </label>
+            <div class="price-row">
+              <div>
+                <label for="precio_acompanante_fuera_tiempo">{{ t('events.lateCompanionPrice') }}</label>
+                <small class="pj-muted">{{ t('events.wizard.lateCompanionHint') }}</small>
+              </div>
               <InputNumber
                 id="precio_acompanante_fuera_tiempo"
                 v-model="form.precio_acompanante_fuera_tiempo"
@@ -1570,10 +1616,11 @@ onBeforeUnmount(() => {
                 :min="0"
               />
             </div>
-            <div class="field">
-              <label for="precio_acompanante_menor_fuera_tiempo">
-                {{ t('events.lateCompanionMinorPrice') }}
-              </label>
+            <div class="price-row">
+              <div>
+                <label for="precio_acompanante_menor_fuera_tiempo">{{ t('events.lateCompanionMinorPrice') }}</label>
+                <small class="pj-muted">{{ t('events.wizard.lateCompanionMinorHint') }}</small>
+              </div>
               <InputNumber
                 id="precio_acompanante_menor_fuera_tiempo"
                 v-model="form.precio_acompanante_menor_fuera_tiempo"
@@ -1584,10 +1631,11 @@ onBeforeUnmount(() => {
                 :min="0"
               />
             </div>
-            <div class="field">
-              <label for="precio_directiva_fuera_tiempo">
-                {{ t('events.lateDirectivePrice') }}
-              </label>
+            <div class="price-row">
+              <div>
+                <label for="precio_directiva_fuera_tiempo">{{ t('events.lateDirectivePrice') }}</label>
+                <small class="pj-muted">{{ t('events.wizard.lateDirectiveHint') }}</small>
+              </div>
               <InputNumber
                 id="precio_directiva_fuera_tiempo"
                 v-model="form.precio_directiva_fuera_tiempo"
@@ -1598,6 +1646,8 @@ onBeforeUnmount(() => {
                 :min="0"
               />
             </div>
+          </div>
+          <div v-if="form.requiere_pago" class="field-grid" style="margin-top: 0.85rem">
             <div class="field">
               <label for="fecha_limite_pago">{{ t('events.wizard.paymentDeadline') }}</label>
               <DatePicker
@@ -2030,6 +2080,8 @@ onBeforeUnmount(() => {
             :score-label="previewEnrollment"
             :cupo-caption="t('events.wizard.participants')"
             :score-caption="t('events.enrollmentValue')"
+            :starts-at="form.starts_at"
+            :ends-at="form.ends_at"
           />
         </aside>
       </div>
@@ -2366,6 +2418,30 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.9rem;
+}
+
+.price-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.price-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.2fr) minmax(10rem, 0.8fr);
+  gap: 1rem;
+  align-items: center;
+}
+
+.price-row label {
+  display: block;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .price-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
 }
 
 .date-pair {

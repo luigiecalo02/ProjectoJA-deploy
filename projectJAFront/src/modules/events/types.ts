@@ -78,6 +78,20 @@ export interface EventoCriterioAsignado {
   orden: number
 }
 
+export type EventoArchivoTipo = 'pdf' | 'imagen' | 'video' | 'youtube'
+
+export interface EventoArchivoMaterial {
+  id: number
+  evento_id: number
+  tipo: EventoArchivoTipo | string
+  titulo?: string | null
+  url?: string | null
+  name?: string | null
+  size?: number | null
+  mime_type?: string | null
+  orden?: number
+}
+
 export interface EventoEvidenciaItem {
   id: number
   evento_id: number
@@ -124,6 +138,7 @@ export interface ParticipationNode {
   estado?: string | null
   image_url?: string | null
   banner_url?: string | null
+  archivos?: EventoArchivoMaterial[]
   evento_padre_id?: number | null
   es_calificable: boolean
   puntaje_maximo?: number | null
@@ -677,6 +692,8 @@ export interface ClubEvent {
   criterio_disponible_ids?: number[]
   criterios?: EventoCriterioAsignado[]
   inscrito?: boolean
+  inscritos_count?: number
+  archivos?: EventoArchivoMaterial[]
   created_by: number | null
   juez_ids?: number[]
   jueces?: Array<{ id: number; name: string; email?: string | null }>

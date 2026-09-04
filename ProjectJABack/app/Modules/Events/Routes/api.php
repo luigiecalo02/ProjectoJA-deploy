@@ -2,6 +2,7 @@
 
 use App\Modules\Events\Http\Controllers\CategoriaSubeventoController;
 use App\Modules\Events\Http\Controllers\CriterioEvaluacionController;
+use App\Modules\Events\Http\Controllers\EventArchivoController;
 use App\Modules\Events\Http\Controllers\EventController;
 use App\Modules\Events\Http\Controllers\EventEconomiaController;
 use App\Modules\Events\Http\Controllers\EventJudgeController;
@@ -71,6 +72,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('events/{event}', [EventController::class, 'destroy']);
     Route::post('events/{event}/image', [EventController::class, 'image']);
     Route::post('events/{event}/banner', [EventController::class, 'banner']);
+    Route::get('events/{event}/archivos', [EventArchivoController::class, 'index']);
+    Route::post('events/{event}/archivos', [EventArchivoController::class, 'store']);
+    Route::delete('events/{event}/archivos/{archivo}', [EventArchivoController::class, 'destroy']);
 
     Route::get('evento-inscripciones/{eventoInscripcion}', [EventEconomiaController::class, 'showInscripcion']);
     Route::post('evento-inscripciones/{eventoInscripcion}/comprobantes', [EventEconomiaController::class, 'storeComprobante']);

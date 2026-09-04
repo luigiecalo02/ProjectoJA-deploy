@@ -9,6 +9,7 @@ import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import PageLoader from '@/components/PageLoader.vue'
 import EventJudgeActivityCard from '@/components/events/EventJudgeActivityCard.vue'
+import EventMaterialsViewer from '@/components/events/EventMaterialsViewer.vue'
 import EventActivityRosterTab from '@/components/events/EventActivityRosterTab.vue'
 import MediaGalleryUpload from '@/components/media/MediaGalleryUpload.vue'
 import MediaDocumentsUpload from '@/components/media/MediaDocumentsUpload.vue'
@@ -960,6 +961,8 @@ watch(isMobile, (mobile) => {
                 <EventActivityRosterTab :actividad-id="selected.id" :locked="directorLocked" />
               </template>
             </EventJudgeActivityCard>
+
+            <EventMaterialsViewer :files="selected.archivos" />
 
             <section class="detail-section">
               <h3>{{ t('events.clubEvidenceTitle') }}</h3>

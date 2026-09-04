@@ -7,6 +7,7 @@ use App\Modules\Auth\Services\AccountMailService;
 use App\Modules\Cabanas\Models\EventoCabana;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Events\Models\Event;
+use App\Modules\Events\Services\EventArchivoService;
 use App\Modules\Events\Models\EventoInscripcion;
 use App\Modules\Events\Models\EventoInscripcionComprobante;
 use App\Modules\Events\Models\EventoInscripcionPersona;
@@ -98,6 +99,7 @@ final class PublicEventoService
         return [
             ...$this->cardPayload($event),
             'reglas' => $event->reglas,
+            'archivos' => app(EventArchivoService::class)->list($event),
             'requiere_seguro' => (bool) $event->requiere_seguro,
             'seguro_valor' => $event->seguro_valor !== null ? (float) $event->seguro_valor : null,
             'metodo_pago' => $event->metodo_pago,

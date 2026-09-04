@@ -532,4 +532,32 @@ class Event extends Model
 
         return [];
     }
+
+    /**
+     * @param  list<int>  $eventIds
+     * @return array<int, int>
+     */
+    public static function inscritosCounts(array $eventIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $eventIds)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $rows = EventoInscripcionPersona::query()
+            ->selectRaw('evento_inscripcion.evento_id as evento_id, COUNT(*) as total')
+            ->join('evento_inscripcion', 'evento_inscripcion.id', '=', 'evento_inscripcion_persona.inscripcion_id')
+            ->whereIn('evento_inscripcion.evento_id', $ids)
+            ->where('evento_inscripcion.estado', '!=', EventoInscripcion::ESTADO_NO_APROBADA)
+            ->where('evento_inscripcion_persona.estado', '!=', EventoInscripcionPersona::ESTADO_CANCELADA)
+            ->groupBy('evento_inscripcion.evento_id')
+            ->pluck('total', 'evento_id');
+
+        $counts = [];
+        foreach ($ids as $id) {
+            $counts[$id] = (int) ($rows[$id] ?? $rows[(string) $id] ?? 0);
+        }
+
+        return $counts;
+    }
 }

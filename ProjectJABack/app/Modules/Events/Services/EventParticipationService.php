@@ -522,6 +522,7 @@ final class EventParticipationService
             'categoriaSubevento:id,nombre,slug,color,icono,maneja_puntos,maneja_fecha_inicio,maneja_fecha_fin',
             'jueces:id,name,email',
             'supervisores:id,name,email',
+            'archivos.file',
             'hijos' => fn ($q) => $q->orderBy('orden')->orderBy('id'),
         ]);
 
@@ -572,6 +573,7 @@ final class EventParticipationService
             'estado' => $event->estado,
             'image_url' => $event->image_url,
             'banner_url' => $event->banner_url,
+            'archivos' => app(EventArchivoService::class)->list($event),
             'evento_padre_id' => $event->evento_padre_id,
             'es_calificable' => (bool) $event->es_calificable,
             'puntaje_maximo' => $event->puntaje_maximo !== null ? (float) $event->puntaje_maximo : null,

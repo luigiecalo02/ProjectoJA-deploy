@@ -1,5 +1,9 @@
 <script setup lang="ts">
-defineProps<{
+import { computed, toRef } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { pad2, useEventCountdown } from '@/composables/useEventCountdown'
+
+const props = defineProps<{
   name: string
   bannerUrl?: string | null
   logoUrl?: string | null
@@ -13,7 +17,19 @@ defineProps<{
   scoreLabel: string
   cupoCaption: string
   scoreCaption: string
+  startsAt?: Date | string | null
+  endsAt?: Date | string | null
 }>()
+
+const { t } = useI18n()
+const { state: countdown } = useEventCountdown(toRef(props, 'startsAt'), toRef(props, 'endsAt'))
+
+const countdownLabel = computed(() => {
+  if (!countdown.value) return ''
+  if (countdown.value.expired) return t('events.countdownEnded')
+  if (countdown.value.running) return t('events.countdownRunning')
+  return t('events.countdownStarts')
+})
 </script>
 
 <template>
@@ -56,6 +72,28 @@ defineProps<{
         <div>
           <span>{{ scoreCaption }}</span>
           <strong>{{ scoreLabel }}</strong>
+        </div>
+      </div>
+      <div v-if="countdown" class="event-banner-card__countdown" :class="{ 'is-ended': countdown.expired }">
+        <span>{{ countdownLabel }}</span>
+        <strong v-if="countdown.expired">{{ t('events.countdownEnded') }}</strong>
+        <div v-else class="event-banner-card__digits">
+          <em v-if="countdown.days > 0">
+            <b>{{ countdown.days }}</b>
+            <small>{{ t('events.countdownDays') }}</small>
+          </em>
+          <em>
+            <b>{{ pad2(countdown.hours) }}</b>
+            <small>{{ t('events.countdownHours') }}</small>
+          </em>
+          <em>
+            <b>{{ pad2(countdown.minutes) }}</b>
+            <small>{{ t('events.countdownMins') }}</small>
+          </em>
+          <em>
+            <b>{{ pad2(countdown.seconds) }}</b>
+            <small>{{ t('events.countdownSecs') }}</small>
+          </em>
         </div>
       </div>
       <slot />
@@ -221,6 +259,40 @@ defineProps<{
 
 .event-banner-card__stats strong {
   font-size: 0.9rem;
+}
+
+.event-banner-card__countdown {
+  margin-top: 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.event-banner-card__countdown > span {
+  font-size: 0.68rem;
+  color: var(--pj-text-muted);
+}
+
+.event-banner-card__digits {
+  display: flex;
+  gap: 0.55rem;
+}
+
+.event-banner-card__digits em {
+  font-style: normal;
+  display: grid;
+  justify-items: center;
+}
+
+.event-banner-card__digits b {
+  font-size: 0.95rem;
+}
+
+.event-banner-card__digits small {
+  font-size: 0.62rem;
+  color: var(--pj-text-muted);
 }
 
 .event-banner-card__body > :last-child:not(.event-banner-card__stats) {

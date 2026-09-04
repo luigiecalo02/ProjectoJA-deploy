@@ -142,6 +142,7 @@ class EventsApiTest extends TestCase
             'organizacion_id' => $union->id,
             'organizacion_ids' => [$union->id],
             'es_en_sitio' => true,
+            'tiene_subeventos' => true,
         ])->assertCreated()->json('data');
 
         $this->postJson('/api/v1/events', [
@@ -159,11 +160,12 @@ class EventsApiTest extends TestCase
             'ends_at' => '2026-07-21 12:00:00',
             'evento_padre_id' => $parent['id'],
             'organizacion_id' => $union->id,
+            'es_en_sitio' => true,
         ])->assertCreated()
             ->assertJsonPath('data.evento_padre_id', $parent['id']);
     }
 
-    public function test_child_can_be_outside_parent_when_not_es_en_sitio(): void
+    public function test_child_can_be_outside_parent_when_child_not_es_en_sitio(): void
     {
         Sanctum::actingAs($this->admin());
         $union = $this->createOrg('Unión Virtual');
@@ -173,7 +175,8 @@ class EventsApiTest extends TestCase
             'starts_at' => '2026-07-20 08:00:00',
             'ends_at' => '2026-07-24 18:00:00',
             'organizacion_id' => $union->id,
-            'es_en_sitio' => false,
+            'es_en_sitio' => true,
+            'tiene_subeventos' => true,
         ])->assertCreated()->json('data');
 
         $this->postJson('/api/v1/events', [
@@ -182,7 +185,32 @@ class EventsApiTest extends TestCase
             'ends_at' => '2026-07-10 12:00:00',
             'evento_padre_id' => $parent['id'],
             'organizacion_id' => $union->id,
+            'es_en_sitio' => false,
         ])->assertCreated();
+    }
+
+    public function test_on_site_child_must_fit_even_if_parent_is_off_site(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $union = $this->createOrg('Unión Híbrida');
+
+        $parent = $this->postJson('/api/v1/events', [
+            'name' => 'Camporee virtual',
+            'starts_at' => '2026-07-20 08:00:00',
+            'ends_at' => '2026-07-24 18:00:00',
+            'organizacion_id' => $union->id,
+            'es_en_sitio' => false,
+            'tiene_subeventos' => true,
+        ])->assertCreated()->json('data');
+
+        $this->postJson('/api/v1/events', [
+            'name' => 'Concurso fuera',
+            'starts_at' => '2026-07-10 08:00:00',
+            'ends_at' => '2026-07-10 12:00:00',
+            'evento_padre_id' => $parent['id'],
+            'organizacion_id' => $union->id,
+            'es_en_sitio' => true,
+        ])->assertStatus(422);
     }
 
     public function test_event_accepts_tipo_organizacion_ids(): void
@@ -480,5 +508,55 @@ class EventsApiTest extends TestCase
         ]);
 
         return $user->fresh();
+    }
+
+    public function test_event_accepts_youtube_material_and_rejects_invalid_link(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $union = $this->createOrg('Unión Materiales');
+
+        $event = $this->postJson('/api/v1/events', [
+            'name' => 'Con materiales',
+            'starts_at' => '2026-08-01 08:00:00',
+            'ends_at' => '2026-08-03 18:00:00',
+            'organizacion_id' => $union->id,
+        ])->assertCreated()->json('data');
+
+        $this->postJson("/api/v1/events/{$event['id']}/archivos", [
+            'tipo' => 'youtube',
+            'url' => 'https://youtu.be/dQw4w9WgXcQ',
+            'titulo' => 'Video oficial',
+        ])->assertCreated()
+            ->assertJsonPath('data.tipo', 'youtube')
+            ->assertJsonPath('data.titulo', 'Video oficial');
+
+        $this->postJson("/api/v1/events/{$event['id']}/archivos", [
+            'tipo' => 'youtube',
+            'url' => 'https://example.com/not-youtube',
+        ])->assertStatus(422);
+
+        $list = $this->getJson("/api/v1/events/{$event['id']}/archivos")->assertOk()->json('data');
+        $this->assertCount(1, $list);
+
+        $this->deleteJson("/api/v1/events/{$event['id']}/archivos/{$list[0]['id']}")->assertOk();
+        $this->getJson("/api/v1/events/{$event['id']}/archivos")
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
+    public function test_event_list_includes_inscritos_count(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $union = $this->createOrg('Unión Cupo');
+
+        $created = $this->postJson('/api/v1/events', [
+            'name' => 'Sin límite',
+            'starts_at' => '2026-08-01 08:00:00',
+            'ends_at' => '2026-08-03 18:00:00',
+            'organizacion_id' => $union->id,
+            'cupo_ilimitado' => true,
+        ])->assertCreated()->json('data');
+
+        $this->assertSame(0, $created['inscritos_count']);
     }
 }
