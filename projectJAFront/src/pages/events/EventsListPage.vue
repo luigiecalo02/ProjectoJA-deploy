@@ -17,7 +17,7 @@ import EventEstadoSelect from '@/components/events/EventEstadoSelect.vue'
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage, isNetworkError, resolveFileUrl } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
-import { usePageChrome } from '@/composables/usePageChrome'
+import { usePageChrome, type PageChromeAction } from '@/composables/usePageChrome'
 import { useAuthStore } from '@/stores/auth'
 import { useFieldModeStore } from '@/stores/fieldMode'
 import type { ClubEvent } from '@/modules/events/types'
@@ -39,35 +39,31 @@ const canCreateEvent = computed(() => can('events.create') && fieldMode.online)
 const canPrepareField = computed(() => can('events.evaluate'))
 const usingOfflinePack = ref(false)
 
-usePageChrome(() => ({
-  title: t('events.title'),
-  subtitle: t('events.subtitle'),
-  actions: [
-    ...(canPrepareField.value
-      ? [
-          {
-            key: 'field-pack',
-            label: t('fieldMode.prepare'),
-            icon: 'pi pi-cloud-download',
-            outlined: true,
-            loading: fieldMode.downloading,
-            disabled: !fieldMode.online,
-            onClick: () => void prepareFieldPack(),
-          },
-        ]
-      : []),
-    ...(canCreateEvent.value
-      ? [
-          {
-            key: 'new',
-            label: t('events.new'),
-            icon: 'pi pi-plus',
-            onClick: () => void router.push({ name: 'events.create' }),
-          },
-        ]
-      : []),
-  ],
-}))
+usePageChrome(() => {
+  const actions: PageChromeAction[] = []
+  if (can('events.update') && fieldMode.online) {
+    actions.push({
+      key: 'catalogos',
+      label: t('events.catalogos.title'),
+      icon: 'pi pi-tags',
+      outlined: true,
+      onClick: () => void router.push({ name: 'eventsCatalogos' }),
+    })
+  }
+  if (canCreateEvent.value) {
+    actions.push({
+      key: 'new',
+      label: t('events.new'),
+      icon: 'pi pi-plus',
+      onClick: () => void router.push({ name: 'events.create' }),
+    })
+  }
+  return {
+    title: t('events.title'),
+    subtitle: t('events.subtitle'),
+    actions,
+  }
+})
 
 const events = ref<ClubEvent[]>([])
 const loading = ref(false)
@@ -512,13 +508,15 @@ async function loadEvents(): Promise<void> {
   }
 }
 
-async function prepareFieldPack(): Promise<void> {
+async function prepareFieldPack(event: ClubEvent): Promise<void> {
   try {
-    const count = await fieldMode.downloadPack()
+    const count = await fieldMode.downloadPack(event.id)
     toast.add({
       severity: count ? 'success' : 'info',
       summary: t('common.success'),
-      detail: count ? t('fieldMode.prepared', { count }) : t('fieldMode.preparedEmpty'),
+      detail: count
+        ? t('fieldMode.preparedEvent', { name: event.name })
+        : t('fieldMode.preparedEventEmpty'),
       life: 3500,
     })
     if (!fieldMode.online) {
@@ -588,6 +586,16 @@ function menuItemsFor(event: ClubEvent): MenuItem[] {
       icon: 'pi pi-star',
       command: () => goJudge(event),
     })
+    if (canPrepareField.value) {
+      items.push({
+        label: t('fieldMode.prepare'),
+        icon: 'pi pi-cloud-download',
+        disabled: !fieldMode.online || fieldMode.downloading,
+        command: () => {
+          void prepareFieldPack(event)
+        },
+      })
+    }
   }
   if (canViewStandings(event)) {
     items.push({
@@ -724,13 +732,11 @@ onMounted(() => {
       </div>
       <div class="events-page__actions">
         <Button
-          v-if="canPrepareField"
-          icon="pi pi-cloud-download"
+          v-if="can('events.update') && fieldMode.online"
+          icon="pi pi-tags"
           outlined
-          :label="t('fieldMode.prepare')"
-          :loading="fieldMode.downloading"
-          :disabled="!fieldMode.online"
-          @click="prepareFieldPack()"
+          :label="t('events.catalogos.title')"
+          @click="router.push({ name: 'eventsCatalogos' })"
         />
         <Button
           v-if="canCreateEvent"

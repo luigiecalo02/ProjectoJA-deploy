@@ -365,6 +365,7 @@ final class EventService
             $data['estado'] = $data['estado'] ?? Event::ESTADO_BORRADOR;
             $data['es_en_sitio'] = $data['es_en_sitio'] ?? true;
             $data['es_calificable'] = $data['es_calificable'] ?? false;
+            $data['tiene_subeventos'] = $data['tiene_subeventos'] ?? false;
             $data['puntaje_desde_hijos'] = $data['puntaje_desde_hijos'] ?? false;
             $data['requiere_pago'] = $data['requiere_pago'] ?? false;
             $data['requiere_seguro'] = $data['requiere_seguro'] ?? false;
@@ -913,6 +914,12 @@ final class EventService
         if (! $padre) {
             throw ValidationException::withMessages([
                 'evento_padre_id' => ['El evento padre no existe.'],
+            ]);
+        }
+
+        if ($padre->evento_padre_id === null && ! $padre->tiene_subeventos) {
+            throw ValidationException::withMessages([
+                'evento_padre_id' => ['Este evento no tiene habilitada la configuración de subeventos.'],
             ]);
         }
 

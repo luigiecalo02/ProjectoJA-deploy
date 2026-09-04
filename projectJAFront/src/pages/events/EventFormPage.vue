@@ -10,6 +10,7 @@ import InputNumber from 'primevue/inputnumber'
 import ToggleSwitch from 'primevue/toggleswitch'
 import DatePicker from 'primevue/datepicker'
 import Select from 'primevue/select'
+import MultiSelect from 'primevue/multiselect'
 import Message from 'primevue/message'
 import PageLoader from '@/components/PageLoader.vue'
 import EventOrganizationsStep from '@/components/events/EventOrganizationsStep.vue'
@@ -17,8 +18,6 @@ import type { EventAudienceKey } from '@/components/events/EventOrganizationsSte
 import EventSubeventsStep from '@/components/events/EventSubeventsStep.vue'
 import EventTerrenoStep from '@/components/events/EventTerrenoStep.vue'
 import EventCabanasStep from '@/components/events/EventCabanasStep.vue'
-import CategoriaSubeventosAdminDrawer from '@/components/events/CategoriaSubeventosAdminDrawer.vue'
-import CriteriosEvaluacionAdminDrawer from '@/components/events/CriteriosEvaluacionAdminDrawer.vue'
 import { eventsService } from '@/services/eventsService'
 import MediaCoverUpload from '@/components/media/MediaCoverUpload.vue'
 import MediaProfileUpload from '@/components/media/MediaProfileUpload.vue'
@@ -41,7 +40,9 @@ import type { Club } from '@/modules/clubs/types'
 import type { CuentaBancaria } from '@/modules/settings/types'
 import type { Lugar } from '@/modules/lugares/types'
 import type {
+  CategoriaSubevento,
   ClubEvent,
+  CriterioEvaluacion,
   EventFormPayload,
   EventoDescuentoDirectiva,
   EventoVisibilidad,
@@ -92,12 +93,18 @@ const pendingImage = ref<File | null>(null)
 const pendingPreview = ref<string | null>(null)
 const pendingBanner = ref<File | null>(null)
 const pendingBannerPreview = ref<string | null>(null)
-const categoriesAdminVisible = ref(false)
-const criteriosAdminVisible = ref(false)
-const configTab = ref<'inscripcion' | 'descuentos' | 'seguro' | 'categorias' | 'criterios' | 'servicios'>(
+const configTab = ref<'inscripcion' | 'descuentos' | 'calificaciones' | 'servicios'>(
   'inscripcion',
 )
 const categoriasVersion = ref(0)
+const categoriasCatalog = ref<CategoriaSubevento[]>([])
+const criteriosCatalog = ref<CriterioEvaluacion[]>([])
+const categoriaSelectOptions = computed(() =>
+  categoriasCatalog.value.map((item) => ({ label: item.nombre, value: item.id })),
+)
+const criterioSelectOptions = computed(() =>
+  criteriosCatalog.value.map((item) => ({ label: item.nombre, value: item.id })),
+)
 const previewVisible = ref(
   typeof localStorage === 'undefined' ? true : localStorage.getItem('pj.eventWizardPreview') !== '0',
 )
@@ -162,7 +169,10 @@ const form = reactive({
   tipo_organizacion_ids: [] as number[],
   es_en_sitio: true,
   es_calificable: false,
+  tiene_subeventos: false,
   puntaje_maximo: null as number | null,
+  categoria_ids: [] as number[],
+  criterio_disponible_ids: [] as number[],
   requiere_pago: false,
   precio: null as number | null,
   precio_fuera_tiempo: null as number | null,
@@ -187,7 +197,7 @@ const form = reactive({
   cupo_max_organizacion: null as number | null,
   cupo_max_club: null as number | null,
   cupo_max_iglesia: null as number | null,
-  permite_inscripcion_individual: true,
+  permite_inscripcion_individual: false,
   permite_inscripcion_organizacion: false,
   permite_inscripcion_club: true,
   permite_inscripcion_iglesia: false,
@@ -226,10 +236,10 @@ const steps = computed(() => {
   if (form.usar_cabanas) {
     all.push({ key: 'alojamiento', label: t('events.wizard.stepCabanas'), icon: 'pi pi-building' })
   }
-  all.push(
-    { key: 'subeventos', label: t('events.wizard.stepSubevents'), icon: 'pi pi-share-alt' },
-    { key: 'revision', label: t('events.wizard.stepReview'), icon: 'pi pi-check-circle' },
-  )
+  if (form.tiene_subeventos) {
+    all.push({ key: 'subeventos', label: t('events.wizard.stepSubevents'), icon: 'pi pi-share-alt' })
+  }
+  all.push({ key: 'revision', label: t('events.wizard.stepReview'), icon: 'pi pi-check-circle' })
   return all
 })
 
@@ -246,6 +256,17 @@ watch(
       form.usar_lotes = false
       form.usar_cabanas = false
     }
+  },
+)
+
+watch(
+  () => form.es_en_sitio,
+  (onSite) => {
+    if (onSite) return
+    form.lugar_id = null
+    form.lugar = ''
+    form.usar_lotes = false
+    form.usar_cabanas = false
   },
 )
 
@@ -329,6 +350,38 @@ const previewCupo = computed(() => {
   return t('events.wizard.previewPending')
 })
 
+type InscripcionModo = 'individual' | 'club' | 'organizacion' | 'iglesia'
+
+const inscripcionModosOptions = computed(() => [
+  { label: t('events.wizard.regIndividual'), value: 'individual' as const },
+  { label: t('events.wizard.regClub'), value: 'club' as const },
+  { label: t('events.wizard.regOrg'), value: 'organizacion' as const },
+  { label: t('events.wizard.regIglesia'), value: 'iglesia' as const },
+])
+
+const inscripcionModo = computed({
+  get(): InscripcionModo | null {
+    if (form.permite_inscripcion_club) return 'club'
+    if (form.permite_inscripcion_individual) return 'individual'
+    if (form.permite_inscripcion_organizacion) return 'organizacion'
+    if (form.permite_inscripcion_iglesia) return 'iglesia'
+    return null
+  },
+  set(value: InscripcionModo | null) {
+    form.permite_inscripcion_individual = value === 'individual'
+    form.permite_inscripcion_club = value === 'club'
+    form.permite_inscripcion_organizacion = value === 'organizacion'
+    form.permite_inscripcion_iglesia = value === 'iglesia'
+  },
+})
+
+const previewInscripcionModos = computed(() => {
+  return (
+    inscripcionModosOptions.value.find((opt) => opt.value === inscripcionModo.value)?.label ||
+    t('events.wizard.previewPending')
+  )
+})
+
 const previewEnrollment = computed(() => {
   if (!form.requiere_pago || form.precio == null) return '—'
   return Number(form.precio).toLocaleString('es-CO', {
@@ -337,6 +390,29 @@ const previewEnrollment = computed(() => {
     maximumFractionDigits: 0,
   })
 })
+
+function labelsForIds(
+  ids: number[],
+  catalog: Array<{ id: number; nombre: string }>,
+  emptyLabel: string,
+): string {
+  if (!ids.length) return emptyLabel
+  const names = ids
+    .map((id) => catalog.find((item) => item.id === id)?.nombre)
+    .filter((name): name is string => Boolean(name))
+  return names.length ? names.join(', ') : '—'
+}
+
+const previewCategorias = computed(() =>
+  labelsForIds(form.categoria_ids, categoriasCatalog.value, t('events.wizard.catEventAll')),
+)
+const previewCriterios = computed(() =>
+  labelsForIds(
+    form.criterio_disponible_ids,
+    criteriosCatalog.value,
+    t('events.wizard.criteriaEventAll'),
+  ),
+)
 
 const tips = computed(() => [
   t('events.wizard.tip1'),
@@ -503,6 +579,10 @@ async function nextStep(): Promise<void> {
     errorMessage.value = t('events.wizard.nameRequired')
     return
   }
+  if (currentStep.value === 'basica' && form.es_en_sitio && !form.lugar_id) {
+    errorMessage.value = t('events.wizard.lugarRequiredOnSite')
+    return
+  }
   if (!isLastStep.value) {
     await saveDraft({ silent: true, advance: true })
   }
@@ -565,10 +645,12 @@ function buildPayload(estado: string): EventFormPayload {
   return {
     name: form.name.trim() || t('events.wizard.untitled'),
     descripcion: form.descripcion.trim() || null,
-    lugar: selectedLugar.value?.nombre ?? (form.lugar.trim() || null),
-    lugar_id: form.lugar_id,
-    usar_lotes: form.usar_lotes,
-    usar_cabanas: form.usar_cabanas,
+    lugar: form.es_en_sitio
+      ? selectedLugar.value?.nombre ?? (form.lugar.trim() || null)
+      : null,
+    lugar_id: form.es_en_sitio ? form.lugar_id : null,
+    usar_lotes: form.es_en_sitio && form.usar_lotes,
+    usar_cabanas: form.es_en_sitio && form.usar_cabanas,
     starts_at: dates.starts_at,
     ends_at: dates.ends_at,
     is_active: form.is_active,
@@ -586,7 +668,10 @@ function buildPayload(estado: string): EventFormPayload {
     audiencia: currentAudiencia(),
     es_en_sitio: form.es_en_sitio,
     es_calificable: form.es_calificable,
+    tiene_subeventos: form.tiene_subeventos,
     puntaje_maximo: form.es_calificable ? form.puntaje_maximo : null,
+    categoria_ids: [...form.categoria_ids],
+    criterio_disponible_ids: [...form.criterio_disponible_ids],
     requiere_pago: form.requiere_pago,
     precio: form.requiere_pago ? form.precio : null,
     precio_fuera_tiempo: form.requiere_pago ? form.precio_fuera_tiempo : null,
@@ -740,6 +825,7 @@ async function saveDraft(opts: { silent?: boolean; advance?: boolean } = {}): Pr
 
 function validateForPublish(): string | null {
   if (!form.name.trim()) return t('events.wizard.nameRequired')
+  if (form.es_en_sitio && !form.lugar_id) return t('events.wizard.lugarRequiredOnSite')
   if (!form.starts_at || !form.ends_at) return t('events.wizard.datesRequired')
   if (form.ends_at.getTime() < form.starts_at.getTime()) return t('events.dateOrder')
   return null
@@ -749,7 +835,9 @@ async function publishEvent(): Promise<void> {
   const validationError = validateForPublish()
   if (validationError) {
     errorMessage.value = validationError
-    if (!form.starts_at || !form.ends_at) currentStep.value = 'basica'
+    if (!form.starts_at || !form.ends_at || (form.es_en_sitio && !form.lugar_id)) {
+      currentStep.value = 'basica'
+    }
     return
   }
 
@@ -808,7 +896,8 @@ watch(
 )
 
 async function loadCatalogs(): Promise<void> {
-  const [tree, tipos, clubsPage, tiposSeguro, productos, cuentas, lugaresPage] = await Promise.all([
+  const [tree, tipos, clubsPage, tiposSeguro, productos, cuentas, lugaresPage, categorias, criterios] =
+    await Promise.all([
     organizacionesService.tree(),
     organizacionesService.tipos(),
     clubsService.list({ per_page: 500, is_active: true }),
@@ -816,6 +905,8 @@ async function loadCatalogs(): Promise<void> {
     eventsService.productosServicios(),
     cuentasBancariasService.list({ activas: true }).catch(() => [] as CuentaBancaria[]),
     lugaresService.list({ per_page: 200, estado: 'activo' }).catch(() => ({ items: [] as Lugar[], pagination: null })),
+    eventsService.categoriasSubevento().catch(() => [] as CategoriaSubevento[]),
+    eventsService.criteriosEvaluacion().catch(() => [] as CriterioEvaluacion[]),
   ])
   orgTree.value = tree
   orgOptions.value = flattenOrgs(tree)
@@ -825,8 +916,20 @@ async function loadCatalogs(): Promise<void> {
   productosCatalog.value = productos
   cuentasBancarias.value = cuentas
   lugares.value = lugaresPage.items
+  categoriasCatalog.value = categorias
+  criteriosCatalog.value = criterios
   applyHomeOrganization()
 }
+
+watch(categoriasVersion, () => {
+  void Promise.all([
+    eventsService.categoriasSubevento().catch(() => [] as CategoriaSubevento[]),
+    eventsService.criteriosEvaluacion().catch(() => [] as CriterioEvaluacion[]),
+  ]).then(([categorias, criterios]) => {
+    categoriasCatalog.value = categorias
+    criteriosCatalog.value = criterios
+  })
+})
 
 async function loadServiceOffers(): Promise<void> {
   if (!persistedId.value) return
@@ -912,7 +1015,10 @@ async function loadEvent(): Promise<void> {
   applyAudienceFromEvent(event)
   form.es_en_sitio = event.es_en_sitio ?? true
   form.es_calificable = event.es_calificable ?? false
+  form.tiene_subeventos = Boolean(event.tiene_subeventos) || (event.hijos_count ?? 0) > 0
   form.puntaje_maximo = event.puntaje_maximo ?? null
+  form.categoria_ids = [...(event.categoria_ids ?? [])]
+  form.criterio_disponible_ids = [...(event.criterio_disponible_ids ?? [])]
   form.requiere_pago = event.requiere_pago ?? false
   form.precio = event.precio ?? null
   form.precio_fuera_tiempo = event.precio_fuera_tiempo ?? null
@@ -1100,6 +1206,14 @@ onBeforeUnmount(() => {
             />
           </div>
 
+          <div class="field">
+            <div class="field field--row">
+              <label for="tiene_subeventos">{{ t('events.tieneSubeventos') }}</label>
+              <ToggleSwitch input-id="tiene_subeventos" v-model="form.tiene_subeventos" />
+            </div>
+            <small class="pj-muted">{{ t('events.tieneSubeventosHint') }}</small>
+          </div>
+
           <section class="basic-config-section">
             <div class="basic-config-section__head">
               <i class="pi pi-calendar" />
@@ -1108,141 +1222,57 @@ onBeforeUnmount(() => {
                 <p>{{ t('events.wizard.basicDatePlaceLead') }}</p>
               </div>
             </div>
-            <div class="field-grid">
-              <div class="field">
-                <label for="lugar">{{ t('events.lugar') }}</label>
-                <Select
-                  input-id="lugar"
-                  v-model="form.lugar_id"
-                  :options="lugarOptions"
-                  option-label="label"
-                  option-value="value"
-                  filter
-                  show-clear
-                  class="w-full"
-                  :placeholder="t('events.lugar')"
-                />
-              </div>
-              <div class="field field--row">
-                <label for="usar_lotes">{{ t('events.wizard.useLots') }}</label>
-                <ToggleSwitch input-id="usar_lotes" v-model="form.usar_lotes" :disabled="!form.lugar_id" />
-              </div>
-              <div class="field field--row">
-                <label for="usar_cabanas">{{ t('events.wizard.useCabins') }}</label>
-                <ToggleSwitch input-id="usar_cabanas" v-model="form.usar_cabanas" :disabled="!form.lugar_id" />
-              </div>
+            <div class="field-grid date-place-grid" :class="{ 'is-offsite': !form.es_en_sitio }">
               <div class="field field--row">
                 <label for="es_en_sitio">{{ t('events.esEnSitio') }}</label>
                 <ToggleSwitch input-id="es_en_sitio" v-model="form.es_en_sitio" />
               </div>
-              <div class="field">
-                <label for="starts_at">{{ t('events.startsAt') }}</label>
-                <DatePicker
-                  input-id="starts_at"
-                  :model-value="form.starts_at"
-                  date-format="dd/mm/yy"
-                  class="w-full"
-                  @update:model-value="(v) => (form.starts_at = dateOnly(Array.isArray(v) ? v[0] : v))"
-                />
-              </div>
-              <div class="field">
-                <label for="ends_at">{{ t('events.endsAt') }}</label>
-                <DatePicker
-                  input-id="ends_at"
-                  :model-value="form.ends_at"
-                  date-format="dd/mm/yy"
-                  class="w-full"
-                  @update:model-value="(v) => (form.ends_at = dateOnly(Array.isArray(v) ? v[0] : v))"
-                />
-              </div>
-            </div>
-          </section>
-
-          <section class="basic-config-section">
-            <div class="basic-config-section__head">
-              <i class="pi pi-users" />
-              <div>
-                <h3>{{ t('events.wizard.basicParticipationTitle') }}</h3>
-                <p>{{ t('events.wizard.basicParticipationLead') }}</p>
-              </div>
-            </div>
-
-            <div class="field field--row">
-              <label for="cupo_ilimitado">{{ t('events.wizard.cupoIlimitado') }}</label>
-              <ToggleSwitch input-id="cupo_ilimitado" v-model="form.cupo_ilimitado" />
-            </div>
-            <div v-if="!form.cupo_ilimitado" class="field-grid">
-              <div class="field">
-                <label for="cupo_minimo">{{ t('events.wizard.cupoMinimo') }}</label>
-                <InputNumber id="cupo_minimo" v-model="form.cupo_minimo" class="w-full" :min="1" />
-              </div>
-              <div class="field">
-                <label for="cupo_maximo">{{ t('events.wizard.cupoMaximo') }}</label>
-                <InputNumber id="cupo_maximo" v-model="form.cupo_maximo" class="w-full" :min="1" />
-              </div>
-              <div class="field">
-                <label for="cupo_max_club">{{ t('events.wizard.cupoClub') }}</label>
-                <InputNumber id="cupo_max_club" v-model="form.cupo_max_club" class="w-full" :min="1" />
+              <template v-if="form.es_en_sitio">
+                <div class="field">
+                  <label for="lugar">{{ t('events.lugar') }} *</label>
+                  <Select
+                    input-id="lugar"
+                    v-model="form.lugar_id"
+                    :options="lugarOptions"
+                    option-label="label"
+                    option-value="value"
+                    filter
+                    class="w-full"
+                    :placeholder="t('events.lugar')"
+                  />
+                </div>
+                <div class="field field--row">
+                  <label for="usar_lotes">{{ t('events.wizard.useLots') }}</label>
+                  <ToggleSwitch input-id="usar_lotes" v-model="form.usar_lotes" :disabled="!form.lugar_id" />
+                </div>
+                <div class="field field--row">
+                  <label for="usar_cabanas">{{ t('events.wizard.useCabins') }}</label>
+                  <ToggleSwitch input-id="usar_cabanas" v-model="form.usar_cabanas" :disabled="!form.lugar_id" />
+                </div>
+              </template>
+              <div class="date-pair">
+                <div class="field">
+                  <label for="starts_at">{{ t('events.startsAt') }}</label>
+                  <DatePicker
+                    input-id="starts_at"
+                    :model-value="form.starts_at"
+                    date-format="dd/mm/yy"
+                    class="w-full"
+                    @update:model-value="(v) => (form.starts_at = dateOnly(Array.isArray(v) ? v[0] : v))"
+                  />
+                </div>
+                <div class="field">
+                  <label for="ends_at">{{ t('events.endsAt') }}</label>
+                  <DatePicker
+                    input-id="ends_at"
+                    :model-value="form.ends_at"
+                    date-format="dd/mm/yy"
+                    class="w-full"
+                    @update:model-value="(v) => (form.ends_at = dateOnly(Array.isArray(v) ? v[0] : v))"
+                  />
+                </div>
               </div>
             </div>
-
-            <h4 class="basic-config-section__subtitle">{{ t('events.wizard.registrationTitle') }}</h4>
-            <div class="toggle-grid">
-              <label class="toggle-item">
-                <ToggleSwitch v-model="form.permite_inscripcion_individual" />
-                <span>{{ t('events.wizard.regIndividual') }}</span>
-              </label>
-              <label class="toggle-item">
-                <ToggleSwitch v-model="form.permite_inscripcion_club" />
-                <span>{{ t('events.wizard.regClub') }}</span>
-              </label>
-              <label class="toggle-item">
-                <ToggleSwitch v-model="form.permite_inscripcion_organizacion" />
-                <span>{{ t('events.wizard.regOrg') }}</span>
-              </label>
-              <label class="toggle-item">
-                <ToggleSwitch v-model="form.permite_inscripcion_iglesia" />
-                <span>{{ t('events.wizard.regIglesia') }}</span>
-              </label>
-            </div>
-            <div class="field-grid" style="margin-top: 0.85rem">
-              <div class="field">
-                <label for="fecha_limite_inscripcion">{{ t('events.wizard.enrollmentDeadline') }}</label>
-                <DatePicker
-                  input-id="fecha_limite_inscripcion"
-                  v-model="form.fecha_limite_inscripcion"
-                  show-time
-                  hour-format="24"
-                  date-format="dd/mm/yy"
-                  class="w-full"
-                />
-              </div>
-              <div class="field">
-                <label for="puntos_inscripcion_a_tiempo">
-                  {{ t('events.wizard.enrollmentPointsOnTime') }}
-                </label>
-                <InputNumber
-                  id="puntos_inscripcion_a_tiempo"
-                  v-model="form.puntos_inscripcion_a_tiempo"
-                  class="w-full"
-                  :min="0"
-                />
-              </div>
-              <div class="field">
-                <label for="puntos_inscripcion_fuera_tiempo">
-                  {{ t('events.wizard.enrollmentPointsLate') }}
-                </label>
-                <InputNumber
-                  id="puntos_inscripcion_fuera_tiempo"
-                  v-model="form.puntos_inscripcion_fuera_tiempo"
-                  class="w-full"
-                  :min="0"
-                />
-              </div>
-            </div>
-            <p class="step-lead" style="margin-top: 0.5rem">
-              {{ t('events.wizard.enrollmentPointsHint') }}
-            </p>
           </section>
         </div>
 
@@ -1310,58 +1340,151 @@ onBeforeUnmount(() => {
           <button type="button" :class="{ 'is-active': configTab === 'descuentos' }" @click="configTab = 'descuentos'">
             {{ t('events.wizard.configTabDiscounts') }}
           </button>
-          <button type="button" :class="{ 'is-active': configTab === 'seguro' }" @click="configTab = 'seguro'">
-            {{ t('events.wizard.configTabInsurance') }}
-          </button>
-          <button type="button" :class="{ 'is-active': configTab === 'categorias' }" @click="configTab = 'categorias'">
-            {{ t('events.wizard.configTabCategories') }}
-          </button>
-          <button type="button" :class="{ 'is-active': configTab === 'criterios' }" @click="configTab = 'criterios'">
-            {{ t('events.wizard.configTabCriteria') }}
+          <button type="button" :class="{ 'is-active': configTab === 'calificaciones' }" @click="configTab = 'calificaciones'">
+            {{ t('events.wizard.configTabScoring') }}
           </button>
           <button type="button" :class="{ 'is-active': configTab === 'servicios' }" @click="configTab = 'servicios'">
             {{ t('events.wizard.configTabServices') }}
           </button>
         </div>
 
-        <div v-show="configTab === 'inscripcion'" class="config-section config-section--scoring">
+        <div v-show="configTab === 'inscripcion'" class="config-section">
+          <h3>{{ t('events.wizard.basicParticipationTitle') }}</h3>
+          <p class="step-lead" style="margin-bottom: 0.75rem">{{ t('events.wizard.basicParticipationLead') }}</p>
+
+          <div class="field field--row">
+            <label for="cupo_ilimitado">{{ t('events.wizard.cupoIlimitado') }}</label>
+            <ToggleSwitch input-id="cupo_ilimitado" v-model="form.cupo_ilimitado" />
+          </div>
+          <div v-if="!form.cupo_ilimitado" class="field-grid">
+            <div class="field">
+              <label for="cupo_minimo">{{ t('events.wizard.cupoMinimo') }}</label>
+              <InputNumber id="cupo_minimo" v-model="form.cupo_minimo" class="w-full" :min="1" />
+            </div>
+            <div class="field">
+              <label for="cupo_maximo">{{ t('events.wizard.cupoMaximo') }}</label>
+              <InputNumber id="cupo_maximo" v-model="form.cupo_maximo" class="w-full" :min="1" />
+            </div>
+            <div class="field">
+              <label for="cupo_max_club">{{ t('events.wizard.cupoClub') }}</label>
+              <InputNumber id="cupo_max_club" v-model="form.cupo_max_club" class="w-full" :min="1" />
+            </div>
+          </div>
+
+          <div class="field" style="margin-top: 0.75rem">
+            <label for="inscripcion_modos">{{ t('events.wizard.registrationTitle') }}</label>
+            <Select
+              input-id="inscripcion_modos"
+              v-model="inscripcionModo"
+              :options="inscripcionModosOptions"
+              option-label="label"
+              option-value="value"
+              class="w-full"
+              :placeholder="t('events.wizard.regModesPlaceholder')"
+            />
+            <small class="pj-muted">{{ t('events.wizard.regModesHint') }}</small>
+          </div>
+
+          <div class="field" style="margin-top: 0.85rem; max-width: 22rem">
+            <label for="fecha_limite_inscripcion">{{ t('events.wizard.enrollmentDeadline') }}</label>
+            <DatePicker
+              input-id="fecha_limite_inscripcion"
+              v-model="form.fecha_limite_inscripcion"
+              show-time
+              hour-format="24"
+              date-format="dd/mm/yy"
+              class="w-full"
+            />
+          </div>
+        </div>
+
+        <div v-show="configTab === 'calificaciones'" class="config-section config-section--scoring">
           <h3>{{ t('events.wizard.scoringTitle') }}</h3>
           <div class="field field--row">
             <label for="es_calificable">{{ t('events.wizard.scorable') }}</label>
             <ToggleSwitch input-id="es_calificable" v-model="form.es_calificable" />
           </div>
-          <div v-if="form.es_calificable" class="field" style="max-width: 16rem">
-            <label for="puntaje_maximo">{{ t('events.wizard.maxScore') }}</label>
-            <InputNumber id="puntaje_maximo" v-model="form.puntaje_maximo" class="w-full" :min="0" />
+          <div class="field-grid" style="margin-top: 0.85rem">
+            <div class="field">
+              <label for="puntos_inscripcion_a_tiempo">
+                {{ t('events.wizard.enrollmentPointsOnTime') }}
+              </label>
+              <InputNumber
+                id="puntos_inscripcion_a_tiempo"
+                v-model="form.puntos_inscripcion_a_tiempo"
+                class="w-full"
+                :min="0"
+              />
+            </div>
+            <div class="field">
+              <label for="puntos_inscripcion_fuera_tiempo">
+                {{ t('events.wizard.enrollmentPointsLate') }}
+              </label>
+              <InputNumber
+                id="puntos_inscripcion_fuera_tiempo"
+                v-model="form.puntos_inscripcion_fuera_tiempo"
+                class="w-full"
+                :min="0"
+              />
+            </div>
           </div>
+          <p class="step-lead" style="margin-top: 0.5rem">
+            {{ t('events.wizard.enrollmentPointsHint') }}
+          </p>
         </div>
 
-        <div v-show="configTab === 'categorias'" class="config-section config-section--categories">
-          <h3>{{ t('events.wizard.catAdminTitle') }}</h3>
-          <p class="step-lead" style="margin-bottom: 0.75rem">{{ t('events.wizard.catAdminLead') }}</p>
+        <div
+          v-show="configTab === 'calificaciones' && form.tiene_subeventos"
+          class="config-section config-section--categories"
+        >
+          <h3>{{ t('events.wizard.catEventSelect') }}</h3>
+          <p class="step-lead" style="margin-bottom: 0.75rem">{{ t('events.wizard.catEventSelectHint') }}</p>
+          <div class="field">
+            <MultiSelect
+              v-model="form.categoria_ids"
+              :options="categoriaSelectOptions"
+              option-label="label"
+              option-value="value"
+              display="chip"
+              filter
+              class="w-full"
+              :placeholder="t('events.wizard.catEventPlaceholder')"
+            />
+          </div>
           <Button
             type="button"
             icon="pi pi-tags"
             outlined
-            :label="t('events.wizard.catAdminButton')"
-            @click="categoriesAdminVisible = true"
+            :label="t('events.catalogos.manage')"
+            @click="router.push({ name: 'eventsCatalogos', query: { tab: 'categorias' } })"
           />
         </div>
 
-        <div v-show="configTab === 'criterios'" class="config-section config-section--criteria">
-          <h3>{{ t('events.wizard.criteriaAdminTitle') }}</h3>
-          <p class="step-lead" style="margin-bottom: 0.75rem">{{ t('events.wizard.criteriaAdminLead') }}</p>
+        <div
+          v-show="configTab === 'calificaciones' && form.tiene_subeventos"
+          class="config-section config-section--criteria"
+        >
+          <h3>{{ t('events.wizard.criteriaEventSelect') }}</h3>
+          <p class="step-lead" style="margin-bottom: 0.75rem">{{ t('events.wizard.criteriaEventSelectHint') }}</p>
+          <div class="field">
+            <MultiSelect
+              v-model="form.criterio_disponible_ids"
+              :options="criterioSelectOptions"
+              option-label="label"
+              option-value="value"
+              display="chip"
+              filter
+              class="w-full"
+              :placeholder="t('events.wizard.criteriaEventPlaceholder')"
+            />
+          </div>
           <Button
             type="button"
             icon="pi pi-list-check"
             outlined
-            :label="t('events.wizard.criteriaBank')"
-            @click="criteriosAdminVisible = true"
+            :label="t('events.catalogos.manage')"
+            @click="router.push({ name: 'eventsCatalogos', query: { tab: 'criterios' } })"
           />
-          <!-- TODO(panel-juez): calificación por criterio o genérica — entrega posterior -->
-          <p class="pj-muted" style="margin-top: 0.65rem; font-size: 0.82rem">
-            {{ t('events.wizard.judgePanelTodo') }}
-          </p>
         </div>
 
         <div v-show="configTab === 'inscripcion'" class="config-section config-section--payment">
@@ -1564,7 +1687,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div v-show="configTab === 'seguro'" class="config-section config-section--insurance">
+        <div v-show="configTab === 'inscripcion'" class="config-section config-section--insurance">
           <h3>{{ t('events.insuranceTitle') }}</h3>
           <div class="field field--row">
             <label for="requiere_seguro">{{ t('events.requiresInsurance') }}</label>
@@ -1719,6 +1842,8 @@ onBeforeUnmount(() => {
           :parent-es-en-sitio="form.es_en_sitio"
           :parent-visibilidad="form.visibilidad"
           :categorias-version="categoriasVersion"
+          :parent-categoria-ids="form.categoria_ids"
+          :parent-criterio-ids="form.criterio_disponible_ids"
         />
       </div>
 
@@ -1739,9 +1864,19 @@ onBeforeUnmount(() => {
                 <dt>{{ t('events.wizard.shortDescription') }}</dt>
                 <dd>{{ form.descripcion || '—' }}</dd>
               </div>
-              <div><dt>{{ t('events.lugar') }}</dt><dd>{{ selectedLugar?.nombre || form.lugar || '—' }}</dd></div>
-              <div><dt>{{ t('events.wizard.useLots') }}</dt><dd>{{ form.usar_lotes ? t('common.yes') : t('common.no') }}</dd></div>
-              <div><dt>{{ t('events.wizard.useCabins') }}</dt><dd>{{ form.usar_cabanas ? t('common.yes') : t('common.no') }}</dd></div>
+              <div>
+                <dt>{{ t('events.esEnSitio') }}</dt>
+                <dd>{{ form.es_en_sitio ? t('common.yes') : t('common.no') }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('events.tieneSubeventos') }}</dt>
+                <dd>{{ form.tiene_subeventos ? t('common.yes') : t('common.no') }}</dd>
+              </div>
+              <template v-if="form.es_en_sitio">
+                <div><dt>{{ t('events.lugar') }}</dt><dd>{{ selectedLugar?.nombre || form.lugar || '—' }}</dd></div>
+                <div><dt>{{ t('events.wizard.useLots') }}</dt><dd>{{ form.usar_lotes ? t('common.yes') : t('common.no') }}</dd></div>
+                <div><dt>{{ t('events.wizard.useCabins') }}</dt><dd>{{ form.usar_cabanas ? t('common.yes') : t('common.no') }}</dd></div>
+              </template>
               <div><dt>{{ t('events.startsAt') }}</dt><dd>{{ previewDates }}</dd></div>
               <div><dt>{{ t('events.wizard.participants') }}</dt><dd>{{ previewCupo }}</dd></div>
             </dl>
@@ -1783,6 +1918,10 @@ onBeforeUnmount(() => {
             <h3>{{ t('events.wizard.stepConfig') }}</h3>
             <dl>
               <div>
+                <dt>{{ t('events.wizard.registrationTitle') }}</dt>
+                <dd>{{ previewInscripcionModos }}</dd>
+              </div>
+              <div>
                 <dt>{{ t('events.enrollmentRequires') }}</dt>
                 <dd>{{ form.requiere_pago ? t('common.yes') : t('common.no') }}</dd>
               </div>
@@ -1797,6 +1936,14 @@ onBeforeUnmount(() => {
               <div>
                 <dt>{{ t('events.wizard.scorable') }}</dt>
                 <dd>{{ form.es_calificable ? t('common.yes') : t('common.no') }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('events.wizard.catEventSelect') }}</dt>
+                <dd>{{ previewCategorias }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('events.wizard.criteriaEventSelect') }}</dt>
+                <dd>{{ previewCriterios }}</dd>
               </div>
             </dl>
             <Button
@@ -1925,14 +2072,6 @@ onBeforeUnmount(() => {
       </footer>
     </div>
 
-    <CategoriaSubeventosAdminDrawer
-      v-model:visible="categoriesAdminVisible"
-      @changed="categoriasVersion += 1"
-    />
-    <CriteriosEvaluacionAdminDrawer
-      v-model:visible="criteriosAdminVisible"
-      @changed="categoriasVersion += 1"
-    />
   </section>
 </template>
 
@@ -2227,6 +2366,24 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.9rem;
+}
+
+.date-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.9rem;
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 1400px) {
+  .date-place-grid.is-offsite {
+    grid-template-columns: minmax(11rem, max-content) minmax(0, 1fr) minmax(0, 1fr);
+    align-items: end;
+  }
+
+  .date-place-grid.is-offsite .date-pair {
+    display: contents;
+  }
 }
 
 .w-full {
@@ -2650,6 +2807,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .date-pair {
+    grid-template-columns: 1fr;
+  }
+
   .wizard__body {
     padding: 1rem;
   }

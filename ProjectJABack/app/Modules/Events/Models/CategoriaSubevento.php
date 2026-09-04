@@ -16,6 +16,7 @@ class CategoriaSubevento extends Model
         'icono',
         'orden',
         'estado',
+        'es_sistema',
         'maneja_puntos',
         'maneja_fecha_inicio',
         'maneja_fecha_fin',
@@ -25,6 +26,7 @@ class CategoriaSubevento extends Model
     {
         return [
             'estado' => 'boolean',
+            'es_sistema' => 'boolean',
             'orden' => 'integer',
             'maneja_puntos' => 'boolean',
             'maneja_fecha_inicio' => 'boolean',

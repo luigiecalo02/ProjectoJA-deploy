@@ -63,6 +63,8 @@ final class CriterioEvaluacionController
         return [
             'nombre' => [$creating ? 'required' : 'sometimes', 'required', 'string', 'max:180'],
             'descripcion' => ['nullable', 'string'],
+            'color' => ['nullable', 'string', 'max:32'],
+            'icono' => ['nullable', 'string', 'max:64'],
             'estado' => ['sometimes', 'boolean'],
             'orden' => ['nullable', 'integer', 'min:0', 'max:65535'],
         ];
@@ -77,7 +79,10 @@ final class CriterioEvaluacionController
             'id' => $criterio->id,
             'nombre' => $criterio->nombre,
             'descripcion' => $criterio->descripcion,
+            'color' => $criterio->color,
+            'icono' => $criterio->icono,
             'estado' => (bool) $criterio->estado,
+            'es_sistema' => (bool) $criterio->es_sistema,
             'orden' => (int) $criterio->orden,
         ];
     }

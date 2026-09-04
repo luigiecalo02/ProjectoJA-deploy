@@ -416,6 +416,44 @@ class EventsApiTest extends TestCase
         $this->assertNotEmpty($events[0]['board']['arbol'] ?? []);
     }
 
+    public function test_judge_offline_pack_can_filter_a_single_event(): void
+    {
+        $admin = $this->admin();
+        Sanctum::actingAs($admin);
+
+        $first = Event::query()->create([
+            'name' => 'Camporee A',
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDays(3),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_PUBLICADO,
+            'es_en_sitio' => true,
+            'es_calificable' => true,
+            'puntaje_maximo' => 80,
+        ]);
+
+        $second = Event::query()->create([
+            'name' => 'Camporee B',
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDays(3),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_PUBLICADO,
+            'es_en_sitio' => true,
+            'es_calificable' => true,
+            'puntaje_maximo' => 90,
+        ]);
+
+        $response = $this->getJson('/api/v1/events/judge/offline-pack?event_id='.$first->id);
+
+        $response->assertOk();
+        $events = $response->json('data.events');
+        $this->assertCount(1, $events);
+        $this->assertSame($first->id, $events[0]['event']['id']);
+        $this->assertNotSame($second->id, $events[0]['event']['id']);
+    }
+
     public function test_user_without_evaluate_cannot_download_offline_pack(): void
     {
         Sanctum::actingAs(User::factory()->create());

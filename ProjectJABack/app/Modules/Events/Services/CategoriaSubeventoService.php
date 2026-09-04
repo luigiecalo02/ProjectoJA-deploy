@@ -41,6 +41,7 @@ final class CategoriaSubeventoService
             'icono' => $data['icono'] ?? null,
             'orden' => (int) ($data['orden'] ?? 0),
             'estado' => array_key_exists('estado', $data) ? (bool) $data['estado'] : true,
+            'es_sistema' => false,
             'maneja_puntos' => array_key_exists('maneja_puntos', $data) ? (bool) $data['maneja_puntos'] : true,
             'maneja_fecha_inicio' => array_key_exists('maneja_fecha_inicio', $data) ? (bool) $data['maneja_fecha_inicio'] : false,
             'maneja_fecha_fin' => array_key_exists('maneja_fecha_fin', $data) ? (bool) $data['maneja_fecha_fin'] : false,
@@ -86,6 +87,12 @@ final class CategoriaSubeventoService
 
     public function delete(CategoriaSubevento $categoria): void
     {
+        if ($categoria->es_sistema) {
+            throw ValidationException::withMessages([
+                'categoria' => ['No se puede eliminar una categoría creada por el sistema.'],
+            ]);
+        }
+
         if ($categoria->events()->exists()) {
             $categoria->estado = false;
             $categoria->save();

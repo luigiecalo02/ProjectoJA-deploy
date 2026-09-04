@@ -123,6 +123,12 @@ const navItems = computed(() => {
     { to: { name: 'integrantes' }, label: t('nav.integrantes'), icon: 'pi pi-users', show: can('integrantes.view') },
     { to: { name: 'events' }, label: t('nav.events'), icon: 'pi pi-calendar', show: can('events.view') },
     {
+      to: { name: 'eventsCatalogos' },
+      label: t('nav.eventsCatalogos'),
+      icon: 'pi pi-tags',
+      show: can('events.update'),
+    },
+    {
       to: { name: 'segurosConsulta' },
       label: t('nav.segurosConsulta'),
       icon: 'pi pi-shield',
@@ -140,11 +146,14 @@ const navItems = computed(() => {
 })
 
 function isActive(name: string): boolean {
+  const routeName = String(route.name ?? '')
+  if (name === 'events') {
+    return routeName === 'events' || routeName.startsWith('events.')
+  }
   if (
     name === 'users' ||
     name === 'roles' ||
     name === 'settings.brand' ||
-    name === 'events' ||
     name === 'clubs' ||
     name === 'mi-club' ||
     name === 'personas' ||
@@ -154,9 +163,10 @@ function isActive(name: string): boolean {
     name === 'terrenos' ||
     name === 'cabanas' ||
     name === 'segurosConsulta' ||
-    name === 'productosServicios'
+    name === 'productosServicios' ||
+    name === 'eventsCatalogos'
   ) {
-    return String(route.name ?? '').startsWith(name)
+    return routeName.startsWith(name)
   }
   return route.name === name
 }

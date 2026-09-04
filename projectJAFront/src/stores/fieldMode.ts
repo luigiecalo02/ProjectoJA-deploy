@@ -11,6 +11,7 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
   const online = useOnline()
 
   const downloading = ref(false)
+  const downloadingEventId = ref<number | null>(null)
   const syncing = ref(false)
   const pendingCount = ref(0)
   const failedCount = ref(0)
@@ -38,18 +39,20 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     lastDownloadedAt.value = downloadedAt
   }
 
-  async function downloadPack(): Promise<number> {
+  async function downloadPack(eventId?: number): Promise<number> {
     const userId = auth.user?.id
     if (!userId) throw new Error('Sesión no disponible')
     downloading.value = true
+    downloadingEventId.value = eventId ?? null
     lastSyncError.value = null
     try {
-      const pack = await fieldModeService.downloadPack(userId)
+      const pack = await fieldModeService.downloadPack(userId, eventId)
       lastDownloadedAt.value = pack.downloaded_at
       await refreshMeta()
       return pack.events.length
     } finally {
       downloading.value = false
+      downloadingEventId.value = null
     }
   }
 
@@ -123,6 +126,7 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
   return {
     online,
     downloading,
+    downloadingEventId,
     syncing,
     pendingCount,
     failedCount,

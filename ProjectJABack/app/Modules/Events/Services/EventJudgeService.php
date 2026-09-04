@@ -75,14 +75,14 @@ final class EventJudgeService
      *
      * @return array{downloaded_at: string, events: list<array<string, mixed>>}
      */
-    public function offlinePack(User $actor): array
+    public function offlinePack(User $actor, ?Event $event = null): array
     {
         if (! $actor->hasPermission('events.evaluate')) {
             throw new AccessDeniedHttpException('No puedes evaluar eventos.');
         }
 
         $items = [];
-        foreach ($this->findOfflineRootEvents($actor) as $root) {
+        foreach ($this->resolveOfflineRoots($actor, $event) as $root) {
             $pack = $this->buildOfflineEventPack($actor, $root);
             if ($pack !== null) {
                 $items[] = $pack;
@@ -1840,6 +1840,25 @@ final class EventJudgeService
         foreach ($event->hijos as $hijo) {
             $this->eagerLoadTree($hijo, $depth - 1);
         }
+    }
+
+    /**
+     * @return list<Event>
+     */
+    private function resolveOfflineRoots(User $actor, ?Event $event): array
+    {
+        if (! $event) {
+            return $this->findOfflineRootEvents($actor);
+        }
+
+        $root = $this->participation->resolveRoot($event);
+        if (! $actor->can('evaluate', $root)) {
+            throw new AccessDeniedHttpException('No puedes evaluar este evento.');
+        }
+
+        $this->eagerLoadTree($root, 8);
+
+        return [$root];
     }
 
     /**

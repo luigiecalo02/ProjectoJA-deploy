@@ -463,8 +463,10 @@ export const eventsService = {
     await api.delete(`/api/v1/events/evidencias/${evidenciaId}`)
   },
 
-  async judgeOfflinePack(): Promise<FieldOfflinePack> {
-    const { data } = await api.get<ApiEnvelope<FieldOfflinePack>>('/api/v1/events/judge/offline-pack')
+  async judgeOfflinePack(eventId?: number): Promise<FieldOfflinePack> {
+    const { data } = await api.get<ApiEnvelope<FieldOfflinePack>>('/api/v1/events/judge/offline-pack', {
+      params: eventId ? { event_id: eventId } : undefined,
+    })
     return data.data
   },
 

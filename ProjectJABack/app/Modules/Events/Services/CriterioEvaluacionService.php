@@ -36,7 +36,10 @@ final class CriterioEvaluacionService
         return CriterioEvaluacion::query()->create([
             'nombre' => trim((string) $data['nombre']),
             'descripcion' => isset($data['descripcion']) ? trim((string) $data['descripcion']) ?: null : null,
+            'color' => isset($data['color']) ? trim((string) $data['color']) ?: null : null,
+            'icono' => isset($data['icono']) ? trim((string) $data['icono']) ?: null : null,
             'estado' => array_key_exists('estado', $data) ? (bool) $data['estado'] : true,
+            'es_sistema' => false,
             'orden' => (int) ($data['orden'] ?? 0),
         ]);
     }
@@ -56,6 +59,14 @@ final class CriterioEvaluacionService
                 : null;
         }
 
+        if (array_key_exists('color', $data)) {
+            $criterio->color = $data['color'] !== null ? (trim((string) $data['color']) ?: null) : null;
+        }
+
+        if (array_key_exists('icono', $data)) {
+            $criterio->icono = $data['icono'] !== null ? (trim((string) $data['icono']) ?: null) : null;
+        }
+
         if (array_key_exists('estado', $data)) {
             $criterio->estado = (bool) $data['estado'];
         }
@@ -71,6 +82,12 @@ final class CriterioEvaluacionService
 
     public function delete(CriterioEvaluacion $criterio): void
     {
+        if ($criterio->es_sistema) {
+            throw ValidationException::withMessages([
+                'criterio' => ['No se puede eliminar un criterio creado por el sistema.'],
+            ]);
+        }
+
         if ($criterio->eventos()->exists()) {
             $criterio->estado = false;
             $criterio->save();

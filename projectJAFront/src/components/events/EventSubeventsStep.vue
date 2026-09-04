@@ -57,6 +57,8 @@ const props = defineProps<{
   parentEsEnSitio: boolean
   parentVisibilidad: EventoVisibilidad
   categoriasVersion?: number
+  parentCategoriaIds?: number[]
+  parentCriterioIds?: number[]
 }>()
 
 const emit = defineEmits<{
@@ -158,7 +160,11 @@ const childrenScoreSum = ref(0)
 const loadingChildrenScore = ref(false)
 
 const optionsTabHasConfig = computed(() => ({
-  calificaciones: opts.manejaPuntaje || opts.configCalificacion || opts.manejaPenalizaciones,
+  calificaciones:
+    opts.manejaPuntaje ||
+    opts.puntajeDesdeHijos ||
+    opts.configCalificacion ||
+    opts.manejaPenalizaciones,
   control: opts.controlParticipantes || opts.esConjunto || opts.manejaFechaFin || opts.tieneValor,
   evidencias: opts.requiereEvidencia,
   jueces: form.juez_ids.length > 0 || form.supervisor_ids.length > 0,
@@ -249,12 +255,24 @@ const evidenciaTipoOptions = computed(() => [
   { key: 'video' as const, label: t('events.wizard.subEvidenceVideo') },
 ])
 
-const criterioOptions = computed(() =>
-  criteriosBank.value.map((c) => ({
+const categoriasDisponibles = computed(() => {
+  const allowed = props.parentCategoriaIds ?? []
+  if (!allowed.length) return categorias.value
+  const set = new Set(allowed)
+  return categorias.value.filter((item) => set.has(item.id))
+})
+
+const criterioOptions = computed(() => {
+  const allowed = props.parentCriterioIds ?? []
+  const extra = new Set(assignedCriterioIds.value)
+  const bank = !allowed.length
+    ? criteriosBank.value
+    : criteriosBank.value.filter((item) => allowed.includes(item.id) || extra.has(item.id))
+  return bank.map((c) => ({
     ...c,
     label: c.nombre,
-  })),
-)
+  }))
+})
 
 const criteriosSum = computed(() =>
   assignedCriterioIds.value.reduce((sum, id) => sum + (Number(criterioPoints[id]) || 0), 0),
@@ -451,7 +469,10 @@ const budget = computed(() => {
 const budgetOk = computed(() => !budget.value || stats.value.puntos <= budget.value)
 
 const selectedCategoria = computed(
-  () => categorias.value.find((c) => c.id === form.categoria_subevento_id) || null,
+  () =>
+    categoriasDisponibles.value.find((c) => c.id === form.categoria_subevento_id) ||
+    categorias.value.find((c) => c.id === form.categoria_subevento_id) ||
+    null,
 )
 
 const drawerTitle = computed(() =>
@@ -559,7 +580,7 @@ function resetForm(): void {
   form.name = ''
   form.descripcion = ''
   form.reglas = ''
-  form.categoria_subevento_id = categorias.value[0]?.id ?? null
+  form.categoria_subevento_id = categoriasDisponibles.value[0]?.id ?? null
   form.tipo_evento_id = contextTipoEventoId.value
   form.puntaje_maximo = 100
   form.puntaje_por_participar = false
@@ -671,8 +692,10 @@ function openEdit(item: ClubEvent): void {
   for (const c of item.criterios || []) {
     criterioPoints[c.id] = c.puntos
   }
-  opts.manejaPuntaje = item.es_calificable || item.puntaje_maximo != null || !!item.puntaje_desde_hijos
   opts.puntajeDesdeHijos = !!item.puntaje_desde_hijos
+  opts.manejaPuntaje =
+    !opts.puntajeDesdeHijos &&
+    (Boolean(item.es_calificable) || item.puntaje_maximo != null)
   opts.configCalificacion =
     !!item.requiere_puesto_entrega ||
     !!item.requiere_tiempo_entrega ||
@@ -849,12 +872,12 @@ async function saveSubevent(): Promise<void> {
       organizacion_id: contextOrganizacionId(),
       categoria_subevento_id: form.categoria_subevento_id,
       tipo_evento_id: form.tipo_evento_id,
-      puntaje_maximo: opts.manejaPuntaje
-        ? opts.puntajeDesdeHijos
-          ? childrenScoreSum.value
-          : form.puntaje_maximo
-        : null,
-      puntaje_desde_hijos: opts.manejaPuntaje && opts.puntajeDesdeHijos,
+      puntaje_maximo: opts.puntajeDesdeHijos
+        ? childrenScoreSum.value
+        : opts.manejaPuntaje
+          ? form.puntaje_maximo
+          : null,
+      puntaje_desde_hijos: opts.puntajeDesdeHijos,
       puntaje_por_participar:
         opts.manejaPuntaje && !opts.puntajeDesdeHijos && form.puntaje_por_participar,
       tiempo_estimado_minutos: null,
@@ -944,7 +967,7 @@ async function saveSubevent(): Promise<void> {
       estado: form.estado,
       visibilidad: form.visibilidad,
       is_active: form.estado === 'publicado',
-      es_calificable: opts.manejaPuntaje,
+      es_calificable: opts.manejaPuntaje || opts.puntajeDesdeHijos,
       es_en_sitio: contextEsEnSitio(),
       starts_at: toApiDate(startDate),
       ends_at: toApiDate(endDate),
@@ -1267,7 +1290,6 @@ watch(
   () => opts.manejaPuntaje,
   (on) => {
     if (on && form.puntaje_maximo == null && !opts.puntajeDesdeHijos) form.puntaje_maximo = 100
-    if (!on) opts.puntajeDesdeHijos = false
   },
 )
 
@@ -1276,7 +1298,6 @@ watch(
   (on) => {
     if (on) {
       form.puntaje_por_participar = false
-      opts.manejaPuntaje = true
       form.puntaje_maximo = childrenScoreSum.value
       if (editingId.value) void refreshChildrenScoreSum(editingId.value)
     }
@@ -1390,6 +1411,16 @@ watch(
     void loadCategorias()
   },
 )
+
+watch(categoriasDisponibles, (list) => {
+  if (!form.categoria_subevento_id) {
+    if (!editingId.value && list[0]) form.categoria_subevento_id = list[0].id
+    return
+  }
+  if (list.some((item) => item.id === form.categoria_subevento_id)) return
+  if (editingId.value) return
+  form.categoria_subevento_id = list[0]?.id ?? null
+})
 
 async function loadCategorias(): Promise<void> {
   try {
@@ -1959,11 +1990,14 @@ onBeforeUnmount(() => {
             <label>{{ t('events.wizard.subColCategory') }}</label>
             <Select
               v-model="form.categoria_subevento_id"
-              :options="categorias"
+              :options="categoriasDisponibles"
               option-label="nombre"
               option-value="id"
               class="w-full"
             />
+            <small v-if="!categoriasDisponibles.length" class="pj-muted">
+              {{ t('events.wizard.catEventNoneAvailable') }}
+            </small>
           </div>
           <div v-if="selectedCategoria?.maneja_fecha_inicio" class="field">
             <label>{{ t('events.startsAt') }}</label>
@@ -2048,25 +2082,12 @@ onBeforeUnmount(() => {
           <div v-show="optionsTab === 'calificaciones'" class="sub-options__pane">
           <div class="sub-option">
             <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.manejaPuntaje" />
-              <span>{{ t('events.wizard.subOptScore') }}</span>
+              <ToggleSwitch v-model="opts.puntajeDesdeHijos" />
+              <span>{{ t('events.wizard.subOptScoreFromChildren') }}</span>
             </label>
-            <div v-if="opts.manejaPuntaje" class="sub-option__fields">
-              <label class="sub-option__nested">
-                <ToggleSwitch v-model="opts.puntajeDesdeHijos" />
-                <span>{{ t('events.wizard.subOptScoreFromChildren') }}</span>
-              </label>
+            <div v-if="opts.puntajeDesdeHijos" class="sub-option__fields">
               <small class="pj-muted">{{ t('events.wizard.subOptScoreFromChildrenHint') }}</small>
-
-              <label v-if="!opts.puntajeDesdeHijos" class="sub-option__nested">
-                <ToggleSwitch v-model="form.puntaje_por_participar" />
-                <span>{{ t('events.wizard.subOptScoreByParticipation') }}</span>
-              </label>
-              <small v-if="!opts.puntajeDesdeHijos" class="pj-muted">
-                {{ t('events.wizard.subOptScoreByParticipationHint') }}
-              </small>
-
-              <div v-if="opts.puntajeDesdeHijos" class="field">
+              <div class="field">
                 <label>{{ t('events.wizard.subColScore') }}</label>
                 <InputNumber
                   :model-value="childrenScoreSum"
@@ -2082,12 +2103,29 @@ onBeforeUnmount(() => {
                   }}
                 </small>
               </div>
-              <div v-else class="field">
+            </div>
+          </div>
+
+          <div class="sub-option">
+            <label class="sub-option__toggle">
+              <ToggleSwitch v-model="opts.manejaPuntaje" />
+              <span>{{ t('events.wizard.subOptScore') }}</span>
+            </label>
+            <div v-if="opts.manejaPuntaje && !opts.puntajeDesdeHijos" class="sub-option__fields">
+              <label class="sub-option__nested">
+                <ToggleSwitch v-model="form.puntaje_por_participar" />
+                <span>{{ t('events.wizard.subOptScoreByParticipation') }}</span>
+              </label>
+              <small class="pj-muted">
+                {{ t('events.wizard.subOptScoreByParticipationHint') }}
+              </small>
+
+              <div class="field">
                 <label>{{ t('events.wizard.subColScore') }}</label>
                 <InputNumber v-model="form.puntaje_maximo" class="w-full" :min="0" />
               </div>
 
-              <div v-if="!opts.puntajeDesdeHijos && !form.puntaje_por_participar" class="field">
+              <div v-if="!form.puntaje_por_participar" class="field">
                 <label>{{ t('events.wizard.criteriaAssign') }}</label>
                 <small class="pj-muted">{{ t('events.wizard.criteriaAssignHint') }}</small>
                 <MultiSelect
@@ -2099,7 +2137,17 @@ onBeforeUnmount(() => {
                   class="w-full"
                   :placeholder="t('events.wizard.criteriaSelect')"
                   @update:model-value="syncCriterioPointsSelection"
-                />
+                >
+                  <template #option="{ option }">
+                    <span class="crit-opt">
+                      <i
+                        :class="option.icono || 'pi pi-list-check'"
+                        :style="option.color ? { color: option.color } : undefined"
+                      />
+                      {{ option.label }}
+                    </span>
+                  </template>
+                </MultiSelect>
                 <div
                   v-for="id in assignedCriterioIds"
                   :key="id"
@@ -2947,6 +2995,12 @@ onBeforeUnmount(() => {
 .criteria-sum--bad {
   color: #b91c1c;
   font-weight: 600;
+}
+
+.crit-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .sub-option__nested {

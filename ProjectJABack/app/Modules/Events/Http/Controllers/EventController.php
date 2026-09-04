@@ -324,6 +324,7 @@ final class EventController
             'visibilidad' => $event->visibilidad ?? Event::VISIBILIDAD_ORGANIZACION,
             'es_en_sitio' => (bool) $event->es_en_sitio,
             'es_calificable' => (bool) $event->es_calificable,
+            'tiene_subeventos' => (bool) $event->tiene_subeventos,
             'puntaje_maximo' => $event->puntaje_maximo !== null ? (float) $event->puntaje_maximo : null,
             'puntaje_desde_hijos' => (bool) $event->puntaje_desde_hijos,
             'puntaje_por_participar' => (bool) $event->puntaje_por_participar,
@@ -391,11 +392,15 @@ final class EventController
             'puntos_inscripcion_fuera_tiempo' => $event->puntos_inscripcion_fuera_tiempo !== null
                 ? (float) $event->puntos_inscripcion_fuera_tiempo
                 : null,
+            'categoria_ids' => array_values(array_map('intval', $event->categoria_ids ?? [])),
+            'criterio_disponible_ids' => array_values(array_map('intval', $event->criterio_disponible_ids ?? [])),
             'criterios' => $event->relationLoaded('criterios')
                 ? $event->criterios->map(fn ($c) => [
                     'id' => $c->id,
                     'nombre' => $c->nombre,
                     'descripcion' => $c->descripcion,
+                    'color' => $c->color,
+                    'icono' => $c->icono,
                     'puntos' => (float) $c->pivot->puntos,
                     'orden' => (int) $c->pivot->orden,
                 ])->values()->all()

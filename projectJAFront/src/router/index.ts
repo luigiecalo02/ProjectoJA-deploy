@@ -144,6 +144,16 @@ const routes: RouteRecordRaw[] = [
         meta: { permission: 'events.view', titleKey: 'events.title' },
       },
       {
+        path: 'events/catalogos',
+        name: 'eventsCatalogos',
+        component: () => import('@/pages/events/EventCatalogosPage.vue'),
+        meta: {
+          permission: 'events.update',
+          titleKey: 'events.catalogos.title',
+          backTo: { name: 'events' },
+        },
+      },
+      {
         path: 'events/create',
         name: 'events.create',
         component: () => import('@/pages/events/EventFormPage.vue'),

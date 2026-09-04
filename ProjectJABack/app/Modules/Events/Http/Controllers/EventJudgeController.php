@@ -15,7 +15,13 @@ final class EventJudgeController
 
     public function offlinePack(Request $request): JsonResponse
     {
-        return ApiResponse::success($this->service->offlinePack($request->user()));
+        $eventId = $request->query('event_id');
+        $event = null;
+        if ($eventId !== null && $eventId !== '') {
+            $event = Event::query()->findOrFail((int) $eventId);
+        }
+
+        return ApiResponse::success($this->service->offlinePack($request->user(), $event));
     }
 
     public function show(Request $request, Event $event): JsonResponse

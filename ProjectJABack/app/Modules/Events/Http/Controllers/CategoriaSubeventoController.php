@@ -87,6 +87,7 @@ final class CategoriaSubeventoController
             'icono' => $categoria->icono,
             'orden' => (int) $categoria->orden,
             'estado' => (bool) $categoria->estado,
+            'es_sistema' => (bool) $categoria->es_sistema,
             'maneja_puntos' => (bool) $categoria->maneja_puntos,
             'maneja_fecha_inicio' => (bool) $categoria->maneja_fecha_inicio,
             'maneja_fecha_fin' => (bool) $categoria->maneja_fecha_fin,

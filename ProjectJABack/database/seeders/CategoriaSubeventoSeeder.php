@@ -50,6 +50,7 @@ class CategoriaSubeventoSeeder extends Seeder
                     'icono' => $item['icono'],
                     'orden' => $item['orden'],
                     'estado' => true,
+                    'es_sistema' => true,
                     'maneja_puntos' => true,
                     'maneja_fecha_inicio' => false,
                     'maneja_fecha_fin' => false,

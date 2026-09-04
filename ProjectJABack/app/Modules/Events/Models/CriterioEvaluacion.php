@@ -12,7 +12,10 @@ class CriterioEvaluacion extends Model
     protected $fillable = [
         'nombre',
         'descripcion',
+        'color',
+        'icono',
         'estado',
+        'es_sistema',
         'orden',
     ];
 
@@ -20,6 +23,7 @@ class CriterioEvaluacion extends Model
     {
         return [
             'estado' => 'boolean',
+            'es_sistema' => 'boolean',
             'orden' => 'integer',
         ];
     }

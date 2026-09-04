@@ -88,4 +88,25 @@ class CategoriaSubeventoApiTest extends TestCase
             ->assertOk()
             ->assertJsonFragment(['id' => $cat->id, 'estado' => false]);
     }
+
+    public function test_cannot_delete_system_category(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $cat = CategoriaSubevento::query()->create([
+            'nombre' => 'Especialidades',
+            'slug' => 'especialidades-sistema',
+            'orden' => 1,
+            'estado' => true,
+            'es_sistema' => true,
+            'maneja_puntos' => true,
+            'maneja_fecha_inicio' => false,
+            'maneja_fecha_fin' => false,
+        ]);
+
+        $this->deleteJson("/api/v1/events/categorias-subevento/{$cat->id}")
+            ->assertStatus(422);
+
+        $this->assertDatabaseHas('categoria_subevento', ['id' => $cat->id]);
+    }
 }

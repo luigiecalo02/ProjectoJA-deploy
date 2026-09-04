@@ -30,6 +30,7 @@ export interface CategoriaSubevento {
   icono?: string | null
   orden?: number
   estado?: boolean
+  es_sistema?: boolean
   maneja_puntos?: boolean
   maneja_fecha_inicio?: boolean
   maneja_fecha_fin?: boolean
@@ -51,13 +52,18 @@ export interface CriterioEvaluacion {
   id: number
   nombre: string
   descripcion?: string | null
+  color?: string | null
+  icono?: string | null
   estado?: boolean
+  es_sistema?: boolean
   orden?: number
 }
 
 export interface CriterioEvaluacionPayload {
   nombre: string
   descripcion?: string | null
+  color?: string | null
+  icono?: string | null
   estado?: boolean
   orden?: number
 }
@@ -66,6 +72,8 @@ export interface EventoCriterioAsignado {
   id: number
   nombre: string
   descripcion?: string | null
+  color?: string | null
+  icono?: string | null
   puntos: number
   orden: number
 }
@@ -601,6 +609,7 @@ export interface ClubEvent {
   tipos_organizacion: EventTipoOrganizacionRef[]
   es_en_sitio: boolean
   es_calificable: boolean
+  tiene_subeventos?: boolean
   puntaje_maximo?: number | null
   puntaje_desde_hijos?: boolean
   puntaje_por_participar?: boolean
@@ -664,6 +673,8 @@ export interface ClubEvent {
   fecha_limite_inscripcion?: string | null
   puntos_inscripcion_a_tiempo?: number | null
   puntos_inscripcion_fuera_tiempo?: number | null
+  categoria_ids?: number[]
+  criterio_disponible_ids?: number[]
   criterios?: EventoCriterioAsignado[]
   inscrito?: boolean
   created_by: number | null
@@ -735,6 +746,7 @@ export interface EventFormPayload {
   audiencia?: 'libre' | 'conquistadores' | 'aventureros' | 'guias_mayores' | null
   es_en_sitio?: boolean
   es_calificable?: boolean
+  tiene_subeventos?: boolean
   puntaje_maximo?: number | null
   puntaje_desde_hijos?: boolean
   puntaje_por_participar?: boolean
@@ -792,6 +804,8 @@ export interface EventFormPayload {
   fecha_limite_inscripcion?: string | null
   puntos_inscripcion_a_tiempo?: number | null
   puntos_inscripcion_fuera_tiempo?: number | null
+  categoria_ids?: number[]
+  criterio_disponible_ids?: number[]
   criterios?: Array<{ id?: number; criterio_evaluacion_id?: number; puntos: number; orden?: number }>
   image_url?: string | null
   banner_url?: string | null
