@@ -4,13 +4,11 @@ import { useI18n } from 'vue-i18n'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
-import InputNumber from 'primevue/inputnumber'
 import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import MultiSelect from 'primevue/multiselect'
 import DatePicker from 'primevue/datepicker'
 import ToggleSwitch from 'primevue/toggleswitch'
-import Checkbox from 'primevue/checkbox'
 import Message from 'primevue/message'
 import PageLoader from '@/components/PageLoader.vue'
 import AppSearchField from '@/components/AppSearchField.vue'
@@ -19,10 +17,14 @@ import EventSubeventTreeNodes from '@/components/events/EventSubeventTreeNodes.v
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import MediaCoverUpload from '@/components/media/MediaCoverUpload.vue'
-import EventMaterialsPanel from '@/components/events/EventMaterialsPanel.vue'
+import EventSubeventConfigTabs from '@/components/events/EventSubeventConfigTabs.vue'
+import JuezPropagateDialog from '@/components/events/JuezPropagateDialog.vue'
+import { useJuezPropagate } from '@/composables/useJuezPropagate'
 import RichTextField from '@/components/RichTextField.vue'
 import RichTextView from '@/components/RichTextView.vue'
+import IconColorPopover from '@/components/IconColorPopover.vue'
 import { cssColor } from '@/utils/color'
+import { clampIconSize, iconFontSize, ICON_SIZE_DEFAULT } from '@/utils/iconSize'
 import { normalizeRichText } from '@/utils/richText'
 import type {
   CategoriaSubevento,
@@ -77,6 +79,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useToast()
+const {
+  visible: juezConflictVisible,
+  applying: juezConflictApplying,
+  conflicts: juezConflicts,
+  offer: offerJuezConflicts,
+  apply: applyJuezConflicts,
+  dismiss: dismissJuezConflicts,
+} = useJuezPropagate()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -88,10 +98,11 @@ const supervisores = ref<Array<{ id: number; name: string; email?: string | null
 const criteriosBank = ref<CriterioEvaluacion[]>([])
 const assignedCriterioIds = ref<number[]>([])
 const criterioPoints = reactive<Record<number, number | null>>({})
+const childAssignedCriterioIds = ref<number[]>([])
+const childCriterioPoints = reactive<Record<number, number | null>>({})
 const search = ref('')
 const selectedId = ref<number | null>(null)
 const detailTab = ref<'info' | 'reglas' | 'puntaje' | 'categoria'>('info')
-const optionsTab = ref<'calificaciones' | 'control' | 'evidencias' | 'jueces' | 'hijos' | 'recursos'>('calificaciones')
 const materiales = ref<EventoArchivoMaterial[]>([])
 const pendingMaterialFiles = ref<File[]>([])
 const pendingYoutube = ref<Array<{ url: string; titulo?: string }>>([])
@@ -157,7 +168,12 @@ const form = reactive({
   visibilidad: 'organizacion' as EventoVisibilidad,
   juez_ids: [] as number[],
   supervisor_ids: [] as number[],
+  icono: 'pi pi-calendar',
+  color: '#1e3a5f',
+  icono_tamano: ICON_SIZE_DEFAULT,
 })
+
+const visualKind = ref<'imagen' | 'icono'>('icono')
 
 /** Controles progresivos: solo muestran campos cuando están activos */
 const opts = reactive({
@@ -176,20 +192,6 @@ const opts = reactive({
 
 const childrenScoreSum = ref(0)
 const loadingChildrenScore = ref(false)
-
-const optionsTabHasConfig = computed(() => ({
-  calificaciones:
-    opts.manejaPuntaje ||
-    opts.puntajeDesdeHijos ||
-    opts.configCalificacion ||
-    opts.manejaPenalizaciones ||
-    !opts.esEnSitio,
-  control: opts.controlParticipantes || opts.esConjunto || opts.manejaFechaFin || opts.tieneValor,
-  evidencias: opts.requiereEvidencia,
-  jueces: form.juez_ids.length > 0 || form.supervisor_ids.length > 0,
-  hijos: opts.tieneSubeventos,
-  recursos: materiales.value.length > 0 || pendingMaterialFiles.value.length > 0 || pendingYoutube.value.length > 0,
-}))
 
 const estadoOptions = computed(() => [
   { label: t('events.estadoPublicado'), value: 'publicado' },
@@ -279,7 +281,7 @@ const categoriasDisponibles = computed(() => {
 
 const criterioOptions = computed(() => {
   const allowed = props.parentCriterioIds ?? []
-  const extra = new Set(assignedCriterioIds.value)
+  const extra = new Set([...assignedCriterioIds.value, ...childAssignedCriterioIds.value])
   const bank = !allowed.length
     ? criteriosBank.value
     : criteriosBank.value.filter((item) => allowed.includes(item.id) || extra.has(item.id))
@@ -682,22 +684,252 @@ async function loadChildItems(parentId: number | null): Promise<void> {
 const childForm = reactive({
   name: '',
   descripcion: '',
+  reglas: '',
+  tipo_evento_id: null as number | null,
+  puntaje_maximo: null as number | null,
+  puntaje_por_participar: false,
   starts_at: null as Date | null,
   ends_at: null as Date | null,
+  requiere_puesto_entrega: false,
+  requiere_tiempo_entrega: false,
+  resultado_esperado: null as number | null,
+  participantes_min: null as number | null,
+  participantes_max: null as number | null,
+  permite_inscribir_no_participantes: false,
+  participantes_genero: 'cualquiera' as 'mixto' | 'M' | 'F' | 'cualquiera',
+  participantes_min_m: null as number | null,
+  participantes_max_m: null as number | null,
+  participantes_min_f: null as number | null,
+  participantes_max_f: null as number | null,
+  es_conjunto: false,
+  nivel_conjunto: null as 'club' | 'iglesia' | 'distrito' | 'asociacion' | null,
+  puntos_penalizacion: null as number | null,
+  reglas_penalizacion: '',
+  precio: null as number | null,
+  tipos_evidencia: [] as Array<'link' | 'pdf' | 'imagen' | 'audio' | 'video'>,
+  estado: 'publicado' as string,
+  juez_ids: [] as number[],
+  supervisor_ids: [] as number[],
+  icono: 'pi pi-calendar',
+  color: '#1e3a5f',
+  icono_tamano: ICON_SIZE_DEFAULT,
 })
-const childEsEnSitio = ref(true)
+
+const childOpts = reactive({
+  manejaPuntaje: false,
+  puntajeDesdeHijos: false,
+  configCalificacion: false,
+  controlParticipantes: false,
+  esConjunto: false,
+  manejaFechaFin: false,
+  manejaPenalizaciones: false,
+  tieneValor: false,
+  requiereEvidencia: false,
+  esEnSitio: true,
+  tieneSubeventos: false,
+})
+
+const childVisualKind = ref<'imagen' | 'icono'>('icono')
+const childPendingImage = ref<File | null>(null)
+const childPendingPreview = ref<string | null>(null)
+const childFormImageUrl = ref<string | null>(null)
+const childUploadingImage = ref(false)
+const childMateriales = ref<EventoArchivoMaterial[]>([])
+const childPendingMaterialFiles = ref<File[]>([])
+const childPendingYoutube = ref<Array<{ url: string; titulo?: string }>>([])
 const childSaving = ref(false)
 const childError = ref('')
 const childEditingId = ref<number | null>(null)
 
+const childImagePreview = computed(() => childPendingPreview.value || childFormImageUrl.value)
+
+const childCriteriosSum = computed(() =>
+  childAssignedCriterioIds.value.reduce((sum, id) => sum + (Number(childCriterioPoints[id]) || 0), 0),
+)
+
+const childCriteriosSumOk = computed(() => {
+  if (!childAssignedCriterioIds.value.length) return true
+  if (childForm.puntaje_maximo == null) return false
+  return Math.abs(childCriteriosSum.value - Number(childForm.puntaje_maximo)) < 0.01
+})
+
+function clearPendingChildImage(): void {
+  childPendingImage.value = null
+  revokeUrl(childPendingPreview.value)
+  childPendingPreview.value = null
+}
+
+async function onPickChildImage(file: File): Promise<void> {
+  if (!file) return
+  childPendingImage.value = file
+  revokeUrl(childPendingPreview.value)
+  childPendingPreview.value = URL.createObjectURL(file)
+}
+
+function setChildVisualKind(kind: 'imagen' | 'icono'): void {
+  childVisualKind.value = kind
+  if (kind === 'icono') {
+    clearPendingChildImage()
+    if (!childForm.icono) childForm.icono = form.icono || selectedCategoria.value?.icono || 'pi pi-calendar'
+    if (!childForm.color) childForm.color = form.color || selectedCategoria.value?.color || '#1e3a5f'
+  }
+}
+
+async function flushChildMaterials(id: number): Promise<void> {
+  const files = [...childPendingMaterialFiles.value]
+  const links = [...childPendingYoutube.value]
+  childPendingMaterialFiles.value = []
+  childPendingYoutube.value = []
+  for (const file of files) {
+    const created = await eventsService.addArchivoFile(id, file, file.name)
+    childMateriales.value = [...childMateriales.value, created]
+  }
+  for (const link of links) {
+    const created = await eventsService.addArchivoYoutube(id, link.url, link.titulo)
+    childMateriales.value = [...childMateriales.value, created]
+  }
+}
+
+function resetChildOpts(): void {
+  childOpts.manejaPuntaje = false
+  childOpts.puntajeDesdeHijos = false
+  childOpts.configCalificacion = false
+  childOpts.controlParticipantes = false
+  childOpts.esConjunto = false
+  childOpts.manejaFechaFin = false
+  childOpts.manejaPenalizaciones = false
+  childOpts.tieneValor = false
+  childOpts.requiereEvidencia = false
+  childOpts.tieneSubeventos = false
+}
+
 function resetChildForm(): void {
   childForm.name = ''
   childForm.descripcion = ''
+  childForm.reglas = form.reglas || ''
+  childForm.tipo_evento_id = form.tipo_evento_id
+  childForm.puntaje_maximo = 100
+  childForm.puntaje_por_participar = false
   childForm.starts_at = dateOnly(form.starts_at) || dateOnly(contextStartsAt())
   childForm.ends_at = dateOnly(form.ends_at) || dateOnly(contextEndsAt())
-  childEsEnSitio.value = opts.esEnSitio
+  childForm.requiere_puesto_entrega = false
+  childForm.requiere_tiempo_entrega = false
+  childForm.resultado_esperado = null
+  childForm.participantes_min = 1
+  childForm.participantes_max = null
+  childForm.permite_inscribir_no_participantes = false
+  childForm.participantes_genero = 'cualquiera'
+  childForm.participantes_min_m = null
+  childForm.participantes_max_m = null
+  childForm.participantes_min_f = null
+  childForm.participantes_max_f = null
+  childForm.es_conjunto = false
+  childForm.nivel_conjunto = null
+  childForm.puntos_penalizacion = 5
+  childForm.reglas_penalizacion = ''
+  childForm.precio = null
+  childForm.tipos_evidencia = ['link', 'pdf', 'imagen', 'audio', 'video']
+  childForm.estado = 'publicado'
+  childForm.juez_ids = [...form.juez_ids]
+  childForm.supervisor_ids = [...form.supervisor_ids]
+  childForm.icono = form.icono || selectedCategoria.value?.icono || 'pi pi-calendar'
+  childForm.color = form.color || selectedCategoria.value?.color || '#1e3a5f'
+  childForm.icono_tamano = form.icono_tamano || ICON_SIZE_DEFAULT
+  childAssignedCriterioIds.value = []
+  for (const key of Object.keys(childCriterioPoints)) delete childCriterioPoints[Number(key)]
+  resetChildOpts()
+  childOpts.esEnSitio = opts.esEnSitio
+  childOpts.manejaFechaFin = opts.manejaFechaFin
+  childVisualKind.value = 'icono'
+  childFormImageUrl.value = null
+  childMateriales.value = []
+  childPendingMaterialFiles.value = []
+  childPendingYoutube.value = []
   childError.value = ''
   childEditingId.value = null
+  clearPendingChildImage()
+}
+
+function fillChildFromEvent(item: ClubEvent): void {
+  childForm.name = item.name
+  childForm.descripcion = item.descripcion ?? ''
+  childForm.reglas = item.reglas ?? ''
+  childForm.tipo_evento_id = item.tipo_evento_id ?? form.tipo_evento_id
+  childForm.puntaje_maximo = item.puntaje_maximo ?? null
+  childForm.puntaje_por_participar = !!item.puntaje_por_participar
+  childForm.starts_at = dateOnly(item.starts_at) || dateOnly(form.starts_at)
+  childForm.ends_at = dateOnly(item.ends_at) || dateOnly(form.ends_at)
+  childForm.requiere_puesto_entrega = !!item.requiere_puesto_entrega
+  childForm.requiere_tiempo_entrega = !!item.requiere_tiempo_entrega || item.tiempo_estimado_minutos != null
+  childForm.resultado_esperado = item.resultado_esperado ?? null
+  childForm.participantes_min = item.participantes_min ?? null
+  childForm.participantes_max = item.participantes_max ?? null
+  childForm.permite_inscribir_no_participantes = !!item.permite_inscribir_no_participantes
+  childForm.participantes_genero =
+    item.participantes_genero === 'M' ||
+    item.participantes_genero === 'F' ||
+    item.participantes_genero === 'mixto' ||
+    item.participantes_genero === 'cualquiera'
+      ? item.participantes_genero
+      : 'cualquiera'
+  childForm.participantes_min_m = item.participantes_min_m ?? null
+  childForm.participantes_max_m = item.participantes_max_m ?? null
+  childForm.participantes_min_f = item.participantes_min_f ?? null
+  childForm.participantes_max_f = item.participantes_max_f ?? null
+  childForm.es_conjunto = !!item.es_conjunto
+  childForm.nivel_conjunto =
+    (item.nivel_conjunto as 'club' | 'iglesia' | 'distrito' | 'asociacion' | null) ?? null
+  childForm.puntos_penalizacion = item.puntos_penalizacion ?? null
+  childForm.reglas_penalizacion = item.reglas_penalizacion || ''
+  childForm.precio = item.precio ?? null
+  childForm.tipos_evidencia = (item.tipos_evidencia || []).filter(
+    (tipo): tipo is 'link' | 'pdf' | 'imagen' | 'audio' | 'video' =>
+      tipo === 'link' ||
+      tipo === 'pdf' ||
+      tipo === 'imagen' ||
+      tipo === 'audio' ||
+      tipo === 'video',
+  )
+  childForm.estado = item.estado || 'publicado'
+  childForm.juez_ids = [...(item.juez_ids ?? item.jueces?.map((j) => j.id) ?? [])]
+  childForm.supervisor_ids = [...(item.supervisor_ids ?? item.supervisores?.map((s) => s.id) ?? [])]
+  childForm.icono = item.icono || item.categoria_subevento?.icono || form.icono || 'pi pi-calendar'
+  childForm.color = item.color || item.categoria_subevento?.color || form.color || '#1e3a5f'
+  childForm.icono_tamano = clampIconSize(item.icono_tamano ?? form.icono_tamano)
+  childAssignedCriterioIds.value = (item.criterios || []).map((c) => c.id)
+  for (const key of Object.keys(childCriterioPoints)) delete childCriterioPoints[Number(key)]
+  for (const criterio of item.criterios || []) {
+    childCriterioPoints[criterio.id] = criterio.puntos
+  }
+  childOpts.puntajeDesdeHijos = false
+  childOpts.tieneSubeventos = false
+  childOpts.manejaPuntaje = Boolean(item.es_calificable) || item.puntaje_maximo != null
+  childOpts.configCalificacion =
+    !!item.requiere_puesto_entrega ||
+    !!item.requiere_tiempo_entrega ||
+    item.resultado_esperado != null ||
+    item.tiempo_estimado_minutos != null
+  childOpts.controlParticipantes =
+    item.participantes_min != null ||
+    item.participantes_max != null ||
+    item.participantes_genero != null ||
+    item.participantes_min_m != null ||
+    item.participantes_max_m != null ||
+    item.participantes_min_f != null ||
+    item.participantes_max_f != null
+  childOpts.esConjunto = !!item.es_conjunto
+  childOpts.manejaFechaFin = !!item.maneja_fecha_fin
+  childOpts.manejaPenalizaciones = !!item.maneja_penalizaciones
+  childOpts.tieneValor = !!item.requiere_pago || item.precio != null
+  childOpts.requiereEvidencia = !!item.requiere_evidencia
+  childOpts.esEnSitio = item.es_en_sitio ?? true
+  childVisualKind.value = item.icono || !item.image_url ? 'icono' : 'imagen'
+  childFormImageUrl.value = item.image_url || null
+  childMateriales.value = item.archivos ?? []
+  childPendingMaterialFiles.value = []
+  childPendingYoutube.value = []
+  childError.value = ''
+  clearPendingChildImage()
 }
 
 function openCreateNested(): void {
@@ -706,22 +938,73 @@ function openCreateNested(): void {
   childDrawerVisible.value = true
 }
 
-function openEditNested(item: ClubEvent): void {
+async function openEditNested(item: ClubEvent): Promise<void> {
   opts.tieneSubeventos = true
   childEditingId.value = item.id
-  childForm.name = item.name
-  childForm.descripcion = item.descripcion ?? ''
-  childForm.starts_at = dateOnly(item.starts_at) || dateOnly(form.starts_at)
-  childForm.ends_at = dateOnly(item.ends_at) || dateOnly(form.ends_at)
-  childEsEnSitio.value = item.es_en_sitio ?? true
-  childError.value = ''
+  fillChildFromEvent(item)
   childDrawerVisible.value = true
+  try {
+    const full = await eventsService.get(item.id)
+    if (childEditingId.value === item.id) fillChildFromEvent(full)
+  } catch {
+    if (!item.archivos?.length) {
+      try {
+        childMateriales.value = await eventsService.listArchivos(item.id)
+      } catch {
+        childMateriales.value = []
+      }
+    }
+  }
+}
+
+function resolveChildEndDate(start: Date): Date {
+  if (childOpts.manejaFechaFin && childForm.ends_at) {
+    const chosen = dateOnly(childForm.ends_at)
+    if (chosen) return chosen
+  }
+  const parentEnd = dateOnly(form.ends_at) || dateOnly(contextEndsAt())
+  if (parentEnd && parentEnd.getTime() >= start.getTime()) return parentEnd
+  return addOneDay(start)
 }
 
 async function saveChildSubevent(): Promise<void> {
   if (!childForm.name.trim()) {
     childError.value = t('events.wizard.subNameRequired')
     return
+  }
+  if (childOpts.esConjunto && !childForm.nivel_conjunto) {
+    childError.value = t('events.wizard.subJointLevelRequired')
+    return
+  }
+  if (childOpts.requiereEvidencia && !childForm.tipos_evidencia.length) {
+    childError.value = t('events.wizard.subEvidenceTypesRequired')
+    return
+  }
+  if (childOpts.manejaPuntaje && childAssignedCriterioIds.value.length && !childCriteriosSumOk.value) {
+    childError.value = t('events.wizard.criteriaSumMismatch')
+    return
+  }
+  if (childOpts.controlParticipantes && childForm.permite_inscribir_no_participantes) {
+    const mixto = childForm.participantes_genero === 'mixto'
+    const minOverMax =
+      !mixto &&
+      childForm.participantes_min != null &&
+      childForm.participantes_max != null &&
+      childForm.participantes_min > childForm.participantes_max
+    const minOverMaxM =
+      mixto &&
+      childForm.participantes_min_m != null &&
+      childForm.participantes_max_m != null &&
+      childForm.participantes_min_m > childForm.participantes_max_m
+    const minOverMaxF =
+      mixto &&
+      childForm.participantes_min_f != null &&
+      childForm.participantes_max_f != null &&
+      childForm.participantes_min_f > childForm.participantes_max_f
+    if (minOverMax || minOverMaxM || minOverMaxF) {
+      childError.value = t('events.wizard.subParticipantsRangeInvalid')
+      return
+    }
   }
   childSaving.value = true
   childError.value = ''
@@ -733,11 +1016,11 @@ async function saveChildSubevent(): Promise<void> {
       return
     }
     const start = dateOnly(childForm.starts_at) || dateOnly(form.starts_at) || new Date()
-    const end = dateOnly(childForm.ends_at) || start
+    const end = resolveChildEndDate(start)
     const parentStart = dateOnly(form.starts_at) || dateOnly(contextStartsAt())
     const parentEnd = dateOnly(form.ends_at) || dateOnly(contextEndsAt())
     if (
-      childEsEnSitio.value &&
+      childOpts.esEnSitio &&
       parentStart &&
       parentEnd &&
       (start.getTime() < parentStart.getTime() || end.getTime() > parentEnd.getTime())
@@ -748,26 +1031,135 @@ async function saveChildSubevent(): Promise<void> {
     const childPayload = {
       name: childForm.name.trim(),
       descripcion: childForm.descripcion.trim() || null,
+      reglas: normalizeRichText(childForm.reglas),
       evento_padre_id: parentId,
       organizacion_id: contextOrganizacionId(),
       categoria_subevento_id: form.categoria_subevento_id,
-      tipo_evento_id: form.tipo_evento_id,
+      tipo_evento_id: childForm.tipo_evento_id ?? form.tipo_evento_id,
+      puntaje_maximo: childOpts.manejaPuntaje ? childForm.puntaje_maximo : null,
+      puntaje_desde_hijos: false,
+      puntaje_por_participar: childOpts.manejaPuntaje && childForm.puntaje_por_participar,
+      tiempo_estimado_minutos: null,
+      requiere_puesto_entrega: childOpts.configCalificacion && childForm.requiere_puesto_entrega,
+      requiere_tiempo_entrega: childOpts.configCalificacion && childForm.requiere_tiempo_entrega,
+      resultado_esperado:
+        childOpts.configCalificacion &&
+        childForm.resultado_esperado != null &&
+        childForm.resultado_esperado > 0
+          ? childForm.resultado_esperado
+          : null,
+      participantes_min:
+        childOpts.controlParticipantes &&
+        childForm.permite_inscribir_no_participantes &&
+        childForm.participantes_genero !== 'mixto'
+          ? childForm.participantes_min
+          : childOpts.controlParticipantes &&
+              childForm.permite_inscribir_no_participantes &&
+              childForm.participantes_genero === 'mixto'
+            ? (childForm.participantes_min_m ?? 0) + (childForm.participantes_min_f ?? 0) || null
+            : null,
+      participantes_max:
+        childOpts.controlParticipantes &&
+        childForm.permite_inscribir_no_participantes &&
+        childForm.participantes_genero !== 'mixto'
+          ? childForm.participantes_max
+          : childOpts.controlParticipantes &&
+              childForm.permite_inscribir_no_participantes &&
+              childForm.participantes_genero === 'mixto' &&
+              childForm.participantes_max_m != null &&
+              childForm.participantes_max_f != null
+            ? childForm.participantes_max_m + childForm.participantes_max_f
+            : null,
+      permite_inscribir_no_participantes: childOpts.controlParticipantes
+        ? childForm.permite_inscribir_no_participantes
+        : false,
+      participantes_genero:
+        childOpts.controlParticipantes && childForm.permite_inscribir_no_participantes
+          ? childForm.participantes_genero
+          : null,
+      participantes_min_m:
+        childOpts.controlParticipantes &&
+        childForm.permite_inscribir_no_participantes &&
+        childForm.participantes_genero === 'mixto'
+          ? childForm.participantes_min_m
+          : null,
+      participantes_max_m:
+        childOpts.controlParticipantes &&
+        childForm.permite_inscribir_no_participantes &&
+        childForm.participantes_genero === 'mixto'
+          ? childForm.participantes_max_m
+          : null,
+      participantes_min_f:
+        childOpts.controlParticipantes &&
+        childForm.permite_inscribir_no_participantes &&
+        childForm.participantes_genero === 'mixto'
+          ? childForm.participantes_min_f
+          : null,
+      participantes_max_f:
+        childOpts.controlParticipantes &&
+        childForm.permite_inscribir_no_participantes &&
+        childForm.participantes_genero === 'mixto'
+          ? childForm.participantes_max_f
+          : null,
+      equipos_org_min: null,
+      equipos_org_max: null,
+      es_conjunto: childOpts.esConjunto,
+      nivel_conjunto: childOpts.esConjunto ? childForm.nivel_conjunto : null,
+      maneja_fecha_fin: childOpts.manejaFechaFin || datesDiffer(start, end),
+      maneja_penalizaciones: childOpts.manejaPenalizaciones,
+      puntos_penalizacion: childOpts.manejaPenalizaciones ? childForm.puntos_penalizacion : null,
+      reglas_penalizacion: childOpts.manejaPenalizaciones
+        ? childForm.reglas_penalizacion.trim() || null
+        : null,
+      requiere_pago: childOpts.tieneValor,
+      precio: childOpts.tieneValor ? childForm.precio : null,
+      requiere_evidencia: childOpts.requiereEvidencia,
+      tipos_evidencia: childOpts.requiereEvidencia ? [...childForm.tipos_evidencia] : null,
+      juez_ids: [...childForm.juez_ids],
+      supervisor_ids: [...childForm.supervisor_ids],
+      criterios:
+        childOpts.manejaPuntaje && !childForm.puntaje_por_participar
+          ? childAssignedCriterioIds.value.map((id, index) => ({
+              id,
+              puntos: Number(childCriterioPoints[id] || 0),
+              orden: index,
+            }))
+          : [],
+      estado: childForm.estado,
       visibilidad: contextVisibilidad.value,
-      es_en_sitio: childEsEnSitio.value,
+      is_active: childForm.estado === 'publicado',
+      es_calificable: childOpts.manejaPuntaje,
+      es_en_sitio: childOpts.esEnSitio,
+      tiene_subeventos: false,
       starts_at: toApiDate(start),
       ends_at: toApiDate(end),
-      maneja_fecha_fin: opts.manejaFechaFin || datesDiffer(start, end),
-      juez_ids: [...form.juez_ids],
-      supervisor_ids: [...form.supervisor_ids],
-      estado: 'publicado' as const,
-      is_active: true,
       cupo_ilimitado: true,
+      icono: childVisualKind.value === 'icono' ? childForm.icono || 'pi pi-calendar' : null,
+      color: childVisualKind.value === 'icono' ? childForm.color || null : null,
+      icono_tamano: childVisualKind.value === 'icono' ? clampIconSize(childForm.icono_tamano) : null,
+      ...(childVisualKind.value === 'icono' ? { image_url: null } : {}),
     }
+    let savedId = childEditingId.value
+    let savedChild: ClubEvent | null = null
     if (childEditingId.value) {
-      await eventsService.update(childEditingId.value, childPayload)
+      savedChild = await eventsService.update(childEditingId.value, childPayload)
     } else {
-      await eventsService.create(childPayload)
+      savedChild = await eventsService.create(childPayload)
+      savedId = savedChild.id
+      childEditingId.value = savedChild.id
     }
+    if (childVisualKind.value === 'imagen' && childPendingImage.value && savedId) {
+      childUploadingImage.value = true
+      try {
+        const updated = await eventsService.uploadImage(savedId, childPendingImage.value)
+        childFormImageUrl.value = updated.image_url
+        clearPendingChildImage()
+      } finally {
+        childUploadingImage.value = false
+      }
+    }
+    if (savedId) await flushChildMaterials(savedId)
+    await offerJuezConflicts(savedChild)
     childDrawerVisible.value = false
     await loadChildItems(parentId)
     await load()
@@ -839,7 +1231,10 @@ function resetForm(): void {
   opts.requiereEvidencia = false
   opts.tieneSubeventos = false
   applyParentDefaults()
-  optionsTab.value = 'calificaciones'
+  visualKind.value = 'icono'
+  form.icono = selectedCategoria.value?.icono || 'pi pi-calendar'
+  form.color = selectedCategoria.value?.color || '#1e3a5f'
+  form.icono_tamano = ICON_SIZE_DEFAULT
   childrenScoreSum.value = 0
   formImageUrl.value = null
   materiales.value = []
@@ -940,6 +1335,10 @@ function openEdit(item: ClubEvent): void {
   opts.requiereEvidencia = !!item.requiere_evidencia
   opts.esEnSitio = item.es_en_sitio ?? true
   opts.tieneSubeventos = !!item.tiene_subeventos
+  form.icono = item.icono || item.categoria_subevento?.icono || 'pi pi-calendar'
+  form.color = item.color || item.categoria_subevento?.color || '#1e3a5f'
+  form.icono_tamano = clampIconSize(item.icono_tamano)
+  visualKind.value = item.icono || !item.image_url ? 'icono' : 'imagen'
   formImageUrl.value = item.image_url || null
   materiales.value = item.archivos ?? []
   pendingMaterialFiles.value = []
@@ -1208,11 +1607,16 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
       starts_at: toApiDate(startDate),
       ends_at: toApiDate(endDate),
       cupo_ilimitado: true,
+      icono: visualKind.value === 'icono' ? form.icono || 'pi pi-calendar' : null,
+      color: visualKind.value === 'icono' ? form.color || null : null,
+      icono_tamano: visualKind.value === 'icono' ? clampIconSize(form.icono_tamano) : null,
+      ...(visualKind.value === 'icono' ? { image_url: null } : {}),
     }
 
     let savedId = editingId.value
+    let savedEvent: ClubEvent | null = null
     if (editingId.value) {
-      await eventsService.update(editingId.value, payload)
+      savedEvent = await eventsService.update(editingId.value, payload)
       toast.add({
         severity: 'success',
         summary: t('common.success'),
@@ -1220,9 +1624,9 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
         life: 2000,
       })
     } else {
-      const created = await eventsService.create(payload)
-      savedId = created.id
-      selectedId.value = created.id
+      savedEvent = await eventsService.create(payload)
+      savedId = savedEvent.id
+      selectedId.value = savedEvent.id
       toast.add({
         severity: 'success',
         summary: t('common.success'),
@@ -1231,7 +1635,7 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
       })
     }
 
-    if (pendingImage.value && savedId) {
+    if (visualKind.value === 'imagen' && pendingImage.value && savedId) {
       uploadingImage.value = true
       try {
         const updated = await eventsService.uploadImage(savedId, pendingImage.value)
@@ -1244,6 +1648,7 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
     if (savedId) await flushSubeventMaterials(savedId)
     if (savedId) editingId.value = savedId
     if (savedId && opts.tieneSubeventos) await loadChildItems(savedId)
+    await offerJuezConflicts(savedEvent)
 
     if (!keepDrawerOpen) drawerVisible.value = false
     await load()
@@ -1258,6 +1663,7 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
 }
 
 async function removeSubevent(item: ClubEvent): Promise<void> {
+  if (hasChildren(item)) return
   if (!confirm(t('events.wizard.subDeleteConfirm'))) return
   try {
     await eventsService.remove(item.id)
@@ -1524,7 +1930,28 @@ function dropClassFor(itemId: number): string {
 }
 
 function iconFor(item: ClubEvent): string {
-  return item.categoria_subevento?.icono || 'pi pi-calendar'
+  return item.icono || item.categoria_subevento?.icono || item.tipo_evento?.icono || 'pi pi-calendar'
+}
+
+function iconSizeFor(item: ClubEvent, max = 28): string {
+  return iconFontSize(item.icono_tamano, max)
+}
+
+function colorFor(item: ClubEvent): string | undefined {
+  return cssColor(item.color || item.categoria_subevento?.color || item.tipo_evento?.color)
+}
+
+function showsImage(item: ClubEvent): boolean {
+  return Boolean(item.image_url) && !item.icono
+}
+
+function setVisualKind(kind: 'imagen' | 'icono'): void {
+  visualKind.value = kind
+  if (kind === 'icono') {
+    clearPendingImage()
+    if (!form.icono) form.icono = selectedCategoria.value?.icono || 'pi pi-calendar'
+    if (!form.color) form.color = selectedCategoria.value?.color || '#1e3a5f'
+  }
 }
 
 watch(
@@ -1591,6 +2018,63 @@ watch(
       if (form.participantes_min_f == null) form.participantes_min_f = 1
     } else if (form.participantes_min == null) {
       form.participantes_min = 1
+    }
+  },
+)
+
+watch(
+  () => childOpts.manejaPuntaje,
+  (on) => {
+    if (on && childForm.puntaje_maximo == null) childForm.puntaje_maximo = 100
+  },
+)
+
+watch(
+  () => childOpts.configCalificacion,
+  (on) => {
+    if (!on) {
+      childForm.requiere_puesto_entrega = false
+      childForm.requiere_tiempo_entrega = false
+      childForm.resultado_esperado = null
+    }
+  },
+)
+
+function ensureChildParticipantQuotaDefaults(): void {
+  if (!childOpts.controlParticipantes || !childForm.permite_inscribir_no_participantes) return
+  if (!childForm.participantes_genero) childForm.participantes_genero = 'cualquiera'
+  if (childForm.participantes_genero !== 'mixto' && childForm.participantes_min == null) {
+    childForm.participantes_min = 1
+  }
+  if (childForm.participantes_genero === 'mixto') {
+    if (childForm.participantes_min_m == null) childForm.participantes_min_m = 1
+    if (childForm.participantes_min_f == null) childForm.participantes_min_f = 1
+  }
+}
+
+watch(
+  () => childOpts.controlParticipantes,
+  (on) => {
+    if (on) ensureChildParticipantQuotaDefaults()
+  },
+)
+
+watch(
+  () => childForm.permite_inscribir_no_participantes,
+  (on) => {
+    if (on) ensureChildParticipantQuotaDefaults()
+  },
+)
+
+watch(
+  () => childForm.participantes_genero,
+  (genero) => {
+    if (!childOpts.controlParticipantes || !childForm.permite_inscribir_no_participantes) return
+    if (genero === 'mixto') {
+      if (childForm.participantes_min_m == null) childForm.participantes_min_m = 1
+      if (childForm.participantes_min_f == null) childForm.participantes_min_f = 1
+    } else if (childForm.participantes_min == null) {
+      childForm.participantes_min = 1
     }
   },
 )
@@ -1693,6 +2177,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearPendingImage()
+  clearPendingChildImage()
   clearDragGhost()
   clearTimeout(pulseTimer)
   if (dropRaf) cancelAnimationFrame(dropRaf)
@@ -1823,7 +2308,7 @@ onBeforeUnmount(() => {
                     <td>
                       <div class="sub-name">
                         <span
-                          v-if="item.image_url"
+                          v-if="showsImage(item)"
                           class="sub-name__thumb"
                         >
                           <img :src="item.image_url" :alt="item.name" />
@@ -1831,7 +2316,7 @@ onBeforeUnmount(() => {
                         <span
                           v-else
                           class="sub-name__icon"
-                          :style="{ color: cssColor(item.categoria_subevento?.color) }"
+                          :style="{ color: colorFor(item), fontSize: iconSizeFor(item) }"
                         >
                           <i :class="iconFor(item)" />
                         </span>
@@ -1891,7 +2376,6 @@ onBeforeUnmount(() => {
                         v-tooltip.top="t('events.wizard.subOpenChildren')"
                         @click="enterChildren(item)"
                       />
-                      <Button type="button" icon="pi pi-eye" text rounded size="small" @click="selectItem(item)" />
                       <Button type="button" icon="pi pi-pencil" text rounded size="small" @click="openEdit(item)" />
                       <Button
                         type="button"
@@ -1904,6 +2388,7 @@ onBeforeUnmount(() => {
                         @click="duplicateSubevent(item)"
                       />
                       <Button
+                        v-if="!hasChildren(item)"
                         type="button"
                         icon="pi pi-trash"
                         text
@@ -1955,14 +2440,14 @@ onBeforeUnmount(() => {
         </div>
 
         <aside v-if="selected" class="sub-detail">
-          <div v-if="selected.image_url" class="sub-detail__media">
+          <div v-if="showsImage(selected)" class="sub-detail__media">
             <img :src="selected.image_url" :alt="selected.name" />
           </div>
           <div class="sub-detail__head">
             <span
-              v-if="!selected.image_url"
-              class="sub-name__icon"
-              :style="{ color: cssColor(selected.categoria_subevento?.color) }"
+              v-if="!showsImage(selected)"
+              class="sub-name__icon sub-name__icon--lg"
+              :style="{ color: colorFor(selected), fontSize: iconSizeFor(selected, 52) }"
             >
               <i :class="iconFor(selected)" />
             </span>
@@ -2192,12 +2677,37 @@ onBeforeUnmount(() => {
         </Message>
         <div class="sub-form__hero">
           <div class="field field--sub-cover">
+            <div class="visual-toggle" role="tablist">
+              <button
+                type="button"
+                :class="{ 'is-active': visualKind === 'imagen' }"
+                @click="setVisualKind('imagen')"
+              >
+                {{ t('events.wizard.subVisualImage') }}
+              </button>
+              <button
+                type="button"
+                :class="{ 'is-active': visualKind === 'icono' }"
+                @click="setVisualKind('icono')"
+              >
+                {{ t('events.wizard.subVisualIcon') }}
+              </button>
+            </div>
             <MediaCoverUpload
+              v-if="visualKind === 'imagen'"
               compact
               :src="imagePreview"
               :title="t('events.wizard.subImage')"
               @select="onPickImage"
             />
+            <IconColorPopover
+              v-else
+              variant="cover"
+              v-model:icono="form.icono"
+              v-model:color="form.color"
+              v-model:tamano="form.icono_tamano"
+            />
+            <small class="pj-muted">{{ t('events.wizard.subVisualHint') }}</small>
           </div>
           <div class="sub-form__hero-fields">
             <div class="field">
@@ -2252,384 +2762,29 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="sub-options">
-          <p class="sub-options__lead">{{ t('events.wizard.subOptionsLead') }}</p>
-
-          <div class="sub-tabs sub-tabs--options">
-            <button
-              type="button"
-              :class="{
-                'is-active': optionsTab === 'calificaciones',
-                'has-config': optionsTabHasConfig.calificaciones,
-              }"
-              @click="optionsTab = 'calificaciones'"
-            >
-              {{ t('events.wizard.subTabCalificaciones') }}
-            </button>
-            <button
-              type="button"
-              :class="{
-                'is-active': optionsTab === 'control',
-                'has-config': optionsTabHasConfig.control,
-              }"
-              @click="optionsTab = 'control'"
-            >
-              {{ t('events.wizard.subTabControl') }}
-            </button>
-            <button
-              type="button"
-              :class="{
-                'is-active': optionsTab === 'evidencias',
-                'has-config': optionsTabHasConfig.evidencias,
-              }"
-              @click="optionsTab = 'evidencias'"
-            >
-              {{ t('events.wizard.subTabEvidencias') }}
-            </button>
-            <button
-              type="button"
-              :class="{
-                'is-active': optionsTab === 'jueces',
-                'has-config': optionsTabHasConfig.jueces,
-              }"
-              @click="optionsTab = 'jueces'"
-            >
-              {{ t('events.wizard.subTabJueces') }}
-            </button>
-            <button
-              type="button"
-              :class="{
-                'is-active': optionsTab === 'hijos',
-                'has-config': optionsTabHasConfig.hijos,
-              }"
-              @click="optionsTab = 'hijos'"
-            >
-              {{ t('events.wizard.subTabChildren') }}
-            </button>
-            <button
-              type="button"
-              :class="{
-                'is-active': optionsTab === 'recursos',
-                'has-config': optionsTabHasConfig.recursos,
-              }"
-              @click="optionsTab = 'recursos'"
-            >
-              {{ t('events.wizard.subTabResources') }}
-            </button>
-          </div>
-
-          <div v-show="optionsTab === 'calificaciones'" class="sub-options__pane">
-          <div class="sub-option">
-            <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.esEnSitio" />
-              <span>{{ t('events.esEnSitio') }}</span>
-            </label>
-            <small class="pj-muted">{{ t('events.esEnSitioSubHint') }}</small>
-          </div>
-          <div class="sub-option">
-            <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.puntajeDesdeHijos" />
-              <span>{{ t('events.wizard.subOptScoreFromChildren') }}</span>
-            </label>
-            <div v-if="opts.puntajeDesdeHijos" class="sub-option__fields">
-              <small class="pj-muted">{{ t('events.wizard.subOptScoreFromChildrenHint') }}</small>
-              <div class="field">
-                <label>{{ t('events.wizard.subColScore') }}</label>
-                <InputNumber
-                  :model-value="childrenScoreSum"
-                  class="w-full"
-                  :min="0"
-                  disabled
-                />
-                <small class="pj-muted">
-                  {{
-                    loadingChildrenScore
-                      ? t('common.loading')
-                      : t('events.wizard.subScoreFromChildrenSum', { sum: childrenScoreSum })
-                  }}
-                </small>
-              </div>
-            </div>
-          </div>
-
-          <div class="sub-option">
-            <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.manejaPuntaje" />
-              <span>{{ t('events.wizard.subOptScore') }}</span>
-            </label>
-            <div v-if="opts.manejaPuntaje && !opts.puntajeDesdeHijos" class="sub-option__fields">
-              <label class="sub-option__nested">
-                <ToggleSwitch v-model="form.puntaje_por_participar" />
-                <span>{{ t('events.wizard.subOptScoreByParticipation') }}</span>
-              </label>
-              <small class="pj-muted">
-                {{ t('events.wizard.subOptScoreByParticipationHint') }}
-              </small>
-
-              <div class="field">
-                <label>{{ t('events.wizard.subColScore') }}</label>
-                <InputNumber v-model="form.puntaje_maximo" class="w-full" :min="0" />
-              </div>
-
-              <div v-if="!form.puntaje_por_participar" class="field">
-                <label>{{ t('events.wizard.criteriaAssign') }}</label>
-                <small class="pj-muted">{{ t('events.wizard.criteriaAssignHint') }}</small>
-                <MultiSelect
-                  v-model="assignedCriterioIds"
-                  :options="criterioOptions"
-                  option-label="label"
-                  option-value="id"
-                  display="chip"
-                  class="w-full"
-                  :placeholder="t('events.wizard.criteriaSelect')"
-                  @update:model-value="syncCriterioPointsSelection"
-                >
-                  <template #option="{ option }">
-                    <span class="crit-opt">
-                      <i
-                        :class="option.icono || 'pi pi-list-check'"
-                        :style="option.color ? { color: option.color } : undefined"
-                      />
-                      {{ option.label }}
-                    </span>
-                  </template>
-                </MultiSelect>
-                <div
-                  v-for="id in assignedCriterioIds"
-                  :key="id"
-                  class="field"
-                  style="margin-top: 0.45rem"
-                >
-                  <label>
-                    {{ criterioOptions.find((c) => c.id === id)?.nombre || id }} —
-                    {{ t('events.wizard.criteriaPoints') }}
-                  </label>
-                  <InputNumber v-model="criterioPoints[id]" class="w-full" :min="0" />
-                </div>
-                <small
-                  v-if="assignedCriterioIds.length"
-                  :class="criteriosSumOk ? 'pj-muted' : 'criteria-sum--bad'"
-                >
-                  {{
-                    t('events.wizard.criteriaSum', {
-                      sum: criteriosSum,
-                      max: form.puntaje_maximo ?? 0,
-                    })
-                  }}
-                </small>
-              </div>
-            </div>
-          </div>
-
-          <div class="sub-option">
-            <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.configCalificacion" />
-              <span>{{ t('events.wizard.subOptGrading') }}</span>
-            </label>
-            <div v-if="opts.configCalificacion" class="sub-option__fields">
-              <label class="sub-option__toggle">
-                <Checkbox v-model="form.requiere_puesto_entrega" :binary="true" />
-                <span>{{ t('events.wizard.subPuestoEntrega') }}</span>
-              </label>
-              <label class="sub-option__toggle">
-                <Checkbox v-model="form.requiere_tiempo_entrega" :binary="true" />
-                <span>{{ t('events.wizard.subTiempoEntrega') }}</span>
-              </label>
-              <div class="field">
-                <label>{{ t('events.wizard.subResultadoEsperado') }}</label>
-                <InputNumber
-                  v-model="form.resultado_esperado"
-                  class="w-full"
-                  :min="1"
-                  :placeholder="t('events.wizard.subResultadoEsperadoHint')"
-                />
-                <small class="pj-muted">{{ t('events.wizard.subResultadoEsperadoHint') }}</small>
-              </div>
-            </div>
-          </div>
-
-          <div class="sub-option">
-            <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.manejaPenalizaciones" />
-              <span>{{ t('events.wizard.subOptPenalties') }}</span>
-            </label>
-            <div v-if="opts.manejaPenalizaciones" class="sub-option__fields">
-              <small class="pj-muted">{{ t('events.wizard.subPenaltyLead') }}</small>
-              <div class="field">
-                <label>{{ t('events.wizard.subPenaltyPoints') }}</label>
-                <InputNumber
-                  v-model="form.puntos_penalizacion"
-                  class="w-full"
-                  :min="0"
-                  suffix=" pts"
-                />
-              </div>
-              <div class="field">
-                <label>{{ t('events.wizard.subPenaltyRules') }}</label>
-                <Textarea
-                  v-model="form.reglas_penalizacion"
-                  rows="3"
-                  class="w-full"
-                  auto-resize
-                  :placeholder="t('events.wizard.subPenaltyRulesPlaceholder')"
-                />
-              </div>
-            </div>
-          </div>
-          </div>
-
-          <div v-show="optionsTab === 'control'" class="sub-options__pane">
-          <div class="sub-option">
-            <label class="sub-option__toggle">
-              <ToggleSwitch
-                v-model="opts.controlParticipantes"
-                @update:model-value="(on) => {
-                  if (on) form.permite_inscribir_no_participantes = true
-                }"
-              />
-              <span>{{ t('events.wizard.subOptParticipants') }}</span>
-            </label>
-            <div v-if="opts.controlParticipantes" class="sub-option__fields field-grid">
-              <div class="field field--wide">
-                <label class="sub-option__toggle">
-                  <ToggleSwitch v-model="form.permite_inscribir_no_participantes" />
-                  <span>{{ t('events.wizard.subOptEnrollNonParticipants') }}</span>
-                </label>
-                <small class="pj-muted">{{ t('events.wizard.subOptEnrollNonParticipantsHint') }}</small>
-              </div>
-              <div v-if="form.permite_inscribir_no_participantes" class="field field--wide">
-                <label>{{ t('events.wizard.subParticipantsGender') }}</label>
-                <Select
-                  v-model="form.participantes_genero"
-                  :options="participantesGeneroOptions"
-                  option-label="label"
-                  option-value="value"
-                  class="w-full"
-                />
-              </div>
-              <template v-if="form.permite_inscribir_no_participantes && form.participantes_genero !== 'mixto'">
-                <div class="field">
-                  <label>{{ t('events.wizard.subParticipantsMin') }}</label>
-                  <InputNumber v-model="form.participantes_min" class="w-full" :min="1" />
-                </div>
-                <div class="field">
-                  <label>{{ t('events.wizard.subParticipantsMax') }}</label>
-                  <InputNumber v-model="form.participantes_max" class="w-full" :min="1" />
-                  <small class="pj-muted">{{ t('events.wizard.subParticipantsMaxHint') }}</small>
-                </div>
-              </template>
-              <template v-else-if="form.permite_inscribir_no_participantes">
-                <div class="field">
-                  <label>{{ t('events.wizard.subParticipantsMinM') }}</label>
-                  <InputNumber v-model="form.participantes_min_m" class="w-full" :min="0" />
-                </div>
-                <div class="field">
-                  <label>{{ t('events.wizard.subParticipantsMaxM') }}</label>
-                  <InputNumber v-model="form.participantes_max_m" class="w-full" :min="0" />
-                </div>
-                <div class="field">
-                  <label>{{ t('events.wizard.subParticipantsMinF') }}</label>
-                  <InputNumber v-model="form.participantes_min_f" class="w-full" :min="0" />
-                </div>
-                <div class="field">
-                  <label>{{ t('events.wizard.subParticipantsMaxF') }}</label>
-                  <InputNumber v-model="form.participantes_max_f" class="w-full" :min="0" />
-                </div>
-                <div class="field field--wide">
-                  <small class="pj-muted">{{ t('events.wizard.subParticipantsMaxHint') }}</small>
-                </div>
-              </template>
-            </div>
-          </div>
-
-          <div class="sub-option">
-            <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.esConjunto" />
-              <span>{{ t('events.wizard.subOptJoint') }}</span>
-            </label>
-            <div v-if="opts.esConjunto" class="sub-option__fields">
-              <div class="field">
-                <label>{{ t('events.wizard.subJointLevel') }}</label>
-                <Select
-                  v-model="form.nivel_conjunto"
-                  :options="nivelConjuntoOptions"
-                  option-label="label"
-                  option-value="value"
-                  class="w-full"
-                  :placeholder="t('events.wizard.subJointLevelPlaceholder')"
-                />
-                <small class="pj-muted">{{ t('events.wizard.subJointLevelHint') }}</small>
-              </div>
-            </div>
-          </div>
-
-          <div class="sub-option">
-            <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.manejaFechaFin" />
-              <span>{{ t('events.wizard.subOptEndDate') }}</span>
-            </label>
-            <div v-if="opts.manejaFechaFin" class="sub-option__fields">
-              <div class="field">
-                <label>{{ t('events.endsAt') }}</label>
-                <DatePicker
-                  :model-value="form.ends_at"
-                  date-format="dd/mm/yy"
-                  class="w-full"
-                  :min-date="opts.esEnSitio ? parentMinDate : undefined"
-                  :max-date="opts.esEnSitio ? parentMaxDate : undefined"
-                  @update:model-value="(v) => (form.ends_at = dateOnly(Array.isArray(v) ? v[0] : v))"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div class="sub-option">
-            <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.tieneValor" />
-              <span>{{ t('events.wizard.subOptValue') }}</span>
-            </label>
-            <div v-if="opts.tieneValor" class="sub-option__fields">
-              <small class="pj-muted">{{ t('events.wizard.subValueLead') }}</small>
-              <div class="field">
-                <label>{{ t('events.wizard.subValueAmount') }}</label>
-                <InputNumber
-                  v-model="form.precio"
-                  class="w-full"
-                  mode="currency"
-                  currency="USD"
-                  locale="en-US"
-                  :min="0"
-                />
-              </div>
-            </div>
-          </div>
-          </div>
-
-          <div v-show="optionsTab === 'evidencias'" class="sub-options__pane">
-          <div class="sub-option">
-            <label class="sub-option__toggle">
-              <ToggleSwitch v-model="opts.requiereEvidencia" />
-              <span>{{ t('events.wizard.subOptEvidence') }}</span>
-            </label>
-            <div v-if="opts.requiereEvidencia" class="sub-option__fields">
-              <small class="pj-muted">{{ t('events.wizard.subEvidenceLead') }}</small>
-              <div class="evidence-types">
-                <button
-                  v-for="opt in evidenciaTipoOptions"
-                  :key="opt.key"
-                  type="button"
-                  class="evidence-type"
-                  :class="{ 'is-active': form.tipos_evidencia.includes(opt.key) }"
-                  @click="toggleEvidenciaTipo(opt.key)"
-                >
-                  {{ opt.label }}
-                </button>
-              </div>
-            </div>
-          </div>
-          </div>
-
-          <div v-show="optionsTab === 'hijos'" class="sub-options__pane">
+        <EventSubeventConfigTabs
+          :form="form"
+          :opts="opts"
+          :assigned-criterio-ids="assignedCriterioIds"
+          :criterio-points="criterioPoints"
+          :criterio-options="criterioOptions"
+          :juez-options="juezOptions"
+          :supervisor-options="supervisorOptions"
+          :participantes-genero-options="participantesGeneroOptions"
+          :nivel-conjunto-options="nivelConjuntoOptions"
+          :materiales="materiales"
+          :event-id="editingId"
+          :children-score-sum="childrenScoreSum"
+          :loading-children-score="loadingChildrenScore"
+          :min-date="parentMinDate"
+          :max-date="parentMaxDate"
+          @update:assigned-criterio-ids="assignedCriterioIds = $event"
+          @queued="pendingMaterialFiles = [...pendingMaterialFiles, ...$event]"
+          @queued-youtube="pendingYoutube = [...pendingYoutube, $event]"
+          @uploaded="materiales = [...materiales, $event]"
+          @removed="materiales = materiales.filter((item) => item.id !== $event)"
+        >
+          <template #hijos>
             <div class="sub-option">
               <label class="sub-option__toggle">
                 <ToggleSwitch v-model="opts.tieneSubeventos" />
@@ -2658,53 +2813,8 @@ onBeforeUnmount(() => {
                 </li>
               </ul>
             </div>
-          </div>
-
-          <div v-show="optionsTab === 'jueces'" class="sub-options__pane">
-          <div class="field">
-            <label>{{ t('events.wizard.subJudge') }}</label>
-            <MultiSelect
-              v-model="form.juez_ids"
-              :options="juezOptions"
-              option-label="label"
-              option-value="id"
-              class="w-full"
-              display="chip"
-              filter
-              :placeholder="t('events.wizard.subJudgePlaceholder')"
-              :empty-message="t('events.wizard.subJudgeNoneAvailable')"
-            />
-            <small class="pj-muted">{{ t('events.wizard.subJudgeHint') }}</small>
-          </div>
-
-          <div class="field">
-            <label>{{ t('events.wizard.subSupervisor') }}</label>
-            <MultiSelect
-              v-model="form.supervisor_ids"
-              :options="supervisorOptions"
-              option-label="label"
-              option-value="id"
-              class="w-full"
-              display="chip"
-              filter
-              :placeholder="t('events.wizard.subSupervisorPlaceholder')"
-              :empty-message="t('events.wizard.subSupervisorNoneAvailable')"
-            />
-            <small class="pj-muted">{{ t('events.wizard.subSupervisorHint') }}</small>
-          </div>
-          </div>
-
-          <div v-show="optionsTab === 'recursos'" class="sub-options__pane">
-            <EventMaterialsPanel
-              :event-id="editingId"
-              :files="materiales"
-              @queued="pendingMaterialFiles = [...pendingMaterialFiles, ...$event]"
-              @queued-youtube="pendingYoutube = [...pendingYoutube, $event]"
-              @uploaded="materiales = [...materiales, $event]"
-              @removed="materiales = materiales.filter((item) => item.id !== $event)"
-            />
-          </div>
-        </div>
+          </template>
+        </EventSubeventConfigTabs>
       </div>
       <template #footer>
         <Button
@@ -2732,61 +2842,138 @@ onBeforeUnmount(() => {
         <Message v-if="childError" severity="error" :closable="true" @close="childError = ''">
           {{ childError }}
         </Message>
-        <div class="field">
-          <label>{{ t('events.name') }}</label>
-          <InputText v-model="childForm.name" class="w-full" />
+        <div class="sub-form__hero">
+          <div class="field field--sub-cover">
+            <div class="visual-toggle" role="tablist">
+              <button
+                type="button"
+                :class="{ 'is-active': childVisualKind === 'imagen' }"
+                @click="setChildVisualKind('imagen')"
+              >
+                {{ t('events.wizard.subVisualImage') }}
+              </button>
+              <button
+                type="button"
+                :class="{ 'is-active': childVisualKind === 'icono' }"
+                @click="setChildVisualKind('icono')"
+              >
+                {{ t('events.wizard.subVisualIcon') }}
+              </button>
+            </div>
+            <MediaCoverUpload
+              v-if="childVisualKind === 'imagen'"
+              compact
+              :src="childImagePreview"
+              :title="t('events.wizard.subImage')"
+              @select="onPickChildImage"
+            />
+            <IconColorPopover
+              v-else
+              variant="cover"
+              v-model:icono="childForm.icono"
+              v-model:color="childForm.color"
+              v-model:tamano="childForm.icono_tamano"
+            />
+            <small class="pj-muted">{{ t('events.wizard.subVisualHint') }}</small>
+          </div>
+          <div class="sub-form__hero-fields">
+            <div class="field">
+              <label>{{ t('events.name') }}</label>
+              <InputText v-model="childForm.name" class="w-full" />
+            </div>
+            <div class="field">
+              <label>{{ t('events.wizard.shortDescription') }}</label>
+              <Textarea v-model="childForm.descripcion" rows="3" class="w-full" auto-resize />
+            </div>
+          </div>
         </div>
         <div class="field">
-          <label>{{ t('events.wizard.shortDescription') }}</label>
-          <Textarea v-model="childForm.descripcion" rows="3" class="w-full" auto-resize />
-        </div>
-        <div class="field">
-          <label class="sub-option__toggle">
-            <ToggleSwitch v-model="childEsEnSitio" />
-            <span>{{ t('events.esEnSitio') }}</span>
-          </label>
-          <small class="pj-muted">{{ t('events.esEnSitioSubHint') }}</small>
+          <label>{{ t('events.wizard.subTabRules') }}</label>
+          <RichTextField v-model="childForm.reglas" />
+          <small class="pj-muted">{{ t('events.wizard.subRulesHint') }}</small>
         </div>
         <div class="field-grid">
+          <div class="field">
+            <label>{{ t('events.tipoEvento') }}</label>
+            <Select
+              v-model="childForm.tipo_evento_id"
+              :options="tiposEvento"
+              option-label="nombre"
+              option-value="id"
+              show-clear
+              :placeholder="t('events.tipoEventoPlaceholder')"
+              class="w-full"
+            />
+          </div>
           <div class="field">
             <label>{{ t('events.startsAt') }}</label>
             <DatePicker
               :model-value="childForm.starts_at"
               date-format="dd/mm/yy"
               class="w-full"
-              :min-date="childEsEnSitio ? childMinDate : undefined"
-              :max-date="childEsEnSitio ? childMaxDate : undefined"
+              :min-date="childOpts.esEnSitio ? childMinDate : undefined"
+              :max-date="childOpts.esEnSitio ? childMaxDate : undefined"
               @update:model-value="(v) => (childForm.starts_at = dateOnly(Array.isArray(v) ? v[0] : v))"
             />
+            <small v-if="childOpts.esEnSitio" class="pj-muted">{{ t('events.esEnSitioSubHint') }}</small>
           </div>
           <div class="field">
-            <label>{{ t('events.endsAt') }}</label>
-            <DatePicker
-              :model-value="childForm.ends_at"
-              date-format="dd/mm/yy"
+            <label>{{ t('events.workflowStatus') }}</label>
+            <Select
+              v-model="childForm.estado"
+              :options="estadoOptions"
+              option-label="label"
+              option-value="value"
               class="w-full"
-              :min-date="childEsEnSitio ? childMinDate : undefined"
-              :max-date="childEsEnSitio ? childMaxDate : undefined"
-              @update:model-value="(v) => (childForm.ends_at = dateOnly(Array.isArray(v) ? v[0] : v))"
             />
           </div>
         </div>
+
+        <EventSubeventConfigTabs
+          :form="childForm"
+          :opts="childOpts"
+          :assigned-criterio-ids="childAssignedCriterioIds"
+          :criterio-points="childCriterioPoints"
+          :criterio-options="criterioOptions"
+          :juez-options="juezOptions"
+          :supervisor-options="supervisorOptions"
+          :participantes-genero-options="participantesGeneroOptions"
+          :nivel-conjunto-options="nivelConjuntoOptions"
+          :materiales="childMateriales"
+          :event-id="childEditingId"
+          hide-children
+          :show-score-from-children="false"
+          :min-date="childOpts.esEnSitio ? childMinDate : undefined"
+          :max-date="childOpts.esEnSitio ? childMaxDate : undefined"
+          @update:assigned-criterio-ids="childAssignedCriterioIds = $event"
+          @queued="childPendingMaterialFiles = [...childPendingMaterialFiles, ...$event]"
+          @queued-youtube="childPendingYoutube = [...childPendingYoutube, $event]"
+          @uploaded="childMateriales = [...childMateriales, $event]"
+          @removed="childMateriales = childMateriales.filter((item) => item.id !== $event)"
+        />
       </div>
       <template #footer>
         <Button
           :label="t('common.cancel')"
           text
-          :disabled="childSaving || saving"
+          :disabled="childSaving || saving || childUploadingImage"
           @click="childDrawerVisible = false"
         />
         <Button
           :label="t('common.save')"
           icon="pi pi-check"
-          :loading="childSaving || saving"
+          :loading="childSaving || saving || childUploadingImage"
           @click="saveChildSubevent"
         />
       </template>
     </AppStackDrawer>
+    <JuezPropagateDialog
+      v-model:visible="juezConflictVisible"
+      :conflicts="juezConflicts"
+      :applying="juezConflictApplying"
+      @apply="applyJuezConflicts"
+      @dismiss="dismissJuezConflicts"
+    />
   </div>
 </template>
 
@@ -3052,6 +3239,11 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+.sub-name__icon--lg {
+  width: 3.75rem;
+  height: 3.75rem;
+}
+
 .sub-name__thumb {
   width: 2.35rem;
   height: 2.35rem;
@@ -3287,6 +3479,33 @@ onBeforeUnmount(() => {
 
 .field--sub-cover {
   max-width: 14rem;
+}
+
+.visual-toggle {
+  display: flex;
+  margin-bottom: 0.45rem;
+  padding: 0.15rem;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--pj-navy) 6%, #fff);
+}
+
+.visual-toggle button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  border-radius: 7px;
+  padding: 0.32rem 0.4rem;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 650;
+  color: var(--pj-text-muted);
+  cursor: pointer;
+}
+
+.visual-toggle button.is-active {
+  background: #fff;
+  color: var(--pj-navy);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--pj-navy) 12%, transparent);
 }
 
 .sub-form__hero-fields {

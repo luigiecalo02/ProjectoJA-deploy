@@ -3,6 +3,7 @@ import { prepareUploadFile } from '@/utils/optimizeImage'
 import type { ApiEnvelope, PaginationMeta } from '@/types/api'
 import type {
   ClubEvent,
+  JuezConflictAction,
   EventFormPayload,
   EventListParams,
   TipoEvento,
@@ -613,6 +614,20 @@ export const eventsService = {
 
   async update(id: number, payload: EventFormPayload): Promise<ClubEvent> {
     const { data } = await api.patch<ApiEnvelope<ClubEvent>>(`/api/v1/events/${id}`, payload)
+    return data.data
+  }
+
+  async resolveJuezConflicts(
+    id: number,
+    payload: {
+      incoming_juez_ids: number[]
+      decisions: Array<{ event_id: number; action: JuezConflictAction }>
+    },
+  ): Promise<ClubEvent> {
+    const { data } = await api.post<ApiEnvelope<ClubEvent>>(
+      `/api/v1/events/${id}/jueces-conflictos`,
+      payload,
+    )
     return data.data
   },
 

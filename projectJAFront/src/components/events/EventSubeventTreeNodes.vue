@@ -3,6 +3,7 @@ import { useI18n } from 'vue-i18n'
 import Button from 'primevue/button'
 import type { ClubEvent } from '@/modules/events/types'
 import { cssColor } from '@/utils/color'
+import { iconFontSize } from '@/utils/iconSize'
 
 const props = withDefaults(
   defineProps<{
@@ -48,7 +49,19 @@ function hasChildren(node: ClubEvent): boolean {
 }
 
 function iconFor(item: ClubEvent): string {
-  return item.categoria_subevento?.icono || item.tipo_evento?.icono || 'pi pi-sitemap'
+  return item.icono || item.categoria_subevento?.icono || item.tipo_evento?.icono || 'pi pi-sitemap'
+}
+
+function colorFor(item: ClubEvent): string | undefined {
+  return cssColor(item.color || item.categoria_subevento?.color || item.tipo_evento?.color)
+}
+
+function iconSizeFor(item: ClubEvent): string {
+  return iconFontSize(item.icono_tamano, 22)
+}
+
+function showsImage(item: ClubEvent): boolean {
+  return Boolean(item.image_url) && !item.icono
 }
 
 function dropClassFor(itemId: number): string {
@@ -94,13 +107,13 @@ function dropClassFor(itemId: number): string {
         </button>
         <span v-else class="sub-tree__spacer" />
 
-        <span v-if="node.image_url" class="sub-tree__thumb">
+        <span v-if="showsImage(node)" class="sub-tree__thumb">
           <img :src="node.image_url" :alt="node.name" />
         </span>
         <span
           v-else
           class="sub-tree__icon"
-          :style="{ color: cssColor(node.categoria_subevento?.color) }"
+          :style="{ color: colorFor(node), fontSize: iconSizeFor(node) }"
         >
           <i :class="iconFor(node)" />
         </span>
@@ -170,6 +183,7 @@ function dropClassFor(itemId: number): string {
             @click="emit('duplicate', node)"
           />
           <Button
+            v-if="!hasChildren(node)"
             type="button"
             icon="pi pi-trash"
             text

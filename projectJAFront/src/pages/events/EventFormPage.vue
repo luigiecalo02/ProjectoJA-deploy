@@ -23,6 +23,8 @@ import MediaCoverUpload from '@/components/media/MediaCoverUpload.vue'
 import MediaProfileUpload from '@/components/media/MediaProfileUpload.vue'
 import EventBannerCard from '@/components/events/EventBannerCard.vue'
 import EventMaterialsPanel from '@/components/events/EventMaterialsPanel.vue'
+import JuezPropagateDialog from '@/components/events/JuezPropagateDialog.vue'
+import { useJuezPropagate } from '@/composables/useJuezPropagate'
 import { clubsService } from '@/services/clubsService'
 import { organizacionesService } from '@/services/organizacionesService'
 import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
@@ -78,6 +80,14 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const {
+  visible: juezConflictVisible,
+  applying: juezConflictApplying,
+  conflicts: juezConflicts,
+  offer: offerJuezConflicts,
+  apply: applyJuezConflicts,
+  dismiss: dismissJuezConflicts,
+} = useJuezPropagate()
 const auth = useAuthStore()
 
 const loading = ref(false)
@@ -803,6 +813,7 @@ async function persistEvent(estado: string): Promise<ClubEvent> {
   const payload = buildPayload(estado)
   const hadPendingMedia = Boolean(pendingImage.value || pendingBanner.value)
   let saved: ClubEvent
+  let conflictSource: ClubEvent
   if (persistedId.value) {
     saved = await eventsService.update(persistedId.value, payload)
     if (pendingImage.value) await uploadPendingImage(persistedId.value)
@@ -816,6 +827,7 @@ async function persistEvent(estado: string): Promise<ClubEvent> {
     await flushPendingMaterials(saved.id)
     await router.replace({ name: 'events.edit', params: { id: saved.id } })
   }
+  conflictSource = saved
 
   if (hadPendingMedia && persistedId.value) {
     saved = await eventsService.get(persistedId.value)
@@ -825,6 +837,7 @@ async function persistEvent(estado: string): Promise<ClubEvent> {
   if (!form.starts_at && saved.starts_at) form.starts_at = dateOnly(saved.starts_at)
   if (!form.ends_at && saved.ends_at) form.ends_at = dateOnly(saved.ends_at)
   form.estado = saved.estado || estado
+  await offerJuezConflicts(conflictSource)
   return saved
 }
 
@@ -2193,6 +2206,13 @@ onBeforeUnmount(() => {
       </footer>
     </div>
 
+    <JuezPropagateDialog
+      v-model:visible="juezConflictVisible"
+      :conflicts="juezConflicts"
+      :applying="juezConflictApplying"
+      @apply="applyJuezConflicts"
+      @dismiss="dismissJuezConflicts"
+    />
   </section>
 </template>
 

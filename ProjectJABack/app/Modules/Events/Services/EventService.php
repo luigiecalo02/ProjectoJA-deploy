@@ -28,6 +28,7 @@ final class EventService
         private readonly OrganizationAccessService $orgAccess,
         private readonly CriterioEvaluacionService $criterioService,
         private readonly ImageOptimizer $imageOptimizer,
+        private readonly EventJudgePropagationService $judgePropagation,
     ) {}
 
     public function list(User $actor, array $filters = [], int $perPage = 15): LengthAwarePaginator
@@ -393,8 +394,10 @@ final class EventService
             $event = Event::query()->create($data);
             $this->syncOrganizaciones($event, $orgIds);
             $this->syncTiposOrganizacion($event, $tipoIds);
+            $juezConflicts = [];
             if (is_array($juezIds)) {
                 $event->jueces()->sync($juezIds);
+                $juezConflicts = $this->judgePropagation->propagateAdded($event, $juezIds);
             }
             if (is_array($supervisorIds)) {
                 $event->supervisores()->sync($supervisorIds);
@@ -421,6 +424,7 @@ final class EventService
                 'catalogLugar:id,nombre,descripcion,latitud,longitud,nivel_zoom,estado',
             ]);
             $this->auditLogger->log('events', 'create', null, $event->toArray(), $event);
+            $event->setAttribute('juez_conflicts', $juezConflicts);
 
             return $event;
         });
@@ -488,8 +492,15 @@ final class EventService
             if ($hasTipos && is_array($tipoIds)) {
                 $this->syncTiposOrganizacion($event, $tipoIds);
             }
+            $juezConflicts = [];
             if ($hasJueces && is_array($juezIds)) {
+                $previousJuezIds = collect($old['jueces'] ?? [])
+                    ->pluck('id')
+                    ->map(fn ($id) => (int) $id)
+                    ->all();
                 $event->jueces()->sync($juezIds);
+                $addedJuezIds = array_values(array_diff($juezIds, $previousJuezIds));
+                $juezConflicts = $this->judgePropagation->propagateAdded($event, $addedJuezIds);
             }
             if ($hasSupervisores && is_array($supervisorIds)) {
                 $event->supervisores()->sync($supervisorIds);
@@ -518,9 +529,23 @@ final class EventService
                 'catalogLugar:id,nombre,descripcion,latitud,longitud,nivel_zoom,estado',
             ]);
             $this->auditLogger->log('events', 'update', $old, $event->toArray(), $event);
+            $event->setAttribute('juez_conflicts', $juezConflicts);
 
             return $event;
         });
+    }
+
+    /**
+     * @param  list<int>  $incomingJuezIds
+     * @param  list<array{event_id: int, action: string}>  $decisions
+     */
+    public function resolveJuezConflicts(Event $event, User $actor, array $incomingJuezIds, array $decisions): void
+    {
+        $this->judgePropagation->resolve($event, $incomingJuezIds, $decisions);
+        $this->auditLogger->log('events', 'update', null, [
+            'juez_conflicts_resolved' => true,
+            'incoming_juez_ids' => $incomingJuezIds,
+        ], $event);
     }
 
     public function changeEstado(Event $event, User $actor, string $estado): Event

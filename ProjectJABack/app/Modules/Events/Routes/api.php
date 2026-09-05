@@ -65,6 +65,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('events/{event}', [EventController::class, 'show']);
     Route::put('events/{event}', [EventController::class, 'update']);
     Route::patch('events/{event}', [EventController::class, 'update']);
+    Route::post('events/{event}/jueces-conflictos', [EventController::class, 'resolveJuezConflicts']);
     Route::patch('events/{event}/estado', [EventController::class, 'updateEstado']);
     Route::post('events/{event}/reorder-children', [EventController::class, 'reorderChildren']);
     Route::post('events/{event}/move', [EventController::class, 'move']);

@@ -130,6 +130,9 @@ class UpdateEventRequest extends FormRequest
             'criterios.*.puntos' => ['required_with:criterios', 'numeric', 'min:0'],
             'criterios.*.orden' => ['nullable', 'integer', 'min:0'],
             'image_url' => ['nullable', 'string', 'max:2048'],
+            'icono' => ['nullable', 'string', 'max:64'],
+            'color' => ['nullable', 'string', 'max:32'],
+            'icono_tamano' => ['nullable', 'integer', 'min:24', 'max:96'],
             'banner_url' => ['nullable', 'string', 'max:2048'],
         ];
     }

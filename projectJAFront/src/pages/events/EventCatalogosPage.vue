@@ -18,8 +18,7 @@ import TabPanel from 'primevue/tabpanel'
 import Textarea from 'primevue/textarea'
 import ToggleSwitch from 'primevue/toggleswitch'
 import PageLoader from '@/components/PageLoader.vue'
-import ColorAlphaPicker from '@/components/terrenos/ColorAlphaPicker.vue'
-import PrimeIconPicker from '@/components/PrimeIconPicker.vue'
+import IconColorPopover from '@/components/IconColorPopover.vue'
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
@@ -502,16 +501,12 @@ onMounted(() => {
           <InputText v-model="catForm.nombre" class="w-full" />
         </div>
         <div class="field">
-          <label>{{ t('events.wizard.catColor') }}</label>
-          <ColorAlphaPicker v-model="catForm.color" />
+          <label>{{ t('events.wizard.subVisualPick') }}</label>
+          <IconColorPopover v-model:icono="catForm.icono" v-model:color="catForm.color" />
         </div>
         <div class="field">
           <label>{{ t('events.wizard.catOrder') }}</label>
           <InputNumber v-model="catForm.orden" class="w-full" :min="0" />
-        </div>
-        <div class="field field--full">
-          <label>{{ t('events.wizard.catIcon') }}</label>
-          <PrimeIconPicker v-model="catForm.icono" :color="catForm.color" />
         </div>
         <div class="field field--row field--full">
           <label>{{ t('events.wizard.catActive') }}</label>
@@ -556,16 +551,12 @@ onMounted(() => {
           <Textarea v-model="critForm.descripcion" rows="3" class="w-full" auto-resize />
         </div>
         <div class="field">
-          <label>{{ t('events.wizard.catColor') }}</label>
-          <ColorAlphaPicker v-model="critForm.color" />
+          <label>{{ t('events.wizard.subVisualPick') }}</label>
+          <IconColorPopover v-model:icono="critForm.icono" v-model:color="critForm.color" />
         </div>
         <div class="field">
           <label>{{ t('events.wizard.catOrder') }}</label>
           <InputNumber v-model="critForm.orden" class="w-full" :min="0" />
-        </div>
-        <div class="field field--full">
-          <label>{{ t('events.wizard.catIcon') }}</label>
-          <PrimeIconPicker v-model="critForm.icono" :color="critForm.color" />
         </div>
         <div class="field field--row">
           <label>{{ t('common.active') }}</label>

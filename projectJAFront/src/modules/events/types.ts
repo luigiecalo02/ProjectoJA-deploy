@@ -373,6 +373,7 @@ export interface JudgeTreeNode {
   asignado?: boolean
   icono?: string | null
   color?: string | null
+  icono_tamano?: number | null
   categoria?: string | null
   tipo?: string | null
   hijos?: JudgeTreeNode[]
@@ -573,6 +574,17 @@ export interface EventoDescuentoDirectiva {
 
 export type EventoVisibilidad = 'publico' | 'privado' | 'organizacion'
 
+export type JuezConflictAction = 'replace' | 'keep_both' | 'keep_existing'
+
+export interface JuezPropagateConflict {
+  id: number
+  name: string
+  juez_ids: number[]
+  jueces: Array<{ id: number; name: string; email?: string | null }>
+  incoming_juez_ids: number[]
+  incoming_jueces: Array<{ id: number; name: string; email?: string | null }>
+}
+
 export interface ClubEvent {
   id: number
   name: string
@@ -594,6 +606,9 @@ export interface ClubEvent {
   latitud?: number | null
   longitud?: number | null
   image_url: string | null
+  icono?: string | null
+  color?: string | null
+  icono_tamano?: number | null
   banner_url?: string | null
   starts_at: string
   ends_at: string
@@ -699,6 +714,7 @@ export interface ClubEvent {
   jueces?: Array<{ id: number; name: string; email?: string | null }>
   jueces_efectivos?: Array<{ id: number; name: string; email?: string | null }>
   jueces_heredados?: boolean
+  juez_conflicts?: JuezPropagateConflict[]
   supervisor_ids?: number[]
   supervisores?: Array<{ id: number; name: string; email?: string | null }>
   supervisores_efectivos?: Array<{ id: number; name: string; email?: string | null }>
@@ -825,6 +841,9 @@ export interface EventFormPayload {
   criterio_disponible_ids?: number[]
   criterios?: Array<{ id?: number; criterio_evaluacion_id?: number; puntos: number; orden?: number }>
   image_url?: string | null
+  icono?: string | null
+  color?: string | null
+  icono_tamano?: number | null
   banner_url?: string | null
 }
 

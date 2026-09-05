@@ -80,6 +80,31 @@ final class EventController
         return ApiResponse::success($this->payload($event), 'Evento actualizado');
     }
 
+    public function resolveJuezConflicts(Request $request, Event $event): JsonResponse
+    {
+        abort_unless($request->user()->can('update', $event), Response::HTTP_FORBIDDEN);
+
+        $data = $request->validate([
+            'incoming_juez_ids' => ['required', 'array'],
+            'incoming_juez_ids.*' => ['integer', 'exists:users,id'],
+            'decisions' => ['required', 'array', 'min:1'],
+            'decisions.*.event_id' => ['required', 'integer', 'exists:events,id'],
+            'decisions.*.action' => ['required', 'string', 'in:replace,keep_both,keep_existing'],
+        ]);
+
+        $this->eventService->resolveJuezConflicts(
+            $event,
+            $request->user(),
+            array_map('intval', $data['incoming_juez_ids']),
+            $data['decisions'],
+        );
+
+        return ApiResponse::success(
+            $this->payload($this->eventService->find($event->id), $request->user()),
+            'Jueces de subeventos actualizados'
+        );
+    }
+
     public function updateEstado(Request $request, Event $event): JsonResponse
     {
         $actor = $request->user();
@@ -264,7 +289,7 @@ final class EventController
             )
             : null;
 
-        return [
+        $payload = [
             'id' => $event->id,
             'evento_padre_id' => $event->evento_padre_id,
             'orden' => (int) ($event->orden ?? 0),
@@ -320,6 +345,9 @@ final class EventController
             'latitud' => $event->latitud !== null ? (float) $event->latitud : null,
             'longitud' => $event->longitud !== null ? (float) $event->longitud : null,
             'image_url' => $event->image_url,
+            'icono' => $event->icono,
+            'color' => $event->color,
+            'icono_tamano' => $event->icono_tamano !== null ? (int) $event->icono_tamano : null,
             'banner_url' => $event->banner_url,
             'archivos' => $this->archivos->list($event),
             'inscritos_count' => array_key_exists('inscritos_count', $event->getAttributes())
@@ -455,5 +483,12 @@ final class EventController
             'created_at' => $event->created_at,
             'updated_at' => $event->updated_at,
         ];
+
+        $conflicts = $event->getAttribute('juez_conflicts');
+        if (is_array($conflicts) && $conflicts !== []) {
+            $payload['juez_conflicts'] = $conflicts;
+        }
+
+        return $payload;
     }
 }
