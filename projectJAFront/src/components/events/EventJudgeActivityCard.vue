@@ -11,6 +11,7 @@ import type {
 } from '@/modules/events/types'
 import { formatDateOnly } from '@/modules/events/dateUtils'
 import { cssColor } from '@/utils/color'
+import RichTextView from '@/components/RichTextView.vue'
 
 type EvidenceKind = 'faltante' | 'cargada' | 'no_aplica' | 'mixto'
 
@@ -562,9 +563,11 @@ const subeventoRows = computed(() =>
     </div>
 
     <div v-show="detailTab === 'reglas'" class="judge-activity__body">
-      <p class="judge-activity__prose">
-        {{ actividad.reglas || t('events.wizard.subNoRules') }}
-      </p>
+      <RichTextView
+        class="judge-activity__prose"
+        :html="actividad.reglas"
+        :empty="t('events.wizard.subNoRules')"
+      />
     </div>
 
     <div v-show="detailTab === 'puntaje'" class="judge-activity__body">

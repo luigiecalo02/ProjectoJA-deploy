@@ -98,12 +98,26 @@ const materiales = ref<EventoArchivoMaterial[]>([])
 const pendingMaterialFiles = ref<File[]>([])
 const pendingYoutube = ref<Array<{ url: string; titulo?: string }>>([])
 const pendingBannerPreview = ref<string | null>(null)
-const configTab = ref<'inscripcion' | 'descuentos' | 'calificaciones' | 'servicios'>(
+const configTab = ref<'inscripcion' | 'descuentos' | 'calificaciones' | 'servicios' | 'materiales'>(
   'inscripcion',
 )
 const categoriasVersion = ref(0)
 const categoriasCatalog = ref<CategoriaSubevento[]>([])
 const criteriosCatalog = ref<CriterioEvaluacion[]>([])
+const juecesCatalog = ref<Array<{ id: number; name: string; email?: string | null }>>([])
+const supervisoresCatalog = ref<Array<{ id: number; name: string; email?: string | null }>>([])
+const juezSelectOptions = computed(() =>
+  juecesCatalog.value.map((item) => ({
+    ...item,
+    label: item.email ? `${item.name} (${item.email})` : item.name,
+  })),
+)
+const supervisorSelectOptions = computed(() =>
+  supervisoresCatalog.value.map((item) => ({
+    ...item,
+    label: item.email ? `${item.name} (${item.email})` : item.name,
+  })),
+)
 const categoriaSelectOptions = computed(() =>
   categoriasCatalog.value.map((item) => ({ label: item.nombre, value: item.id })),
 )
@@ -175,6 +189,8 @@ const form = reactive({
   es_en_sitio: true,
   es_calificable: false,
   tiene_subeventos: false,
+  juez_ids: [] as number[],
+  supervisor_ids: [] as number[],
   puntaje_maximo: null as number | null,
   categoria_ids: [] as number[],
   criterio_disponible_ids: [] as number[],
@@ -674,6 +690,8 @@ function buildPayload(estado: string): EventFormPayload {
     es_en_sitio: form.es_en_sitio,
     es_calificable: form.es_calificable,
     tiene_subeventos: form.tiene_subeventos,
+    juez_ids: [...form.juez_ids],
+    supervisor_ids: [...form.supervisor_ids],
     puntaje_maximo: form.es_calificable ? form.puntaje_maximo : null,
     categoria_ids: [...form.categoria_ids],
     criterio_disponible_ids: [...form.criterio_disponible_ids],
@@ -918,7 +936,7 @@ watch(
 )
 
 async function loadCatalogs(): Promise<void> {
-  const [tree, tipos, clubsPage, tiposSeguro, productos, cuentas, lugaresPage, categorias, criterios] =
+  const [tree, tipos, clubsPage, tiposSeguro, productos, cuentas, lugaresPage, categorias, criterios, jueces, supervisores] =
     await Promise.all([
     organizacionesService.tree(),
     organizacionesService.tipos(),
@@ -929,6 +947,8 @@ async function loadCatalogs(): Promise<void> {
     lugaresService.list({ per_page: 200, estado: 'activo' }).catch(() => ({ items: [] as Lugar[], pagination: null })),
     eventsService.categoriasSubevento().catch(() => [] as CategoriaSubevento[]),
     eventsService.criteriosEvaluacion().catch(() => [] as CriterioEvaluacion[]),
+    eventsService.jueces().catch(() => [] as Array<{ id: number; name: string; email?: string | null }>),
+    eventsService.supervisores().catch(() => [] as Array<{ id: number; name: string; email?: string | null }>),
   ])
   orgTree.value = tree
   orgOptions.value = flattenOrgs(tree)
@@ -940,6 +960,8 @@ async function loadCatalogs(): Promise<void> {
   lugares.value = lugaresPage.items
   categoriasCatalog.value = categorias
   criteriosCatalog.value = criterios
+  juecesCatalog.value = jueces
+  supervisoresCatalog.value = supervisores
   applyHomeOrganization()
 }
 
@@ -1038,6 +1060,10 @@ async function loadEvent(): Promise<void> {
   form.es_en_sitio = event.es_en_sitio ?? true
   form.es_calificable = event.es_calificable ?? false
   form.tiene_subeventos = Boolean(event.tiene_subeventos) || (event.hijos_count ?? 0) > 0
+  form.juez_ids = [...(event.juez_ids ?? event.jueces?.map((juez) => juez.id) ?? [])]
+  form.supervisor_ids = [
+    ...(event.supervisor_ids ?? event.supervisores?.map((supervisor) => supervisor.id) ?? []),
+  ]
   form.puntaje_maximo = event.puntaje_maximo ?? null
   form.categoria_ids = [...(event.categoria_ids ?? [])]
   form.criterio_disponible_ids = [...(event.criterio_disponible_ids ?? [])]
@@ -1200,15 +1226,6 @@ onBeforeUnmount(() => {
               />
             </div>
           </div>
-
-          <EventMaterialsPanel
-            :event-id="persistedId"
-            :files="materiales"
-            @queued="pendingMaterialFiles = [...pendingMaterialFiles, ...$event]"
-            @queued-youtube="pendingYoutube = [...pendingYoutube, $event]"
-            @uploaded="materiales = [...materiales, $event]"
-            @removed="materiales = materiales.filter((item) => item.id !== $event)"
-          />
 
           <div class="field">
             <label for="name">{{ t('events.name') }}</label>
@@ -1378,6 +1395,9 @@ onBeforeUnmount(() => {
           <button type="button" :class="{ 'is-active': configTab === 'servicios' }" @click="configTab = 'servicios'">
             {{ t('events.wizard.configTabServices') }}
           </button>
+          <button type="button" :class="{ 'is-active': configTab === 'materiales' }" @click="configTab = 'materiales'">
+            {{ t('events.wizard.configTabMaterials') }}
+          </button>
         </div>
 
         <div v-show="configTab === 'inscripcion'" class="config-section">
@@ -1463,6 +1483,36 @@ onBeforeUnmount(() => {
           <p class="step-lead" style="margin-top: 0.5rem">
             {{ t('events.wizard.enrollmentPointsHint') }}
           </p>
+          <div class="field" style="margin-top: 1rem">
+            <label>{{ t('events.wizard.subJudge') }}</label>
+            <MultiSelect
+              v-model="form.juez_ids"
+              :options="juezSelectOptions"
+              option-label="label"
+              option-value="id"
+              class="w-full"
+              display="chip"
+              filter
+              :placeholder="t('events.wizard.subJudgePlaceholder')"
+              :empty-message="t('events.wizard.subJudgeNoneAvailable')"
+            />
+            <small class="pj-muted">{{ t('events.wizard.subJudgeHint') }}</small>
+          </div>
+          <div class="field" style="margin-top: 0.85rem">
+            <label>{{ t('events.wizard.subSupervisor') }}</label>
+            <MultiSelect
+              v-model="form.supervisor_ids"
+              :options="supervisorSelectOptions"
+              option-label="label"
+              option-value="id"
+              class="w-full"
+              display="chip"
+              filter
+              :placeholder="t('events.wizard.subSupervisorPlaceholder')"
+              :empty-message="t('events.wizard.subSupervisorNoneAvailable')"
+            />
+            <small class="pj-muted">{{ t('events.wizard.subSupervisorHint') }}</small>
+          </div>
         </div>
 
         <div
@@ -1526,126 +1576,132 @@ onBeforeUnmount(() => {
             <ToggleSwitch input-id="requiere_pago" v-model="form.requiere_pago" />
           </div>
           <div v-if="form.requiere_pago" class="price-list">
-            <div class="price-row">
-              <div>
-                <label for="precio">{{ t('events.enrollmentValue') }}</label>
-                <small class="pj-muted">{{ t('events.wizard.enrollmentValueHint') }}</small>
+            <section class="price-group">
+              <h4>{{ t('events.wizard.priceGroupOnTime') }}</h4>
+              <div class="price-row">
+                <div>
+                  <label for="precio">{{ t('events.enrollmentValue') }}</label>
+                  <small class="pj-muted">{{ t('events.wizard.enrollmentValueHint') }}</small>
+                </div>
+                <InputNumber
+                  id="precio"
+                  v-model="form.precio"
+                  mode="currency"
+                  currency="COP"
+                  locale="es-CO"
+                  class="w-full"
+                  :min="0"
+                />
               </div>
-              <InputNumber
-                id="precio"
-                v-model="form.precio"
-                mode="currency"
-                currency="COP"
-                locale="es-CO"
-                class="w-full"
-                :min="0"
-              />
-            </div>
-            <div class="price-row">
-              <div>
-                <label for="precio_acompanante">{{ t('events.companionPrice') }}</label>
-                <small class="pj-muted">{{ t('events.wizard.companionPriceHint') }}</small>
+              <div class="price-row">
+                <div>
+                  <label for="precio_acompanante">{{ t('events.companionPrice') }}</label>
+                  <small class="pj-muted">{{ t('events.wizard.companionPriceHint') }}</small>
+                </div>
+                <InputNumber
+                  id="precio_acompanante"
+                  v-model="form.precio_acompanante"
+                  mode="currency"
+                  currency="COP"
+                  locale="es-CO"
+                  class="w-full"
+                  :min="0"
+                />
               </div>
-              <InputNumber
-                id="precio_acompanante"
-                v-model="form.precio_acompanante"
-                mode="currency"
-                currency="COP"
-                locale="es-CO"
-                class="w-full"
-                :min="0"
-              />
-            </div>
-            <div class="price-row">
-              <div>
-                <label for="precio_acompanante_menor">{{ t('events.companionMinorPrice') }}</label>
-                <small class="pj-muted">{{ t('events.wizard.companionMinorPriceHint') }}</small>
+              <div class="price-row">
+                <div>
+                  <label for="precio_acompanante_menor">{{ t('events.companionMinorPrice') }}</label>
+                  <small class="pj-muted">{{ t('events.wizard.companionMinorPriceHint') }}</small>
+                </div>
+                <InputNumber
+                  id="precio_acompanante_menor"
+                  v-model="form.precio_acompanante_menor"
+                  mode="currency"
+                  currency="COP"
+                  locale="es-CO"
+                  class="w-full"
+                  :min="0"
+                />
               </div>
-              <InputNumber
-                id="precio_acompanante_menor"
-                v-model="form.precio_acompanante_menor"
-                mode="currency"
-                currency="COP"
-                locale="es-CO"
-                class="w-full"
-                :min="0"
-              />
-            </div>
-            <div class="price-row">
-              <div>
-                <label for="precio_directiva">{{ t('events.directivePrice') }}</label>
-                <small class="pj-muted">{{ t('events.directivePriceHint') }}</small>
+              <div class="price-row">
+                <div>
+                  <label for="precio_directiva">{{ t('events.directivePrice') }}</label>
+                  <small class="pj-muted">{{ t('events.directivePriceHint') }}</small>
+                </div>
+                <InputNumber
+                  id="precio_directiva"
+                  v-model="form.precio_directiva"
+                  mode="currency"
+                  currency="COP"
+                  locale="es-CO"
+                  class="w-full"
+                  :min="0"
+                />
               </div>
-              <InputNumber
-                id="precio_directiva"
-                v-model="form.precio_directiva"
-                mode="currency"
-                currency="COP"
-                locale="es-CO"
-                class="w-full"
-                :min="0"
-              />
-            </div>
-            <div class="price-row">
-              <div>
-                <label for="precio_fuera_tiempo">{{ t('events.lateEnrollmentPrice') }}</label>
-                <small class="pj-muted">{{ t('events.latePriceHint') }}</small>
+            </section>
+            <section class="price-group">
+              <h4>{{ t('events.wizard.priceGroupLate') }}</h4>
+              <div class="price-row">
+                <div>
+                  <label for="precio_fuera_tiempo">{{ t('events.lateEnrollmentPrice') }}</label>
+                  <small class="pj-muted">{{ t('events.latePriceHint') }}</small>
+                </div>
+                <InputNumber
+                  id="precio_fuera_tiempo"
+                  v-model="form.precio_fuera_tiempo"
+                  mode="currency"
+                  currency="COP"
+                  locale="es-CO"
+                  class="w-full"
+                  :min="0"
+                />
               </div>
-              <InputNumber
-                id="precio_fuera_tiempo"
-                v-model="form.precio_fuera_tiempo"
-                mode="currency"
-                currency="COP"
-                locale="es-CO"
-                class="w-full"
-                :min="0"
-              />
-            </div>
-            <div class="price-row">
-              <div>
-                <label for="precio_acompanante_fuera_tiempo">{{ t('events.lateCompanionPrice') }}</label>
-                <small class="pj-muted">{{ t('events.wizard.lateCompanionHint') }}</small>
+              <div class="price-row">
+                <div>
+                  <label for="precio_acompanante_fuera_tiempo">{{ t('events.lateCompanionPrice') }}</label>
+                  <small class="pj-muted">{{ t('events.wizard.lateCompanionHint') }}</small>
+                </div>
+                <InputNumber
+                  id="precio_acompanante_fuera_tiempo"
+                  v-model="form.precio_acompanante_fuera_tiempo"
+                  mode="currency"
+                  currency="COP"
+                  locale="es-CO"
+                  class="w-full"
+                  :min="0"
+                />
               </div>
-              <InputNumber
-                id="precio_acompanante_fuera_tiempo"
-                v-model="form.precio_acompanante_fuera_tiempo"
-                mode="currency"
-                currency="COP"
-                locale="es-CO"
-                class="w-full"
-                :min="0"
-              />
-            </div>
-            <div class="price-row">
-              <div>
-                <label for="precio_acompanante_menor_fuera_tiempo">{{ t('events.lateCompanionMinorPrice') }}</label>
-                <small class="pj-muted">{{ t('events.wizard.lateCompanionMinorHint') }}</small>
+              <div class="price-row">
+                <div>
+                  <label for="precio_acompanante_menor_fuera_tiempo">{{ t('events.lateCompanionMinorPrice') }}</label>
+                  <small class="pj-muted">{{ t('events.wizard.lateCompanionMinorHint') }}</small>
+                </div>
+                <InputNumber
+                  id="precio_acompanante_menor_fuera_tiempo"
+                  v-model="form.precio_acompanante_menor_fuera_tiempo"
+                  mode="currency"
+                  currency="COP"
+                  locale="es-CO"
+                  class="w-full"
+                  :min="0"
+                />
               </div>
-              <InputNumber
-                id="precio_acompanante_menor_fuera_tiempo"
-                v-model="form.precio_acompanante_menor_fuera_tiempo"
-                mode="currency"
-                currency="COP"
-                locale="es-CO"
-                class="w-full"
-                :min="0"
-              />
-            </div>
-            <div class="price-row">
-              <div>
-                <label for="precio_directiva_fuera_tiempo">{{ t('events.lateDirectivePrice') }}</label>
-                <small class="pj-muted">{{ t('events.wizard.lateDirectiveHint') }}</small>
+              <div class="price-row">
+                <div>
+                  <label for="precio_directiva_fuera_tiempo">{{ t('events.lateDirectivePrice') }}</label>
+                  <small class="pj-muted">{{ t('events.wizard.lateDirectiveHint') }}</small>
+                </div>
+                <InputNumber
+                  id="precio_directiva_fuera_tiempo"
+                  v-model="form.precio_directiva_fuera_tiempo"
+                  mode="currency"
+                  currency="COP"
+                  locale="es-CO"
+                  class="w-full"
+                  :min="0"
+                />
               </div>
-              <InputNumber
-                id="precio_directiva_fuera_tiempo"
-                v-model="form.precio_directiva_fuera_tiempo"
-                mode="currency"
-                currency="COP"
-                locale="es-CO"
-                class="w-full"
-                :min="0"
-              />
-            </div>
+            </section>
           </div>
           <div v-if="form.requiere_pago" class="field-grid" style="margin-top: 0.85rem">
             <div class="field">
@@ -1858,6 +1914,17 @@ onBeforeUnmount(() => {
           />
           </template>
         </div>
+
+        <div v-show="configTab === 'materiales'" class="config-section">
+          <EventMaterialsPanel
+            :event-id="persistedId"
+            :files="materiales"
+            @queued="pendingMaterialFiles = [...pendingMaterialFiles, ...$event]"
+            @queued-youtube="pendingYoutube = [...pendingYoutube, $event]"
+            @uploaded="materiales = [...materiales, $event]"
+            @removed="materiales = materiales.filter((item) => item.id !== $event)"
+          />
+        </div>
       </div>
 
       <!-- Paso: Terreno / distribución -->
@@ -1891,6 +1958,8 @@ onBeforeUnmount(() => {
           :parent-organizacion-id="form.organizacion_id"
           :parent-es-en-sitio="form.es_en_sitio"
           :parent-visibilidad="form.visibilidad"
+          :parent-juez-ids="form.juez_ids"
+          :parent-supervisor-ids="form.supervisor_ids"
           :categorias-version="categoriasVersion"
           :parent-categoria-ids="form.categoria_ids"
           :parent-criterio-ids="form.criterio_disponible_ids"
@@ -2422,7 +2491,25 @@ onBeforeUnmount(() => {
 
 .price-list {
   display: grid;
-  gap: 0.75rem;
+  gap: 1rem;
+}
+
+.price-group {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--pj-border) 80%, transparent);
+  border-radius: 12px;
+}
+
+.price-group h4 {
+  margin: 0;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--pj-navy, #0f172a);
+  background: color-mix(in srgb, var(--pj-navy, #0f172a) 8%, #fff);
+  border-bottom: 1px solid color-mix(in srgb, var(--pj-border) 80%, transparent);
 }
 
 .price-row {
@@ -2430,6 +2517,20 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(12rem, 1.2fr) minmax(10rem, 0.8fr);
   gap: 1rem;
   align-items: center;
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
+}
+
+.price-row:nth-of-type(odd) {
+  background: color-mix(in srgb, var(--pj-navy, #0f172a) 4%, #fff);
+}
+
+.price-row:nth-of-type(even) {
+  background: color-mix(in srgb, var(--p-primary-color, #2563eb) 6%, #fff);
+}
+
+.price-row:last-child {
+  border-bottom: 0;
 }
 
 .price-row label {

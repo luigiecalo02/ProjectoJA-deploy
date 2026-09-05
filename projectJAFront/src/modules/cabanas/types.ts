@@ -27,6 +27,7 @@ export interface CabanaBed {
   estado?: string
   bloqueada?: boolean
   asignada_a_mi?: boolean
+  ocupantes?: Array<{ id: number; nombre: string }>
 }
 
 export type RoomShape = 'rect' | 'circle' | 'polygon'
@@ -159,6 +160,17 @@ export interface EventoCabana {
 export interface EventoCabanaPayload {
   cabana_id: number
   orden: number
+}
+
+export interface AsignacionDesplazada {
+  id: number
+  inscripcion_persona_id: number
+  nombre: string
+  cabana?: string | null
+  piso?: string | null
+  cuarto?: string | null
+  cama?: string | null
+  precio?: number | null
 }
 
 export interface AsignacionCama {

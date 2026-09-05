@@ -14,7 +14,8 @@ import { usersService } from '@/services/usersService'
 import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import CabanaLayoutEditor from '@/components/cabanas/CabanaLayoutEditor.vue'
-import type { Cabana, CabanaBed, AlojamientoCupo, EventoCabana } from '@/modules/cabanas/types'
+import { occupancyOf } from '@/modules/cabanas/layout'
+import type { Cabana, CabanaBed, AlojamientoCupo, AsignacionDesplazada, EventoCabana } from '@/modules/cabanas/types'
 import type { User } from '@/modules/auth/types'
 
 const props = defineProps<{ eventId: number | null; lugarId?: number | null }>()
@@ -29,6 +30,10 @@ const search = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const savingPrices = ref(false)
+const refreshingLayout = ref(false)
+const displaced = ref<AsignacionDesplazada[]>([])
+const reassigningId = ref<number | null>(null)
+const reassignBedId = ref<Record<number, number | null>>({})
 
 type PriceRow = {
   id: number
@@ -123,6 +128,9 @@ async function load(): Promise<void> {
     if (!boardCabanaId.value || !configured.value.some((item) => item.cabana_id === boardCabanaId.value)) {
       boardCabanaId.value = configured.value[0]?.cabana_id ?? null
     }
+    if (props.eventId && canManage.value) {
+      displaced.value = await cabanasService.getDisplacedAssignments(props.eventId).catch(() => [])
+    }
     emitSummary()
   } catch (error) {
     toast.add({ severity: 'error', summary: t('common.error'), detail: getApiErrorMessage(error), life: 4000 })
@@ -182,6 +190,79 @@ function applyBulkPrice(kind: 'arriba' | 'abajo' | 'sencilla'): void {
     if (kind !== 'sencilla' && row.nivelKey === kind) return { ...row, precio: value }
     return row
   })
+}
+
+const availableReassignBeds = computed(() =>
+  configured.value.flatMap((cabana) =>
+    (cabana.pisos ?? []).flatMap((floor) =>
+      (floor.cuartos ?? []).flatMap((room) =>
+        (room.camas ?? [])
+          .filter((bed) => {
+            if (bed.estado && bed.estado !== 'disponible') return false
+            return occupancyOf(bed) < Number(bed.capacidad || 1)
+          })
+          .map((bed) => ({
+            id: bed.id,
+            label: `${cabana.nombre} · ${room.nombre} · ${bed.codigo}`,
+          })),
+      ),
+    ),
+  ),
+)
+
+function money(value: number | null | undefined): string {
+  if (value == null) return '—'
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value)
+}
+
+function previousAssignmentLabel(item: AsignacionDesplazada): string {
+  return [item.cabana, item.piso, item.cuarto, item.cama].filter(Boolean).join(' · ') || '—'
+}
+
+async function refreshLayout(): Promise<void> {
+  if (!props.eventId || !canManage.value) return
+  refreshingLayout.value = true
+  try {
+    const result = await cabanasService.refreshEventCabanasLayout(props.eventId)
+    configured.value = result.items
+    displaced.value = result.desplazadas
+    hydratePrices(configured.value)
+    if (!boardCabanaId.value || !configured.value.some((item) => item.cabana_id === boardCabanaId.value)) {
+      boardCabanaId.value = configured.value[0]?.cabana_id ?? null
+    }
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('cabanas.refreshLayoutDone', { count: result.desplazadas.length }),
+      life: 3500,
+    })
+  } catch (error) {
+    toast.add({ severity: 'error', summary: t('common.error'), detail: getApiErrorMessage(error), life: 4000 })
+  } finally {
+    refreshingLayout.value = false
+  }
+}
+
+async function reassignDisplaced(item: AsignacionDesplazada): Promise<void> {
+  const bedId = reassignBedId.value[item.id]
+  if (!props.eventId || !canManage.value || !bedId) return
+  reassigningId.value = item.id
+  try {
+    await cabanasService.reassignDisplaced(props.eventId, item.id, bedId)
+    displaced.value = displaced.value.filter((row) => row.id !== item.id)
+    configured.value = await cabanasService.getEventCabanas(props.eventId)
+    hydratePrices(configured.value)
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('cabanas.displacedMoved'),
+      life: 2500,
+    })
+  } catch (error) {
+    toast.add({ severity: 'error', summary: t('common.error'), detail: getApiErrorMessage(error), life: 4000 })
+  } finally {
+    reassigningId.value = null
+  }
 }
 
 function setBoardPrice(id: number, precio: number | null): void {
@@ -383,6 +464,46 @@ onMounted(() => void load())
           </label>
         </div>
         <p class="price-board-hint">{{ t('cabanas.eventPricesBoardHint') }}</p>
+        <div v-if="canManage" class="layout-sync">
+          <p>{{ t('cabanas.refreshLayoutHint') }}</p>
+          <Button
+            :label="t('cabanas.refreshLayout')"
+            icon="pi pi-refresh"
+            outlined
+            :loading="refreshingLayout"
+            @click="refreshLayout"
+          />
+        </div>
+        <div v-if="displaced.length" class="displaced-panel">
+          <strong>{{ t('cabanas.displacedTitle') }}</strong>
+          <p>{{ t('cabanas.displacedHint') }}</p>
+          <p v-if="!availableReassignBeds.length" class="quota-empty">{{ t('cabanas.displacedNoneBeds') }}</p>
+          <div v-for="item in displaced" :key="item.id" class="displaced-row">
+            <span>
+              <strong>{{ item.nombre }}</strong>
+              <small>{{ t('cabanas.displacedWas') }}: {{ previousAssignmentLabel(item) }}</small>
+              <small>{{ t('cabanas.displacedPrice') }}: {{ money(item.precio) }}</small>
+            </span>
+            <Select
+              :model-value="reassignBedId[item.id] ?? null"
+              :options="availableReassignBeds"
+              option-label="label"
+              option-value="id"
+              :placeholder="t('cabanas.displacedPickBed')"
+              filter
+              class="w-full"
+              @update:model-value="reassignBedId = { ...reassignBedId, [item.id]: $event }"
+            />
+            <Button
+              :label="t('cabanas.displacedMove')"
+              icon="pi pi-sign-in"
+              size="small"
+              :disabled="!reassignBedId[item.id] || !availableReassignBeds.length"
+              :loading="reassigningId === item.id"
+              @click="reassignDisplaced(item)"
+            />
+          </div>
+        </div>
         <CabanaLayoutEditor
           v-if="boardCabana"
           :key="boardCabana.id"
@@ -514,6 +635,29 @@ onMounted(() => void load())
 .price-board-pick { max-width: 22rem; }
 .price-board-pick label { display: grid; gap: 0.3rem; font-size: 0.82rem; font-weight: 700; }
 .price-board-hint { margin: 0; color: var(--pj-text-muted); font-size: 0.85rem; }
+.layout-sync {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.7rem 0.8rem;
+  border: 1px dashed color-mix(in srgb, var(--pj-border) 80%, transparent);
+  border-radius: 10px;
+}
+.layout-sync p { margin: 0; color: var(--pj-text-muted); font-size: 0.85rem; flex: 1; }
+.displaced-panel { display: grid; gap: 0.55rem; padding: 0.85rem; border: 1px solid #f59e0b; border-radius: 12px; background: color-mix(in srgb, #f59e0b 8%, #fff); }
+.displaced-panel p { margin: 0.2rem 0 0; color: var(--pj-text-muted); font-size: 0.85rem; }
+.displaced-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.2fr) minmax(12rem, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.55rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--pj-border) 55%, transparent);
+}
+.displaced-row span { display: flex; flex-direction: column; gap: 0.12rem; }
+.displaced-row small { color: var(--pj-text-muted); font-size: 0.75rem; }
 .price-bulk {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
@@ -539,6 +683,6 @@ onMounted(() => void load())
 .quota-row small { color: var(--pj-text-muted); font-size: .75rem; }
 .quota-row em { font-style: normal; font-weight: 600; }
 @media (max-width: 720px) {
-  .quota-add, .quota-head, .quota-row { grid-template-columns: 1fr; }
+  .quota-add, .quota-head, .quota-row, .displaced-row { grid-template-columns: 1fr; }
 }
 </style>

@@ -70,7 +70,7 @@ final class AsignacionCamaService
             $actual = AsignacionCama::query()
                 ->where('evento_id', $event->id)
                 ->where('inscripcion_persona_id', $linea->id)
-                ->where('estado', AsignacionCama::ESTADO_ACTIVA)
+                ->whereIn('estado', [AsignacionCama::ESTADO_ACTIVA, AsignacionCama::ESTADO_DESPLAZADA])
                 ->lockForUpdate()
                 ->first();
             if ($actual && (int) $actual->evento_cabana_cama_id === (int) $cama->id) {
@@ -83,6 +83,18 @@ final class AsignacionCamaService
             }
             if ($cupoId === null && ! $actual) {
                 $this->assertPublicPool($event);
+            }
+            if ($actual?->estado === AsignacionCama::ESTADO_DESPLAZADA) {
+                $actual->update([
+                    'evento_cabana_cama_id' => $cama->id,
+                    'estado' => AsignacionCama::ESTADO_ACTIVA,
+                    'liberada_at' => null,
+                    'asignado_por' => $actor->id,
+                    'evento_alojamiento_cupo_id' => $cupoId ?? $actual->evento_alojamiento_cupo_id,
+                    'evento_servicio_reserva_id' => $reserva?->id ?? $actual->evento_servicio_reserva_id,
+                ]);
+
+                return $actual->fresh();
             }
             if ($actual) {
                 $actual->update(['estado' => AsignacionCama::ESTADO_LIBERADA, 'liberada_at' => now()]);
@@ -122,6 +134,34 @@ final class AsignacionCamaService
         if ($ocupadas + 1 + $reservados > $capacidad) {
             throw ValidationException::withMessages(['cama' => ['No hay cupos libres de alojamiento.']]);
         }
+    }
+
+    public function displace(AsignacionCama $asignacion): AsignacionCama
+    {
+        $result = DB::transaction(function () use ($asignacion) {
+            $asignacion = AsignacionCama::query()->lockForUpdate()->findOrFail($asignacion->id);
+            if ($asignacion->estado !== AsignacionCama::ESTADO_ACTIVA) {
+                return $asignacion;
+            }
+            $asignacion->loadMissing('cama.cuarto.piso.eventoCabana');
+            $cama = $asignacion->cama;
+            $asignacion->update([
+                'estado' => AsignacionCama::ESTADO_DESPLAZADA,
+                'evento_cabana_cama_id' => null,
+                'snapshot_cabana_nombre' => $cama?->cuarto?->piso?->eventoCabana?->nombre,
+                'snapshot_piso_nombre' => $cama?->cuarto?->piso?->nombre,
+                'snapshot_cuarto_nombre' => $cama?->cuarto?->nombre,
+                'snapshot_cama_codigo' => $cama?->codigo,
+                'snapshot_precio' => $cama?->precio,
+            ]);
+
+            return $asignacion;
+        });
+        if ($result->evento_cabana_cama_id) {
+            $this->broadcast($result, 'displaced');
+        }
+
+        return $result;
     }
 
     public function release(AsignacionCama $asignacion): AsignacionCama

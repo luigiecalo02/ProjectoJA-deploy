@@ -18,6 +18,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('events/{event}/cabanas', [CabanaController::class, 'attach']);
     Route::put('events/{event}/cabanas', [CabanaController::class, 'sync']);
     Route::put('events/{event}/cabanas/precios', [CabanaController::class, 'updateBedPrices']);
+    Route::post('events/{event}/cabanas/actualizar-plano', [CabanaController::class, 'refreshFromCatalog']);
+    Route::get('events/{event}/cabanas/desplazadas', [CabanaController::class, 'displacedAssignments']);
+    Route::post('events/{event}/cabanas/desplazadas/{asignacion}/reubicar', [CabanaController::class, 'reassignDisplaced']);
     Route::get('events/{event}/alojamiento', [CabanaController::class, 'alojamiento']);
     Route::get('events/{event}/alojamiento/cupos', [EventoAlojamientoCupoController::class, 'index']);
     Route::put('events/{event}/alojamiento/cupos', [EventoAlojamientoCupoController::class, 'sync']);

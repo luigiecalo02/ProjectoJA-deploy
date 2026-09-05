@@ -263,6 +263,7 @@ const countdownLabel = computed(() => {
 
 .event-banner-card__countdown {
   margin-top: 0.45rem;
+  width: 100%;
   border: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
   border-radius: 10px;
   padding: 0.45rem 0.55rem;
@@ -276,14 +277,18 @@ const countdownLabel = computed(() => {
 }
 
 .event-banner-card__digits {
-  display: flex;
-  gap: 0.55rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  width: 100%;
+  gap: 0.35rem;
 }
 
 .event-banner-card__digits em {
   font-style: normal;
   display: grid;
   justify-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .event-banner-card__digits b {

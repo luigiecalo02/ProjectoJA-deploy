@@ -15,13 +15,18 @@ use Illuminate\Validation\ValidationException;
 
 final class EventoCabanaService
 {
+    public function __construct(private readonly AsignacionCamaService $asignaciones) {}
+
     public function list(Event $event): Collection
     {
         return EventoCabana::query()
             ->where('evento_id', $event->id)
             ->with(['pisos.cuartos.camas.asignaciones' => fn ($query) => $query
                 ->where('estado', AsignacionCama::ESTADO_ACTIVA)
-                ->with('inscripcionPersona:id,persona_id')])
+                ->with([
+                    'inscripcionPersona:id,persona_id,nombre_snapshot',
+                    'inscripcionPersona.persona:id,nombre1,nombre2,apellido1,apellido2',
+                ])])
             ->orderBy('orden')
             ->orderBy('id')
             ->get();
@@ -126,6 +131,61 @@ final class EventoCabanaService
     }
 
     /**
+     * @return array{items: Collection, desplazadas: list<array<string, mixed>>}
+     */
+    public function refreshFromCatalog(Event $event): array
+    {
+        return DB::transaction(function () use ($event) {
+            $snapshots = EventoCabana::query()
+                ->where('evento_id', $event->id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($snapshots as $snapshot) {
+                $this->refreshSnapshot($snapshot);
+            }
+
+            return [
+                'items' => $this->list($event),
+                'desplazadas' => $this->displacedPayload($event),
+            ];
+        });
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function displacedPayload(Event $event): array
+    {
+        return AsignacionCama::query()
+            ->where('evento_id', $event->id)
+            ->where('estado', AsignacionCama::ESTADO_DESPLAZADA)
+            ->with([
+                'inscripcionPersona:id,persona_id,nombre_snapshot',
+                'inscripcionPersona.persona:id,nombre1,nombre2,apellido1,apellido2',
+            ])
+            ->orderBy('id')
+            ->get()
+            ->map(function (AsignacionCama $asignacion) {
+                $linea = $asignacion->inscripcionPersona;
+                $nombre = trim((string) ($linea?->nombre_snapshot ?: $linea?->persona?->full_name ?: ''));
+
+                return [
+                    'id' => $asignacion->id,
+                    'inscripcion_persona_id' => (int) $asignacion->inscripcion_persona_id,
+                    'nombre' => $nombre !== '' ? $nombre : 'Persona asignada',
+                    'cabana' => $asignacion->snapshot_cabana_nombre,
+                    'piso' => $asignacion->snapshot_piso_nombre,
+                    'cuarto' => $asignacion->snapshot_cuarto_nombre,
+                    'cama' => $asignacion->snapshot_cama_codigo,
+                    'precio' => $asignacion->snapshot_precio !== null ? (float) $asignacion->snapshot_precio : null,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
      * @param  list<array{id: int, precio: float|int|null}>  $items
      */
     public function updateBedPrices(Event $event, array $items): Collection
@@ -144,6 +204,154 @@ final class EventoCabanaService
 
             return $this->list($event);
         });
+    }
+
+    private function refreshSnapshot(EventoCabana $snapshot): void
+    {
+        $catalog = Cabana::query()->with('pisos.cuartos.camas')->find($snapshot->cabana_id);
+        if (! $catalog) {
+            return;
+        }
+
+        $snapshot->update([
+            'nombre' => $catalog->nombre,
+            'descripcion' => $catalog->descripcion,
+            'image_url' => $catalog->image_url,
+            'ancho' => $catalog->ancho,
+            'alto' => $catalog->alto,
+            'estado' => $catalog->estado,
+        ]);
+
+        $snapshot->load(['pisos.cuartos.camas']);
+        $floorsByCatalog = $snapshot->pisos->keyBy(fn (EventoCabanaPiso $piso) => (int) $piso->cabana_piso_id);
+        $roomsByCatalog = $snapshot->pisos->flatMap->cuartos->keyBy(fn (EventoCabanaCuarto $cuarto) => (int) $cuarto->cabana_cuarto_id);
+        $bedsByCatalog = $snapshot->pisos
+            ->flatMap->cuartos
+            ->flatMap->camas
+            ->filter(fn (EventoCabanaCama $cama) => $cama->cabana_cama_id)
+            ->keyBy(fn (EventoCabanaCama $cama) => (int) $cama->cabana_cama_id);
+
+        $keepFloorIds = [];
+        $keepRoomIds = [];
+        $keepBedIds = [];
+
+        foreach ($catalog->pisos as $piso) {
+            $eventFloor = $floorsByCatalog->get((int) $piso->id);
+            $floorData = [
+                'evento_cabana_id' => $snapshot->id,
+                'cabana_piso_id' => $piso->id,
+                'nombre' => $piso->nombre,
+                'ancho' => $piso->ancho,
+                'alto' => $piso->alto,
+                'orden' => $piso->orden,
+            ];
+            if ($eventFloor) {
+                $eventFloor->update($floorData);
+            } else {
+                $eventFloor = EventoCabanaPiso::query()->create($floorData);
+            }
+            $keepFloorIds[] = $eventFloor->id;
+
+            foreach ($piso->cuartos as $cuarto) {
+                $eventRoom = $roomsByCatalog->get((int) $cuarto->id);
+                $roomData = [
+                    'evento_cabana_piso_id' => $eventFloor->id,
+                    'cabana_cuarto_id' => $cuarto->id,
+                    'nombre' => $cuarto->nombre,
+                    'codigo' => $cuarto->codigo,
+                    'x' => $cuarto->x,
+                    'y' => $cuarto->y,
+                    'ancho' => $cuarto->ancho,
+                    'alto' => $cuarto->alto,
+                    'forma' => $cuarto->forma ?? 'rect',
+                    'vertices' => $cuarto->vertices,
+                    'puertas' => $cuarto->puertas,
+                    'genero' => $cuarto->genero,
+                    'capacidad' => $cuarto->capacidad,
+                    'orden' => $cuarto->orden,
+                ];
+                if ($eventRoom) {
+                    $eventRoom->update($roomData);
+                } else {
+                    $eventRoom = EventoCabanaCuarto::query()->create($roomData);
+                }
+                $keepRoomIds[] = $eventRoom->id;
+
+                foreach ($cuarto->camas as $cama) {
+                    $eventBed = $bedsByCatalog->get((int) $cama->id);
+                    $sugerido = $cama->precio_sugerido !== null ? (float) $cama->precio_sugerido : null;
+                    $bedData = [
+                        'evento_cabana_cuarto_id' => $eventRoom->id,
+                        'cabana_cama_id' => $cama->id,
+                        'codigo' => $cama->codigo,
+                        'nombre' => $cama->nombre,
+                        'capacidad' => $cama->capacidad,
+                        'tipo' => $cama->tipo ?? 'sencilla',
+                        'nivel_camarote' => $cama->nivel_camarote,
+                        'grupo_camarote' => $cama->grupo_camarote,
+                        'precio_sugerido' => $sugerido,
+                        'x' => $cama->x,
+                        'y' => $cama->y,
+                        'ancho' => $cama->ancho,
+                        'alto' => $cama->alto,
+                        'rotacion' => $cama->rotacion,
+                        'estado' => $cama->estado,
+                        'orden' => $cama->orden,
+                    ];
+                    if ($eventBed) {
+                        if ($eventBed->precio === null && $sugerido !== null) {
+                            $bedData['precio'] = $sugerido;
+                        }
+                        $eventBed->update($bedData);
+                    } else {
+                        $bedData['precio'] = $sugerido;
+                        $eventBed = EventoCabanaCama::query()->create($bedData);
+                    }
+                    $keepBedIds[] = $eventBed->id;
+                }
+            }
+        }
+
+        $this->removeStaleLayout($snapshot, $keepFloorIds, $keepRoomIds, $keepBedIds);
+    }
+
+    /**
+     * @param  list<int>  $keepFloorIds
+     * @param  list<int>  $keepRoomIds
+     * @param  list<int>  $keepBedIds
+     */
+    private function removeStaleLayout(EventoCabana $snapshot, array $keepFloorIds, array $keepRoomIds, array $keepBedIds): void
+    {
+        $beds = EventoCabanaCama::query()
+            ->whereHas('cuarto.piso', fn ($query) => $query->where('evento_cabana_id', $snapshot->id))
+            ->with(['asignaciones' => fn ($query) => $query->where('estado', AsignacionCama::ESTADO_ACTIVA)])
+            ->get();
+
+        foreach ($beds as $bed) {
+            if (in_array($bed->id, $keepBedIds, true)) {
+                continue;
+            }
+            foreach ($bed->asignaciones as $asignacion) {
+                $this->asignaciones->displace($asignacion);
+            }
+            $bed->delete();
+        }
+
+        $rooms = EventoCabanaCuarto::query()
+            ->whereHas('piso', fn ($query) => $query->where('evento_cabana_id', $snapshot->id))
+            ->get();
+        foreach ($rooms as $room) {
+            if (! in_array($room->id, $keepRoomIds, true)) {
+                $room->delete();
+            }
+        }
+
+        $floors = EventoCabanaPiso::query()->where('evento_cabana_id', $snapshot->id)->get();
+        foreach ($floors as $floor) {
+            if (! in_array($floor->id, $keepFloorIds, true)) {
+                $floor->delete();
+            }
+        }
     }
 
     private function assertEventAllowsCabana(Event $event, Cabana $cabana): void

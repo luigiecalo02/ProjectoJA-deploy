@@ -6,6 +6,7 @@ import type {
   AlojamientoCupoPool,
   AlojamientoEvento,
   AsignacionCama,
+  AsignacionDesplazada,
   Cabana,
   CabanaFloor,
   CabanaLayoutPayload,
@@ -189,6 +190,38 @@ export const cabanasService = {
       { items },
     )
     return unwrapItems<EventoCabana>(data.data).map((item) => normalizeEventCabana(item))
+  },
+
+  async refreshEventCabanasLayout(eventId: number): Promise<{
+    items: EventoCabana[]
+    desplazadas: AsignacionDesplazada[]
+  }> {
+    const { data } = await api.post<ApiEnvelope<{ items: EventoCabana[]; desplazadas: AsignacionDesplazada[] }>>(
+      `/api/v1/events/${eventId}/cabanas/actualizar-plano`,
+    )
+    return {
+      items: unwrapItems<EventoCabana>(data.data).map((item) => normalizeEventCabana(item)),
+      desplazadas: data.data.desplazadas ?? [],
+    }
+  },
+
+  async getDisplacedAssignments(eventId: number): Promise<AsignacionDesplazada[]> {
+    const { data } = await api.get<ApiEnvelope<{ items: AsignacionDesplazada[] }>>(
+      `/api/v1/events/${eventId}/cabanas/desplazadas`,
+    )
+    return data.data.items ?? []
+  },
+
+  async reassignDisplaced(
+    eventId: number,
+    asignacionId: number,
+    camaId: number,
+  ): Promise<AsignacionCama> {
+    const { data } = await api.post<ApiEnvelope<AsignacionCama>>(
+      `/api/v1/events/${eventId}/cabanas/desplazadas/${asignacionId}/reubicar`,
+      { evento_cabana_cama_id: camaId },
+    )
+    return data.data
   },
 
   async updateEventBedPrices(

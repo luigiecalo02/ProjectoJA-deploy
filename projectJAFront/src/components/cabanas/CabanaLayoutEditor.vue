@@ -26,6 +26,7 @@ import {
   boundsFromPoints,
   bedVisualUnits,
   catalogBedStatus,
+  occupancyOf,
   defaultDoorForRoom,
   doorOrientation,
   doorRect,
@@ -1174,6 +1175,26 @@ function statusLabel(status: string): string {
   return 'Disponible'
 }
 
+function occupancyLabel(bed: CabanaBed): string {
+  const catalog = catalogBedStatus(bed)
+  if (catalog === 'mantenimiento' || catalog === 'bloqueada') return statusLabel(catalog)
+  const used = occupancyOf(bed)
+  const cap = Number(bed.capacidad || 1)
+  if (used <= 0) return 'Disponible'
+  if (used >= cap) return cap > 1 ? `Ocupada · ${used} de ${cap}` : 'Ocupada'
+  return `Parcial · ${used} de ${cap}`
+}
+
+function occupancyTone(bed: CabanaBed): string {
+  const catalog = catalogBedStatus(bed)
+  if (catalog === 'mantenimiento') return 'is-wait'
+  if (catalog === 'bloqueada') return 'is-off'
+  const used = occupancyOf(bed)
+  if (used <= 0) return 'is-ok'
+  if (used >= Number(bed.capacidad || 1)) return 'is-busy'
+  return 'is-wait'
+}
+
 function save(): void {
   emit('save', {
     pisos: floors.value.map((floor) => ({
@@ -1225,9 +1246,9 @@ function save(): void {
 
 <template>
   <section class="studio">
-    <header class="studio__top">
+    <header class="studio__top" :class="{ 'studio__top--price': priceMode }">
       <div class="studio__filters">
-        <label>
+        <label v-if="!priceMode">
           Cabaña
           <Select
             :model-value="cabana.id"
@@ -1297,8 +1318,14 @@ function save(): void {
       </div>
     </header>
 
-    <div class="studio__body">
-      <aside class="studio__tree">
+    <div
+      class="studio__body"
+      :class="{
+        'studio__body--price': priceMode,
+        'studio__body--no-props': priceMode && !(selectedBed && selection?.kind === 'bed'),
+      }"
+    >
+      <aside v-if="!priceMode" class="studio__tree">
         <h3>Estructura de la cabaña</h3>
         <div v-for="floor in floors" :key="floor.id" class="tree-floor">
           <button type="button" class="tree-floor__head" @click="toggleFloor(floor.id); selectFloor(floor.id)">
@@ -1341,7 +1368,7 @@ function save(): void {
               @click="tool = 'select'"
             />
             <Button
-              v-if="!activeRoom"
+              v-if="!priceMode && !activeRoom"
               label="Cuadrada"
               icon="pi pi-stop"
               size="small"
@@ -1350,7 +1377,7 @@ function save(): void {
               @click="tool = 'draw-square'"
             />
             <Button
-              v-if="!activeRoom"
+              v-if="!priceMode && !activeRoom"
               label="Circular"
               icon="pi pi-circle"
               size="small"
@@ -1359,7 +1386,7 @@ function save(): void {
               @click="tool = 'draw-circle'"
             />
             <Button
-              v-if="!activeRoom"
+              v-if="!priceMode && !activeRoom"
               label="Polígono"
               icon="pi pi-share-alt"
               size="small"
@@ -1368,7 +1395,7 @@ function save(): void {
               @click="tool = 'draw-polygon'; draftPolygon = []"
             />
             <Button
-              v-if="activeRoom"
+              v-if="!priceMode && activeRoom"
               label="Agregar puerta"
               icon="pi pi-sign-in"
               size="small"
@@ -1377,6 +1404,7 @@ function save(): void {
               @click="tool = 'place-door'"
             />
             <Button
+              v-if="!priceMode"
               label="Agregar cama"
               icon="pi pi-plus"
               size="small"
@@ -1384,6 +1412,7 @@ function save(): void {
               @click="addBedFromToolbar"
             />
             <Button
+              v-if="!priceMode"
               label="Agregar camarote"
               icon="pi pi-objects-column"
               size="small"
@@ -1391,6 +1420,7 @@ function save(): void {
               @click="addCamaroteFromToolbar"
             />
             <Button
+              v-if="!priceMode"
               label="Borrar"
               icon="pi pi-trash"
               size="small"
@@ -1399,7 +1429,7 @@ function save(): void {
               severity="danger"
               @click="tool = 'erase'"
             />
-            <template v-if="selection?.kind === 'door'">
+            <template v-if="!priceMode && selection?.kind === 'door'">
               <Button
                 label="Horizontal"
                 icon="pi pi-arrows-h"
@@ -1437,7 +1467,7 @@ function save(): void {
                 />
               </div>
             </template>
-            <template v-else-if="activeRoom">
+            <template v-else-if="!priceMode && activeRoom">
               <Button
                 label="Izquierda"
                 icon="pi pi-arrow-left"
@@ -1702,15 +1732,18 @@ function save(): void {
             <li><i class="dot is-wait" /> Mantenimiento</li>
             <li><i class="dot is-off" /> No disponible</li>
           </ul>
-          <div class="history">
+          <div v-if="!priceMode" class="history">
             <Button icon="pi pi-undo" text rounded :disabled="!canUndo || readonly" @click="undo" />
             <Button icon="pi pi-refresh" text rounded :disabled="!canRedo || readonly" @click="redo" />
           </div>
         </footer>
       </div>
 
-      <aside class="studio__props">
-        <template v-if="selection?.kind === 'door'">
+      <aside
+        v-if="!priceMode || (selectedBed && selection?.kind === 'bed')"
+        class="studio__props"
+      >
+        <template v-if="!priceMode && selection?.kind === 'door'">
           <header>
             <div>
               <h3>Puerta</h3>
@@ -1757,7 +1790,7 @@ function save(): void {
           </div>
           <p class="tip">Arrastra la puerta por las paredes del cuarto. El mango circular gira el ángulo si lo necesitas.</p>
         </template>
-        <template v-else-if="selectedBeds.length > 1">
+        <template v-else-if="!priceMode && selectedBeds.length > 1">
           <header>
             <div>
               <h3>{{ selectedBeds.length }} camas seleccionadas</h3>
@@ -1797,9 +1830,51 @@ function save(): void {
             <i class="pi pi-stop" />
             <div>
               <strong>{{ selectedBed.codigo }}</strong>
-              <em :class="`is-${catalogBedStatus(selectedBed)}`">{{ statusLabel(catalogBedStatus(selectedBed)) }}</em>
+              <em :class="priceMode ? occupancyTone(selectedBed) : `is-${catalogBedStatus(selectedBed)}`">
+                {{ priceMode ? occupancyLabel(selectedBed) : statusLabel(catalogBedStatus(selectedBed)) }}
+              </em>
             </div>
           </div>
+          <template v-if="priceMode">
+            <p class="tip">
+              {{ occupancyOf(selectedBed) }} de {{ selectedBed.capacidad || 1 }} plazas ocupadas.
+            </p>
+            <div class="occupants">
+              <strong>Quién está en esta cama</strong>
+              <p v-if="!selectedBed.ocupantes?.length" class="tip">Nadie asignado todavía.</p>
+              <ul v-else>
+                <li v-for="persona in selectedBed.ocupantes" :key="persona.id">
+                  {{ persona.nombre }}
+                </li>
+              </ul>
+            </div>
+            <p class="tip">
+              Sugerido: {{ selectedBed.precio_sugerido != null ? selectedBed.precio_sugerido : '—' }}
+            </p>
+            <label>
+              Precio del evento
+              <InputNumber
+                :model-value="selectedBed.precio"
+                :min="0"
+                :max-fraction-digits="0"
+                prefix="$ "
+                :disabled="priceDisabled"
+                @update:model-value="setEventPrice(selectedBed, $event)"
+              />
+            </label>
+            <label v-if="selectedBed.tipo === 'camarote' && bunkSibling(selection.room, selectedBed)">
+              Precio del evento {{ selectedBed.nivel_camarote === 'arriba' ? 'abajo' : 'arriba' }}
+              <InputNumber
+                :model-value="bunkSibling(selection.room, selectedBed)!.precio"
+                :min="0"
+                :max-fraction-digits="0"
+                prefix="$ "
+                :disabled="priceDisabled"
+                @update:model-value="setEventPrice(bunkSibling(selection.room, selectedBed)!, $event)"
+              />
+            </label>
+          </template>
+          <template v-else>
           <label>Código / Nombre<InputText v-model="selectedBed.codigo" :disabled="readonly" /></label>
           <label>
             Capacidad
@@ -1830,7 +1905,7 @@ function save(): void {
               @update:model-value="setBunkLevel(selectedBed, $event)"
             />
           </label>
-          <label v-if="!priceMode">
+          <label>
             Precio sugerido {{ selectedBed.tipo === 'camarote' ? (selectedBed.nivel_camarote === 'arriba' ? 'arriba' : 'abajo') : '' }}
             <InputNumber
               v-model="selectedBed.precio_sugerido"
@@ -1840,7 +1915,7 @@ function save(): void {
               :disabled="readonly"
             />
           </label>
-          <label v-if="!priceMode && selectedBed.tipo === 'camarote' && bunkSibling(selection.room, selectedBed)">
+          <label v-if="selectedBed.tipo === 'camarote' && bunkSibling(selection.room, selectedBed)">
             Precio sugerido {{ selectedBed.nivel_camarote === 'arriba' ? 'abajo' : 'arriba' }}
             <InputNumber
               v-model="bunkSibling(selection.room, selectedBed)!.precio_sugerido"
@@ -1850,34 +1925,7 @@ function save(): void {
               :disabled="readonly"
             />
           </label>
-          <small v-if="!priceMode" class="tip">El precio final de arriba y abajo se ajusta en la configuración de cada evento.</small>
-          <template v-if="priceMode">
-            <p class="tip">
-              Sugerido: {{ selectedBed.precio_sugerido != null ? selectedBed.precio_sugerido : '—' }}
-            </p>
-            <label>
-              Precio del evento
-              <InputNumber
-                :model-value="selectedBed.precio"
-                :min="0"
-                :max-fraction-digits="0"
-                prefix="$ "
-                :disabled="priceDisabled"
-                @update:model-value="setEventPrice(selectedBed, $event)"
-              />
-            </label>
-            <label v-if="selectedBed.tipo === 'camarote' && bunkSibling(selection.room, selectedBed)">
-              Precio del evento {{ selectedBed.nivel_camarote === 'arriba' ? 'abajo' : 'arriba' }}
-              <InputNumber
-                :model-value="bunkSibling(selection.room, selectedBed)!.precio"
-                :min="0"
-                :max-fraction-digits="0"
-                prefix="$ "
-                :disabled="priceDisabled"
-                @update:model-value="setEventPrice(bunkSibling(selection.room, selectedBed)!, $event)"
-              />
-            </label>
-          </template>
+          <small class="tip">El precio final de arriba y abajo se ajusta en la configuración de cada evento.</small>
           <label>
             Estado
             <Select
@@ -1956,9 +2004,10 @@ function save(): void {
             />
           </div>
           <p class="tip">Izquierda / Derecha voltea la imagen para que mire al lado opuesto.</p>
+          </template>
         </template>
 
-        <template v-else-if="selectedRoom">
+        <template v-else-if="!priceMode && selectedRoom">
           <header>
             <div>
               <h3>Habitación</h3>
@@ -2074,6 +2123,13 @@ function save(): void {
   gap: 0.75rem;
   align-items: end;
 }
+.studio__top--price {
+  flex-direction: column;
+  align-items: stretch;
+}
+.studio__top--price .studio__filters {
+  align-items: start;
+}
 .studio__filters {
   display: flex;
   flex-wrap: wrap;
@@ -2118,6 +2174,29 @@ function save(): void {
   min-height: 0;
   height: 100%;
   align-items: stretch;
+}
+.studio__body--price {
+  grid-template-columns: minmax(0, 1fr) 18rem;
+}
+.studio__body--price.studio__body--no-props {
+  grid-template-columns: minmax(0, 1fr);
+}
+.occupants {
+  display: grid;
+  gap: 0.35rem;
+}
+.occupants ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.occupants li {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--pj-border);
+  border-radius: 8px;
+  font-size: 0.82rem;
 }
 .studio__tree, .studio__props, .studio__stage {
   border: 1px solid var(--pj-border);
@@ -2328,8 +2407,12 @@ function save(): void {
   font-size: 0.72rem;
   font-weight: 700;
 }
-.prop-hero em.is-disponible { color: #15803d; }
-.prop-hero em.is-ocupada { color: #b91c1c; }
+.prop-hero em.is-disponible,
+.prop-hero em.is-ok { color: #15803d; }
+.prop-hero em.is-ocupada,
+.prop-hero em.is-busy { color: #b91c1c; }
+.prop-hero em.is-wait { color: #b45309; }
+.prop-hero em.is-off { color: #64748b; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 .field-inline { display: flex; align-items: center; gap: 0.45rem; }
 .field-inline .grow { flex: 1; }

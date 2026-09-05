@@ -87,7 +87,58 @@ final class CabanaController
         $personaId = (int) ($request->user()->persona_id ?? 0);
         $items = $this->eventos->list($event)->map(fn (EventoCabana $cabana) => $this->eventPayload($cabana, $personaId));
 
-        return ApiResponse::success(['items' => $items]);
+        return ApiResponse::success([
+            'items' => $items,
+            'desplazadas' => $this->eventos->displacedPayload($event),
+        ]);
+    }
+
+    public function refreshFromCatalog(Request $request, Event $event): JsonResponse
+    {
+        abort_unless(
+            $request->user()->can('update', $event)
+            || $request->user()->hasPermission('cabanas.assign')
+            || $request->user()->hasPermission('cabanas.update'),
+            403,
+        );
+        $personaId = (int) ($request->user()->persona_id ?? 0);
+        $result = $this->eventos->refreshFromCatalog($event);
+        $items = $result['items']->map(fn (EventoCabana $cabana) => $this->eventPayload($cabana, $personaId));
+
+        return ApiResponse::success([
+            'items' => $items,
+            'desplazadas' => $result['desplazadas'],
+        ], 'Plano del evento actualizado desde el catálogo');
+    }
+
+    public function reassignDisplaced(Request $request, Event $event, AsignacionCama $asignacion): JsonResponse
+    {
+        abort_unless(
+            $request->user()->can('update', $event)
+            || $request->user()->hasPermission('cabanas.assign')
+            || $request->user()->hasPermission('cabanas.update'),
+            403,
+        );
+        if ((int) $asignacion->evento_id !== (int) $event->id || $asignacion->estado !== AsignacionCama::ESTADO_DESPLAZADA) {
+            abort(404);
+        }
+        $data = $request->validate([
+            'evento_cabana_cama_id' => ['required', 'integer', 'exists:evento_cabana_camas,id'],
+        ]);
+        $asignacion = $this->asignaciones->assignFor(
+            EventoCabanaCama::query()->findOrFail($data['evento_cabana_cama_id']),
+            EventoInscripcionPersona::query()->findOrFail($asignacion->inscripcion_persona_id),
+            $request->user(),
+        );
+
+        return ApiResponse::success($asignacion, 'Persona reubicada');
+    }
+
+    public function displacedAssignments(Request $request, Event $event): JsonResponse
+    {
+        abort_unless($request->user()->can('view', $event) || $request->user()->hasCatalogPermission('cabanas', 'view'), 403);
+
+        return ApiResponse::success(['items' => $this->eventos->displacedPayload($event)]);
     }
 
     public function sync(SyncEventoCabanasRequest $request, Event $event): JsonResponse
@@ -220,6 +271,15 @@ final class CabanaController
                         $ocupacion += $bedOccupancy;
                         $roomOccupancy += $bedOccupancy;
                         $capacidad += (int) $cama->capacidad;
+                        $ocupantes = $activas->map(function ($asignacion) {
+                            $linea = $asignacion->inscripcionPersona;
+                            $nombre = trim((string) ($linea?->nombre_snapshot ?: $linea?->persona?->full_name ?: ''));
+
+                            return [
+                                'id' => (int) $asignacion->inscripcion_persona_id,
+                                'nombre' => $nombre !== '' ? $nombre : 'Persona asignada',
+                            ];
+                        })->values();
 
                         return [
                             'id' => $cama->id,
@@ -239,6 +299,7 @@ final class CabanaController
                             'estado' => $cama->estado,
                             'ocupacion' => $bedOccupancy,
                             'ocupadas' => $bedOccupancy,
+                            'ocupantes' => $ocupantes,
                             'asignada_a_mi' => $activas->contains(
                                 fn ($a) => (int) $a->inscripcionPersona?->persona_id === $personaId
                             ),

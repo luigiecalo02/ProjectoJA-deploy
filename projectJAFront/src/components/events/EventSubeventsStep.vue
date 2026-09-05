@@ -20,7 +20,10 @@ import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import MediaCoverUpload from '@/components/media/MediaCoverUpload.vue'
 import EventMaterialsPanel from '@/components/events/EventMaterialsPanel.vue'
+import RichTextField from '@/components/RichTextField.vue'
+import RichTextView from '@/components/RichTextView.vue'
 import { cssColor } from '@/utils/color'
+import { normalizeRichText } from '@/utils/richText'
 import type {
   CategoriaSubevento,
   ClubEvent,
@@ -43,10 +46,13 @@ type NavNode = {
   starts_at: string
   ends_at: string
   es_en_sitio: boolean
+  maneja_fecha_fin: boolean
   organizacion_id: number | null
   puntaje_maximo: number | null
   tipo_evento_id: number | null
   visibilidad: EventoVisibilidad
+  juez_ids: number[]
+  supervisor_ids: number[]
 }
 
 const props = defineProps<{
@@ -58,6 +64,8 @@ const props = defineProps<{
   parentOrganizacionId: number | null
   parentEsEnSitio: boolean
   parentVisibilidad: EventoVisibilidad
+  parentJuezIds?: number[]
+  parentSupervisorIds?: number[]
   categoriasVersion?: number
   parentCategoriaIds?: number[]
   parentCriterioIds?: number[]
@@ -83,7 +91,7 @@ const criterioPoints = reactive<Record<number, number | null>>({})
 const search = ref('')
 const selectedId = ref<number | null>(null)
 const detailTab = ref<'info' | 'reglas' | 'puntaje' | 'categoria'>('info')
-const optionsTab = ref<'calificaciones' | 'control' | 'evidencias' | 'jueces' | 'hijos'>('calificaciones')
+const optionsTab = ref<'calificaciones' | 'control' | 'evidencias' | 'jueces' | 'hijos' | 'recursos'>('calificaciones')
 const materiales = ref<EventoArchivoMaterial[]>([])
 const pendingMaterialFiles = ref<File[]>([])
 const pendingYoutube = ref<Array<{ url: string; titulo?: string }>>([])
@@ -180,6 +188,7 @@ const optionsTabHasConfig = computed(() => ({
   evidencias: opts.requiereEvidencia,
   jueces: form.juez_ids.length > 0 || form.supervisor_ids.length > 0,
   hijos: opts.tieneSubeventos,
+  recursos: materiales.value.length > 0 || pendingMaterialFiles.value.length > 0 || pendingYoutube.value.length > 0,
 }))
 
 const estadoOptions = computed(() => [
@@ -507,17 +516,35 @@ async function onPickImage(file: File): Promise<void> {
   pendingPreview.value = URL.createObjectURL(file)
 }
 
+function staffIdsFromEvent(
+  ids: number[] | undefined,
+  people?: Array<{ id: number }> | null,
+  effective?: Array<{ id: number }> | null,
+): number[] {
+  if (ids?.length) return [...ids]
+  if (effective?.length) return effective.map((person) => person.id)
+  if (people?.length) return people.map((person) => person.id)
+  return []
+}
+
 function toNavNode(item: ClubEvent): NavNode {
   return {
     id: item.id,
     name: item.name,
     starts_at: item.starts_at,
     ends_at: item.ends_at,
-    es_en_sitio: item.es_en_sitio,
+    es_en_sitio: item.es_en_sitio ?? true,
+    maneja_fecha_fin: !!item.maneja_fecha_fin,
     organizacion_id: item.organizacion_id ?? props.parentOrganizacionId,
     puntaje_maximo: item.puntaje_maximo ?? null,
     tipo_evento_id: item.tipo_evento_id ?? null,
     visibilidad: item.visibilidad,
+    juez_ids: staffIdsFromEvent(item.juez_ids, item.jueces, item.jueces_efectivos),
+    supervisor_ids: staffIdsFromEvent(
+      item.supervisor_ids,
+      item.supervisores,
+      item.supervisores_efectivos,
+    ),
   }
 }
 
@@ -539,6 +566,48 @@ function contextEndsAt(): Date | null {
 
 function contextOrganizacionId(): number | null {
   return navStack.value.at(-1)?.organizacion_id ?? props.parentOrganizacionId
+}
+
+function contextEsEnSitio(): boolean {
+  return navStack.value.at(-1)?.es_en_sitio ?? props.parentEsEnSitio
+}
+
+function contextJuezIds(): number[] {
+  const node = navStack.value.at(-1)
+  if (node) return [...node.juez_ids]
+  return [...(props.parentJuezIds ?? [])]
+}
+
+function contextSupervisorIds(): number[] {
+  const node = navStack.value.at(-1)
+  if (node) return [...node.supervisor_ids]
+  return [...(props.parentSupervisorIds ?? [])]
+}
+
+function datesDiffer(start: Date | null, end: Date | null): boolean {
+  if (!start || !end) return false
+  return start.getTime() !== end.getTime()
+}
+
+function contextManejaFechaFin(): boolean {
+  const node = navStack.value.at(-1)
+  const start = dateOnly(contextStartsAt())
+  const end = dateOnly(contextEndsAt())
+  if (node?.maneja_fecha_fin) return true
+  return datesDiffer(start, end)
+}
+
+function applyParentDefaults(): void {
+  const start = dateOnly(contextStartsAt())
+  const end = dateOnly(contextEndsAt())
+  form.starts_at = start
+  form.ends_at = end
+  form.tipo_evento_id = contextTipoEventoId.value
+  form.visibilidad = contextVisibilidad.value
+  form.juez_ids = contextJuezIds()
+  form.supervisor_ids = contextSupervisorIds()
+  opts.esEnSitio = contextEsEnSitio()
+  opts.manejaFechaFin = contextManejaFechaFin()
 }
 
 function isoToApiDate(iso: string): string {
@@ -626,7 +695,7 @@ function resetChildForm(): void {
   childForm.descripcion = ''
   childForm.starts_at = dateOnly(form.starts_at) || dateOnly(contextStartsAt())
   childForm.ends_at = dateOnly(form.ends_at) || dateOnly(contextEndsAt())
-  childEsEnSitio.value = true
+  childEsEnSitio.value = opts.esEnSitio
   childError.value = ''
   childEditingId.value = null
 }
@@ -687,6 +756,9 @@ async function saveChildSubevent(): Promise<void> {
       es_en_sitio: childEsEnSitio.value,
       starts_at: toApiDate(start),
       ends_at: toApiDate(end),
+      maneja_fecha_fin: opts.manejaFechaFin || datesDiffer(start, end),
+      juez_ids: [...form.juez_ids],
+      supervisor_ids: [...form.supervisor_ids],
       estado: 'publicado' as const,
       is_active: true,
       cupo_ilimitado: true,
@@ -733,11 +805,8 @@ function resetForm(): void {
   form.descripcion = ''
   form.reglas = ''
   form.categoria_subevento_id = categoriasDisponibles.value[0]?.id ?? null
-  form.tipo_evento_id = contextTipoEventoId.value
   form.puntaje_maximo = 100
   form.puntaje_por_participar = false
-  form.starts_at = dateOnly(contextStartsAt())
-  form.ends_at = dateOnly(contextEndsAt())
   form.tiempo_estimado_minutos = null
   form.requiere_puesto_entrega = false
   form.requiere_tiempo_entrega = false
@@ -757,9 +826,6 @@ function resetForm(): void {
   form.precio = null
   form.tipos_evidencia = ['link', 'pdf', 'imagen', 'audio', 'video']
   form.estado = 'publicado'
-  form.visibilidad = contextVisibilidad.value
-  form.juez_ids = []
-  form.supervisor_ids = []
   assignedCriterioIds.value = []
   for (const key of Object.keys(criterioPoints)) delete criterioPoints[Number(key)]
   opts.manejaPuntaje = false
@@ -771,8 +837,8 @@ function resetForm(): void {
   opts.manejaPenalizaciones = false
   opts.tieneValor = false
   opts.requiereEvidencia = false
-  opts.esEnSitio = true
   opts.tieneSubeventos = false
+  applyParentDefaults()
   optionsTab.value = 'calificaciones'
   childrenScoreSum.value = 0
   formImageUrl.value = null
@@ -1032,7 +1098,7 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
     const payload = {
       name: form.name.trim(),
       descripcion: form.descripcion.trim() || null,
-      reglas: form.reglas.trim() || null,
+      reglas: normalizeRichText(form.reglas),
       // Solo al crear se fija el padre; al editar se conserva el padre real
       // (evita reparentar hijos anidados abiertos desde el acordeón).
       ...(editingId.value
@@ -2073,7 +2139,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-show="detailTab === 'reglas'" class="sub-detail__body">
-            <p>{{ selected.reglas || t('events.wizard.subNoRules') }}</p>
+            <RichTextView :html="selected.reglas" :empty="t('events.wizard.subNoRules')" />
           </div>
           <div v-show="detailTab === 'puntaje'" class="sub-detail__body">
             <p>
@@ -2146,7 +2212,8 @@ onBeforeUnmount(() => {
         </div>
         <div class="field">
           <label>{{ t('events.wizard.subTabRules') }}</label>
-          <Textarea v-model="form.reglas" rows="3" class="w-full" auto-resize />
+          <RichTextField v-model="form.reglas" />
+          <small class="pj-muted">{{ t('events.wizard.subRulesHint') }}</small>
         </div>
         <div class="field-grid">
           <div class="field">
@@ -2184,15 +2251,6 @@ onBeforeUnmount(() => {
             />
           </div>
         </div>
-
-        <EventMaterialsPanel
-          :event-id="editingId"
-          :files="materiales"
-          @queued="pendingMaterialFiles = [...pendingMaterialFiles, ...$event]"
-          @queued-youtube="pendingYoutube = [...pendingYoutube, $event]"
-          @uploaded="materiales = [...materiales, $event]"
-          @removed="materiales = materiales.filter((item) => item.id !== $event)"
-        />
 
         <div class="sub-options">
           <p class="sub-options__lead">{{ t('events.wizard.subOptionsLead') }}</p>
@@ -2247,6 +2305,16 @@ onBeforeUnmount(() => {
               @click="optionsTab = 'hijos'"
             >
               {{ t('events.wizard.subTabChildren') }}
+            </button>
+            <button
+              type="button"
+              :class="{
+                'is-active': optionsTab === 'recursos',
+                'has-config': optionsTabHasConfig.recursos,
+              }"
+              @click="optionsTab = 'recursos'"
+            >
+              {{ t('events.wizard.subTabResources') }}
             </button>
           </div>
 
@@ -2624,6 +2692,17 @@ onBeforeUnmount(() => {
             />
             <small class="pj-muted">{{ t('events.wizard.subSupervisorHint') }}</small>
           </div>
+          </div>
+
+          <div v-show="optionsTab === 'recursos'" class="sub-options__pane">
+            <EventMaterialsPanel
+              :event-id="editingId"
+              :files="materiales"
+              @queued="pendingMaterialFiles = [...pendingMaterialFiles, ...$event]"
+              @queued-youtube="pendingYoutube = [...pendingYoutube, $event]"
+              @uploaded="materiales = [...materiales, $event]"
+              @removed="materiales = materiales.filter((item) => item.id !== $event)"
+            />
           </div>
         </div>
       </div>
