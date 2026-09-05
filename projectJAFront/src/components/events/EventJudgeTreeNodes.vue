@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { JudgeNodeStatus, JudgeTreeNode } from '@/modules/events/types'
-import { cssColor } from '@/utils/color'
+import { iconBoxStyle } from '@/utils/iconVisual'
 
 const props = withDefaults(
   defineProps<{
@@ -68,7 +68,7 @@ function iconFor(node: JudgeTreeNode): string {
 
         <span
           class="judge-tree__thumb"
-          :style="!node.image_url && node.color ? { color: cssColor(node.color) } : undefined"
+          :style="!node.image_url ? iconBoxStyle(node.color) : undefined"
         >
           <img v-if="node.image_url" :src="node.image_url" :alt="node.name" />
           <i v-else :class="iconFor(node)" />
@@ -245,10 +245,10 @@ function iconFor(node: JudgeTreeNode): string {
   display: grid;
   place-items: center;
   flex-shrink: 0;
+  border: 1px solid transparent;
   background: color-mix(in srgb, #2563eb 10%, #f1f5f9);
   color: #1d4ed8;
   font-size: 0.9rem;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pj-border) 45%, transparent);
 }
 
 .judge-tree.is-nested .judge-tree__thumb {

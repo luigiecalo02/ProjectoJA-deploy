@@ -12,6 +12,7 @@ import Checkbox from 'primevue/checkbox'
 import EventMaterialsPanel from '@/components/events/EventMaterialsPanel.vue'
 import { dateOnly } from '@/modules/events/dateUtils'
 import type { CriterioEvaluacion, EventoArchivoMaterial } from '@/modules/events/types'
+import { iconBoxStyle } from '@/utils/iconVisual'
 
 export type SubeventOptionsTab =
   | 'calificaciones'
@@ -280,10 +281,9 @@ const recursosHasConfig = computed(
             >
               <template #option="{ option }">
                 <span class="crit-opt">
-                  <i
-                    :class="option.icono || 'pi pi-list-check'"
-                    :style="option.color ? { color: option.color } : undefined"
-                  />
+                  <span class="crit-opt__icon" :style="iconBoxStyle(option.color)">
+                    <i :class="option.icono || 'pi pi-list-check'" />
+                  </span>
                   {{ option.label }}
                 </span>
               </template>
@@ -639,6 +639,16 @@ const recursosHasConfig = computed(
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+}
+
+.crit-opt__icon {
+  width: 1.45rem;
+  height: 1.45rem;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  flex-shrink: 0;
 }
 
 .evidence-types {

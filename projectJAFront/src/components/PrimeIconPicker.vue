@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppSearchField from '@/components/AppSearchField.vue'
 import { primeIconOptions } from '@/utils/primeIcons'
+import { iconBoxStyle } from '@/utils/iconVisual'
 
 const props = withDefaults(
   defineProps<{
@@ -36,7 +37,7 @@ function select(value: string): void {
 <template>
   <div class="icon-picker">
     <div class="icon-picker__head">
-      <span class="icon-picker__preview" :style="color ? { color } : undefined">
+      <span class="icon-picker__preview" :style="iconBoxStyle(color)">
         <i :class="modelValue || 'pi pi-tag'" />
       </span>
       <AppSearchField
@@ -87,9 +88,7 @@ function select(value: string): void {
   border-radius: 10px;
   flex-shrink: 0;
   font-size: 1.15rem;
-  color: var(--p-primary-color);
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border: 1px solid transparent;
 }
 
 .icon-picker__search {

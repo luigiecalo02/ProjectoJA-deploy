@@ -17,7 +17,6 @@ import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
 import { extractBannerHeroVars } from '@/utils/dominantColor'
-import { cssColor } from '@/utils/color'
 import type {
   EventParticipation,
   ParticipationNode,
@@ -137,6 +136,8 @@ function toJudgeSubevento(node: ParticipationNode): JudgeSubevento {
     reglas: node.reglas,
     estado: node.estado,
     image_url: node.image_url,
+    icono: node.icono || node.categoria_subevento?.icono || node.tipo_evento?.icono || 'pi pi-flag',
+    color: node.color || node.categoria_subevento?.color || node.tipo_evento?.color || null,
     starts_at: node.starts_at,
     ends_at: node.ends_at,
     puntaje_maximo: node.puntaje_maximo,
@@ -182,7 +183,7 @@ function toJudgeTreeNode(node: ParticipationNode): JudgeTreeNode {
     es_calificable: node.es_calificable,
     requiere_evidencia: node.requiere_evidencia,
     icono: node.icono || node.categoria_subevento?.icono || node.tipo_evento?.icono || 'pi pi-flag',
-    color: cssColor(node.color || node.categoria_subevento?.color || node.tipo_evento?.color) || null,
+    color: node.color || node.categoria_subevento?.color || node.tipo_evento?.color || null,
     categoria: node.categoria_subevento?.nombre || null,
     tipo: node.tipo_evento?.nombre || null,
     hijos: (node.hijos || []).map(toJudgeTreeNode),

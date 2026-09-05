@@ -23,7 +23,7 @@ import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
-import { colorToCss } from '@/utils/color'
+import { iconBoxStyle } from '@/utils/iconVisual'
 import type { CategoriaSubevento, CriterioEvaluacion } from '@/modules/events/types'
 
 const { t } = useI18n()
@@ -364,7 +364,7 @@ onMounted(() => {
               <Column :header="t('events.wizard.catName')">
                 <template #body="{ data }">
                   <div class="name-cell">
-                    <span class="cat-icon" :style="{ color: colorToCss(data.color) }">
+                    <span class="cat-icon" :style="iconBoxStyle(data.color)">
                       <i :class="data.icono || 'pi pi-tag'" />
                     </span>
                     <div>
@@ -433,7 +433,7 @@ onMounted(() => {
               <Column :header="t('events.wizard.criteriaName')">
                 <template #body="{ data }">
                   <div class="name-cell">
-                    <span class="cat-icon" :style="{ color: colorToCss(data.color) }">
+                    <span class="cat-icon" :style="iconBoxStyle(data.color)">
                       <i :class="data.icono || 'pi pi-list-check'" />
                     </span>
                     <div>
@@ -632,7 +632,7 @@ onMounted(() => {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  border: 1px solid transparent;
   flex-shrink: 0;
 }
 

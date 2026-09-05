@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ClubEvent } from '@/modules/events/types'
-import { cssColor } from '@/utils/color'
+import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
 
 const props = withDefaults(
   defineProps<{
@@ -82,9 +82,9 @@ function onOpen(node: ClubEvent): void {
         <span
           v-else
           class="evt-tree__icon"
-          :style="{ color: cssColor(node.categoria_subevento?.color || node.tipo_evento?.color) }"
+          :style="iconBoxStyle(resolveEventIconColor(node))"
         >
-          <i :class="node.categoria_subevento?.icono || node.tipo_evento?.icono || 'pi pi-flag'" />
+          <i :class="node.icono || node.categoria_subevento?.icono || node.tipo_evento?.icono || 'pi pi-flag'" />
         </span>
 
         <div class="evt-tree__body">
@@ -242,6 +242,7 @@ function onOpen(node: ClubEvent): void {
   display: grid;
   place-items: center;
   flex-shrink: 0;
+  border: 1px solid transparent;
   background: color-mix(in srgb, #0f766e 10%, #f1f5f9);
   color: #0f766e;
 }

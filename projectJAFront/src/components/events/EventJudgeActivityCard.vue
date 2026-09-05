@@ -11,6 +11,7 @@ import type {
 } from '@/modules/events/types'
 import { formatDateOnly } from '@/modules/events/dateUtils'
 import { cssColor } from '@/utils/color'
+import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
 import RichTextView from '@/components/RichTextView.vue'
 
 type EvidenceKind = 'faltante' | 'cargada' | 'no_aplica' | 'mixto'
@@ -248,9 +249,9 @@ const estadoLabel = computed(() => {
 
 function iconFor(item: JudgeSubevento | JudgeTreeNode): string {
   const icon =
+    ('icono' in item ? item.icono : null) ||
     ('categoria_subevento' in item ? item.categoria_subevento?.icono : null) ||
     ('tipo_evento' in item ? item.tipo_evento?.icono : null) ||
-    ('icono' in item ? item.icono : null) ||
     'pi pi-flag'
   const value = icon || 'pi pi-flag'
   return value.startsWith('pi ') ? value : `pi ${value}`
@@ -347,7 +348,7 @@ const subeventoRows = computed(() =>
       <span
         v-if="!actividad.image_url"
         class="judge-activity__icon"
-        :style="{ color: cssColor(actividad.categoria_subevento?.color) }"
+        :style="iconBoxStyle(resolveEventIconColor(actividad))"
       >
         <i :class="iconFor(actividad)" />
       </span>
@@ -527,7 +528,7 @@ const subeventoRows = computed(() =>
           <button type="button" class="subevents-item" @click="emit('selectSubevento', child)">
             <span
               class="subevents-item__thumb"
-              :style="!child.image_url && child.color ? { color: cssColor(child.color) } : undefined"
+              :style="!child.image_url ? iconBoxStyle(resolveEventIconColor(child)) : undefined"
             >
               <img v-if="child.image_url" :src="child.image_url" :alt="child.name" />
               <i v-else :class="iconFor(child)" />
@@ -769,7 +770,7 @@ const subeventoRows = computed(() =>
   border-radius: 10px;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, #2563eb 10%, transparent);
+  border: 1px solid transparent;
   font-size: 1.05rem;
   flex-shrink: 0;
 }
@@ -980,11 +981,11 @@ const subeventoRows = computed(() =>
   overflow: hidden;
   display: grid;
   place-items: center;
+  border: 1px solid transparent;
   background: color-mix(in srgb, #2563eb 10%, #f1f5f9);
   color: #1d4ed8;
   font-size: 1rem;
   flex-shrink: 0;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pj-border) 40%, transparent);
 }
 
 .subevents-item__thumb img {

@@ -28,6 +28,7 @@ import {
 } from '@/modules/organizaciones/types'
 import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
 import { cssColor } from '@/utils/color'
+import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -400,12 +401,19 @@ function estadoMeta(event: ClubEvent): { label: string; css: string } {
 }
 
 function categoryIcon(event: ClubEvent): string {
+  if (event.icono) return event.icono
   if (event.tipo_evento?.icono) return event.tipo_evento.icono
   const badges = audienceBadges(event)
   if (badges.some((b) => b.css.includes('conquistadores'))) return 'pi pi-flag'
   if (badges.some((b) => b.css.includes('aventureros'))) return 'pi pi-sun'
   if (badges.some((b) => b.css.includes('guias'))) return 'pi pi-star'
   return 'pi pi-calendar'
+}
+
+function eventIconStyle(event: ClubEvent): Record<string, string> | undefined {
+  const color = resolveEventIconColor(event)
+  if (!event.icono && !color) return undefined
+  return iconBoxStyle(color)
 }
 
 function categoryTone(event: ClubEvent): string {
@@ -952,7 +960,12 @@ onMounted(() => {
             </div>
           </div>
 
-          <div v-if="listView === 'tree'" class="event-card__icon" :class="categoryTone(event)">
+          <div
+            v-if="listView === 'tree'"
+            class="event-card__icon"
+            :class="eventIconStyle(event) ? undefined : categoryTone(event)"
+            :style="eventIconStyle(event)"
+          >
             <i :class="categoryIcon(event)" />
           </div>
 
@@ -1260,11 +1273,12 @@ onMounted(() => {
 .event-card__icon {
   width: 2.5rem;
   height: 2.5rem;
-  border-radius: 999px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
   color: #fff;
   flex-shrink: 0;
+  border: 1px solid transparent;
 }
 
 .tone--conquistadores { background: #ea580c; }

@@ -2,8 +2,7 @@
 import { useI18n } from 'vue-i18n'
 import Button from 'primevue/button'
 import type { ClubEvent } from '@/modules/events/types'
-import { cssColor } from '@/utils/color'
-import { iconFontSize } from '@/utils/iconSize'
+import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
 
 const props = withDefaults(
   defineProps<{
@@ -52,12 +51,8 @@ function iconFor(item: ClubEvent): string {
   return item.icono || item.categoria_subevento?.icono || item.tipo_evento?.icono || 'pi pi-sitemap'
 }
 
-function colorFor(item: ClubEvent): string | undefined {
-  return cssColor(item.color || item.categoria_subevento?.color || item.tipo_evento?.color)
-}
-
-function iconSizeFor(item: ClubEvent): string {
-  return iconFontSize(item.icono_tamano, 22)
+function iconStyleFor(item: ClubEvent): Record<string, string> {
+  return iconBoxStyle(resolveEventIconColor(item), { size: item.icono_tamano, maxSize: 22 })
 }
 
 function showsImage(item: ClubEvent): boolean {
@@ -113,7 +108,7 @@ function dropClassFor(itemId: number): string {
         <span
           v-else
           class="sub-tree__icon"
-          :style="{ color: colorFor(node), fontSize: iconSizeFor(node) }"
+          :style="iconStyleFor(node)"
         >
           <i :class="iconFor(node)" />
         </span>
@@ -352,6 +347,10 @@ function dropClassFor(itemId: number): string {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  border: 1px solid transparent;
+}
+
+.sub-tree__thumb {
   background: color-mix(in srgb, var(--pj-border) 30%, transparent);
 }
 

@@ -137,6 +137,9 @@ export interface ParticipationNode {
   reglas?: string | null
   estado?: string | null
   image_url?: string | null
+  icono?: string | null
+  color?: string | null
+  icono_tamano?: number | null
   banner_url?: string | null
   archivos?: EventoArchivoMaterial[]
   evento_padre_id?: number | null
@@ -318,6 +321,8 @@ export interface JudgeSubevento {
   reglas?: string | null
   estado?: string | null
   image_url?: string | null
+  icono?: string | null
+  color?: string | null
   starts_at?: string | null
   ends_at?: string | null
   puntaje_maximo?: number | null

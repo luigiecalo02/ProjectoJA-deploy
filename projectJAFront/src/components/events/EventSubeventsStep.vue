@@ -24,7 +24,8 @@ import RichTextField from '@/components/RichTextField.vue'
 import RichTextView from '@/components/RichTextView.vue'
 import IconColorPopover from '@/components/IconColorPopover.vue'
 import { cssColor } from '@/utils/color'
-import { clampIconSize, iconFontSize, ICON_SIZE_DEFAULT } from '@/utils/iconSize'
+import { clampIconSize, ICON_SIZE_DEFAULT } from '@/utils/iconSize'
+import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
 import { normalizeRichText } from '@/utils/richText'
 import type {
   CategoriaSubevento,
@@ -1933,12 +1934,8 @@ function iconFor(item: ClubEvent): string {
   return item.icono || item.categoria_subevento?.icono || item.tipo_evento?.icono || 'pi pi-calendar'
 }
 
-function iconSizeFor(item: ClubEvent, max = 28): string {
-  return iconFontSize(item.icono_tamano, max)
-}
-
-function colorFor(item: ClubEvent): string | undefined {
-  return cssColor(item.color || item.categoria_subevento?.color || item.tipo_evento?.color)
+function iconStyleFor(item: ClubEvent, max = 28): Record<string, string> {
+  return iconBoxStyle(resolveEventIconColor(item), { size: item.icono_tamano, maxSize: max })
 }
 
 function showsImage(item: ClubEvent): boolean {
@@ -2316,7 +2313,7 @@ onBeforeUnmount(() => {
                         <span
                           v-else
                           class="sub-name__icon"
-                          :style="{ color: colorFor(item), fontSize: iconSizeFor(item) }"
+                          :style="iconStyleFor(item)"
                         >
                           <i :class="iconFor(item)" />
                         </span>
@@ -2447,7 +2444,7 @@ onBeforeUnmount(() => {
             <span
               v-if="!showsImage(selected)"
               class="sub-name__icon sub-name__icon--lg"
-              :style="{ color: colorFor(selected), fontSize: iconSizeFor(selected, 52) }"
+              :style="iconStyleFor(selected, 52)"
             >
               <i :class="iconFor(selected)" />
             </span>
@@ -3235,8 +3232,12 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   display: grid;
   place-content: center;
-  background: color-mix(in srgb, var(--pj-navy) 6%, #fff);
+  border: 1px solid transparent;
   flex-shrink: 0;
+}
+
+.sub-name__icon i {
+  color: inherit;
 }
 
 .sub-name__icon--lg {

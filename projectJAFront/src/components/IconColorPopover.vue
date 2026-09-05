@@ -5,6 +5,7 @@ import Popover from 'primevue/popover'
 import ColorAlphaPicker from '@/components/terrenos/ColorAlphaPicker.vue'
 import PrimeIconPicker from '@/components/PrimeIconPicker.vue'
 import { clampIconSize, ICON_SIZE_DEFAULT, ICON_SIZE_MAX, ICON_SIZE_MIN } from '@/utils/iconSize'
+import { iconBoxStyle } from '@/utils/iconVisual'
 
 const props = withDefaults(
   defineProps<{
@@ -50,7 +51,7 @@ function onSize(value: string): void {
     <button
       type="button"
       class="icon-color__trigger"
-      :style="{ color: color || undefined }"
+      :style="iconBoxStyle(color)"
       :aria-label="t('events.wizard.subVisualPick')"
       :title="t('events.wizard.subVisualPick')"
       @click="toggle"
@@ -102,8 +103,8 @@ function onSize(value: string): void {
   position: relative;
   display: grid;
   place-items: center;
-  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
-  background: color-mix(in srgb, currentColor 10%, #fff);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--pj-navy, #1e3a5f);
   cursor: pointer;
 }
