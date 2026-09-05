@@ -891,7 +891,12 @@ watch(drawerVisible, (open) => {
 })
 
 onMounted(() => {
-  load(false)
+  void (async () => {
+    if (fieldMode.online && fieldMode.pendingForEvent(eventId.value) > 0) {
+      await fieldMode.syncPending(eventId.value)
+    }
+    await load(false)
+  })()
 })
 </script>
 

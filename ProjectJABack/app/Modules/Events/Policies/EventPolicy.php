@@ -59,6 +59,19 @@ final class EventPolicy
         return $event->isVisibleTo($actor);
     }
 
+    public function changeStatus(User $actor, Event $event): bool
+    {
+        if (! $actor->hasPermission('events.change_status')) {
+            return false;
+        }
+
+        if ($this->orgAccess->bypassesOrganizationScope($actor)) {
+            return true;
+        }
+
+        return $event->isVisibleTo($actor);
+    }
+
     public function delete(User $actor, Event $event): bool
     {
         if (! $actor->hasPermission('events.delete')) {

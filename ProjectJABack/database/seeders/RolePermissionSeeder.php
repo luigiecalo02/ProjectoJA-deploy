@@ -81,6 +81,7 @@ class RolePermissionSeeder extends Seeder
                     ['action' => 'delete', 'display_name' => 'Eliminar eventos', 'sort_order' => 4],
                     ['action' => 'evaluate', 'display_name' => 'Evaluar eventos', 'sort_order' => 5],
                     ['action' => 'view_scores', 'display_name' => 'Ver puntajes', 'sort_order' => 6],
+                    ['action' => 'change_status', 'display_name' => 'Cambiar estado de eventos', 'sort_order' => 7],
                 ],
             ],
             [

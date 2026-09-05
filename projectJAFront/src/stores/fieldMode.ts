@@ -15,6 +15,7 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
   const syncing = ref(false)
   const pendingCount = ref(0)
   const failedCount = ref(0)
+  const pendingByEvent = ref<Record<number, number>>({})
   const lastDownloadedAt = ref<string | null>(null)
   const lastSyncError = ref<string | null>(null)
   const initialized = ref(false)
@@ -22,11 +23,16 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
   const canUseFieldMode = computed(() => auth.hasPermission('events.evaluate'))
   const hasPending = computed(() => pendingCount.value > 0 || failedCount.value > 0)
 
+  function pendingForEvent(eventId: number): number {
+    return pendingByEvent.value[eventId] ?? 0
+  }
+
   async function refreshMeta(): Promise<void> {
     const userId = auth.user?.id
     if (!userId) {
       pendingCount.value = 0
       failedCount.value = 0
+      pendingByEvent.value = {}
       lastDownloadedAt.value = null
       return
     }
@@ -36,6 +42,7 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     ])
     pendingCount.value = counts.pending
     failedCount.value = counts.failed
+    pendingByEvent.value = counts.byEvent
     lastDownloadedAt.value = downloadedAt
   }
 
@@ -90,19 +97,22 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     return result
   }
 
-  async function syncPending(): Promise<void> {
+  async function syncPending(eventId?: number): Promise<{ synced: number; failed: number }> {
+    const empty = { synced: 0, failed: 0 }
     const userId = auth.user?.id
-    if (!userId || !online.value || syncing.value) return
+    if (!userId || !online.value || syncing.value) return empty
     syncing.value = true
     lastSyncError.value = null
     try {
-      const result = await fieldModeService.syncOutbox(userId)
+      const result = await fieldModeService.syncOutbox(userId, eventId)
       if (result.failed > 0) {
         lastSyncError.value = 'Algunas calificaciones no se pudieron sincronizar.'
       }
       await refreshMeta()
+      return result
     } catch (error) {
       lastSyncError.value = error instanceof Error ? error.message : 'Error al sincronizar'
+      return empty
     } finally {
       syncing.value = false
     }
@@ -130,6 +140,8 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     syncing,
     pendingCount,
     failedCount,
+    pendingByEvent,
+    pendingForEvent,
     lastDownloadedAt,
     lastSyncError,
     canUseFieldMode,

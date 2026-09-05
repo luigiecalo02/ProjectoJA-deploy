@@ -83,8 +83,7 @@ final class EventController
     public function updateEstado(Request $request, Event $event): JsonResponse
     {
         $actor = $request->user();
-        abort_unless($actor?->isPlatformAdmin(), Response::HTTP_FORBIDDEN);
-        abort_unless($actor->can('update', $event), Response::HTTP_FORBIDDEN);
+        abort_unless($actor && $actor->can('changeStatus', $event), Response::HTTP_FORBIDDEN);
 
         $data = $request->validate([
             'estado' => ['required', 'string', 'in:borrador,publicado,en_proceso,cerrado'],

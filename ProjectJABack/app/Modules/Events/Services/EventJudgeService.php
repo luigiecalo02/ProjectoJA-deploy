@@ -1897,8 +1897,7 @@ final class EventJudgeService
     {
         $ids = [];
         $walk = function (Event $node) use (&$walk, &$ids, $scope): void {
-            $onSite = $node->es_en_sitio ?? true;
-            if ($onSite && $this->canScoreInScope($node, $scope)) {
+            if ($this->isOnSite($node) && $this->canScoreInScope($node, $scope)) {
                 $ids[] = (int) $node->id;
             }
             foreach ($node->hijos ?? [] as $hijo) {
@@ -1922,7 +1921,7 @@ final class EventJudgeService
             return null;
         }
 
-        $board = $this->board($actor, $root);
+        $board = $this->limitBoardToOnSiteActivities($this->board($actor, $root), $activityIds);
         $selectables = $this->collectSelectables($root, $scope);
         $activities = [];
 
@@ -1956,6 +1955,13 @@ final class EventJudgeService
             return null;
         }
 
+        $first = $activities[0];
+        if (($board['actividad']['id'] ?? null) === null) {
+            $board['subevento'] = $first['subevento'];
+            $board['actividad'] = $first['actividad'];
+            $board['clubes'] = $first['clubes'];
+        }
+
         return [
             'event' => $this->mapOfflineListEvent($root, $actor),
             'board' => $board,
@@ -1985,6 +1991,7 @@ final class EventJudgeService
             ->values()
             ->all();
         $juezIds[] = (int) $actor->id;
+        $onSiteChildren = $this->mapOfflineListChildren($root);
 
         return [
             'id' => (int) $root->id,
@@ -2008,8 +2015,8 @@ final class EventJudgeService
             'tipos_organizacion' => [],
             'requiere_pago' => (bool) $root->requiere_pago,
             'cupo_ilimitado' => (bool) ($root->cupo_ilimitado ?? true),
-            'hijos_count' => count($root->hijos ?? []),
-            'hijos' => $this->mapOfflineListChildren($root),
+            'hijos' => $onSiteChildren,
+            'hijos_count' => count($onSiteChildren),
         ];
     }
 
@@ -2020,6 +2027,10 @@ final class EventJudgeService
     {
         $out = [];
         foreach ($node->hijos ?? [] as $hijo) {
+            $nested = $this->mapOfflineListChildren($hijo);
+            if (! $this->isOnSite($hijo) && $nested === []) {
+                continue;
+            }
             $out[] = [
                 'id' => (int) $hijo->id,
                 'name' => $hijo->name,
@@ -2033,8 +2044,105 @@ final class EventJudgeService
                 'starts_at' => $hijo->starts_at?->toIso8601String() ?? '',
                 'ends_at' => $hijo->ends_at?->toIso8601String() ?? '',
                 'juez_ids' => $hijo->ownJueces()->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
-                'hijos' => $this->mapOfflineListChildren($hijo),
+                'hijos' => $nested,
             ];
+        }
+
+        return $out;
+    }
+
+    private function isOnSite(Event $node): bool
+    {
+        return (bool) $node->es_en_sitio;
+    }
+
+    /**
+     * @param  array<string, mixed>  $board
+     * @param  list<int>  $activityIds
+     * @return array<string, mixed>
+     */
+    private function limitBoardToOnSiteActivities(array $board, array $activityIds): array
+    {
+        $allowed = [];
+        foreach ($activityIds as $id) {
+            $allowed[$id] = true;
+        }
+
+        $board['arbol'] = $this->pruneJudgeTreeToAllowed($board['arbol'] ?? [], $allowed);
+        $board['subeventos'] = array_values(array_filter(
+            $board['subeventos'] ?? [],
+            function (array $row) use ($allowed): bool {
+                if (isset($allowed[(int) $row['id']])) {
+                    return true;
+                }
+                foreach ($row['actividad_ids'] ?? [] as $id) {
+                    if (isset($allowed[(int) $id])) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        ));
+        $board['pendientes'] = $this->filterEventKeyedMaps($board['pendientes'] ?? [], $allowed);
+        $board['evaluados'] = $this->filterEventKeyedMaps($board['evaluados'] ?? [], $allowed);
+        $board['evidencias'] = $this->filterEventKeyedMaps($board['evidencias'] ?? [], $allowed);
+
+        if (isset($board['actividad']['id']) && ! isset($allowed[(int) $board['actividad']['id']])) {
+            $board['actividad'] = null;
+            $board['subevento'] = null;
+            $board['clubes'] = [];
+        }
+
+        return $board;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $nodes
+     * @param  array<int, true>  $allowed
+     * @return list<array<string, mixed>>
+     */
+    private function pruneJudgeTreeToAllowed(array $nodes, array $allowed): array
+    {
+        $out = [];
+        foreach ($nodes as $node) {
+            $children = $this->pruneJudgeTreeToAllowed($node['hijos'] ?? [], $allowed);
+            $id = (int) ($node['id'] ?? 0);
+            if (! isset($allowed[$id]) && $children === []) {
+                continue;
+            }
+            $node['hijos'] = $children;
+            if (! isset($allowed[$id])) {
+                $node['puede_calificar'] = false;
+                $node['es_calificable'] = false;
+            }
+            $out[] = $node;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $map
+     * @param  array<int, true>  $allowed
+     * @return array<string, array<string, mixed>>
+     */
+    private function filterEventKeyedMaps(array $map, array $allowed): array
+    {
+        $out = [];
+        foreach ($map as $orgKey => $byEvent) {
+            if (! is_array($byEvent)) {
+                continue;
+            }
+            $filtered = [];
+            foreach ($byEvent as $eventKey => $value) {
+                if (isset($allowed[(int) $eventKey])) {
+                    $filtered[$eventKey] = $value;
+                }
+            }
+            if ($filtered !== []) {
+                $out[(string) $orgKey] = $filtered;
+            }
         }
 
         return $out;

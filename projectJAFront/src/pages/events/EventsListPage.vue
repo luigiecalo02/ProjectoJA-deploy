@@ -349,7 +349,7 @@ function audienceBadges(event: ClubEvent): Array<{ key: string; label: string; c
 const updatingEstadoId = ref<number | null>(null)
 
 function canChangeEstado(): boolean {
-  return isEventsAdmin.value
+  return can('events.change_status') && fieldMode.online
 }
 
 async function changeEventEstado(event: ClubEvent, estado: string): Promise<void> {
@@ -508,6 +508,43 @@ async function loadEvents(): Promise<void> {
   }
 }
 
+async function uploadFieldScores(event: ClubEvent): Promise<void> {
+  if (!fieldMode.online) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning'),
+      detail: t('fieldMode.uploadOffline'),
+      life: 4000,
+    })
+    return
+  }
+  const result = await fieldMode.syncPending(event.id)
+  if (result.synced === 0 && result.failed === 0) {
+    toast.add({
+      severity: 'info',
+      summary: t('common.info'),
+      detail: t('fieldMode.uploadEmpty'),
+      life: 3000,
+    })
+    return
+  }
+  if (result.failed > 0) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning'),
+      detail: t('fieldMode.uploadFailed', { name: event.name }),
+      life: 4500,
+    })
+    return
+  }
+  toast.add({
+    severity: 'success',
+    summary: t('common.success'),
+    detail: t('fieldMode.uploadedEvent', { count: result.synced, name: event.name }),
+    life: 3500,
+  })
+}
+
 async function prepareFieldPack(event: ClubEvent): Promise<void> {
   try {
     const count = await fieldMode.downloadPack(event.id)
@@ -587,6 +624,7 @@ function menuItemsFor(event: ClubEvent): MenuItem[] {
       command: () => goJudge(event),
     })
     if (canPrepareField.value) {
+      const pending = fieldMode.pendingForEvent(event.id)
       items.push({
         label: t('fieldMode.prepare'),
         icon: 'pi pi-cloud-download',
@@ -595,6 +633,16 @@ function menuItemsFor(event: ClubEvent): MenuItem[] {
           void prepareFieldPack(event)
         },
       })
+      if (pending > 0) {
+        items.push({
+          label: t('fieldMode.uploadWithCount', { count: pending }),
+          icon: 'pi pi-cloud-upload',
+          disabled: !fieldMode.online || fieldMode.syncing,
+          command: () => {
+            void uploadFieldScores(event)
+          },
+        })
+      }
     }
   }
   if (canViewStandings(event)) {
@@ -719,6 +767,9 @@ watch(
 
 onMounted(() => {
   void loadEvents()
+  if (fieldMode.online && fieldMode.hasPending) {
+    void fieldMode.syncPending()
+  }
 })
 </script>
 

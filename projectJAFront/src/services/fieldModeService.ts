@@ -146,21 +146,34 @@ export const fieldModeService = {
     return { calificacion, queued: true }
   },
 
-  async outboxCounts(userId: number): Promise<{ pending: number; failed: number }> {
+  async outboxCounts(userId: number): Promise<{
+    pending: number
+    failed: number
+    byEvent: Record<number, number>
+  }> {
     const items = await listOutbox(userId)
-    return {
-      pending: items.filter((item) => item.status === 'pending' || item.status === 'syncing').length,
-      failed: items.filter((item) => item.status === 'failed').length,
+    const byEvent: Record<number, number> = {}
+    let pending = 0
+    let failed = 0
+    for (const item of items) {
+      if (item.status === 'failed') failed += 1
+      if (item.status === 'pending' || item.status === 'syncing' || item.status === 'failed') {
+        pending += item.status === 'failed' ? 0 : 1
+        byEvent[item.rootEventId] = (byEvent[item.rootEventId] ?? 0) + 1
+      }
     }
+    return { pending, failed, byEvent }
   },
 
-  async syncOutbox(userId: number): Promise<{ synced: number; failed: number }> {
+  async syncOutbox(userId: number, eventId?: number): Promise<{ synced: number; failed: number }> {
     if (syncing) return { synced: 0, failed: 0 }
     syncing = true
     let synced = 0
     let failed = 0
     try {
-      const items = await listOutbox(userId)
+      const items = (await listOutbox(userId)).filter(
+        (item) => eventId == null || item.rootEventId === eventId,
+      )
       for (const item of items) {
         if (item.status !== 'pending' && item.status !== 'failed') continue
         const working: FieldOutboxItem = {
