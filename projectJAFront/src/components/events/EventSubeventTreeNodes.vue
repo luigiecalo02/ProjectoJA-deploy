@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Button from 'primevue/button'
+import Menu from 'primevue/menu'
+import type { MenuItem } from 'primevue/menuitem'
 import type { ClubEvent } from '@/modules/events/types'
 import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
 
@@ -62,6 +65,51 @@ function showsImage(item: ClubEvent): boolean {
 function dropClassFor(itemId: number): string {
   if (props.dropTarget?.id !== itemId) return ''
   return `is-drop-${props.dropTarget.mode}`
+}
+
+const rowMenu = ref<{ toggle: (event: Event) => void } | null>(null)
+const rowMenuTarget = ref<ClubEvent | null>(null)
+
+const rowMenuItems = computed<MenuItem[]>(() => {
+  const item = rowMenuTarget.value
+  if (!item) return []
+  const items: MenuItem[] = [
+    {
+      label: t('events.wizard.subAddChild'),
+      icon: 'pi pi-plus',
+      command: () => emit('addChild', item),
+    },
+    {
+      label: t('events.wizard.subOpenChildren'),
+      icon: 'pi pi-sitemap',
+      command: () => emit('enter', item),
+    },
+    {
+      label: t('common.edit'),
+      icon: 'pi pi-pencil',
+      command: () => emit('edit', item),
+    },
+    {
+      label: t('events.wizard.subDuplicate'),
+      icon: 'pi pi-copy',
+      command: () => emit('duplicate', item),
+    },
+  ]
+  if (!hasChildren(item)) {
+    items.push({
+      label: t('common.delete'),
+      icon: 'pi pi-trash',
+      command: () => emit('remove', item),
+    })
+  }
+  return items
+})
+
+async function toggleRowMenu(item: ClubEvent, event: Event): Promise<void> {
+  event.stopPropagation()
+  rowMenuTarget.value = item
+  await nextTick()
+  rowMenu.value?.toggle(event)
 }
 </script>
 
@@ -135,6 +183,7 @@ function dropClassFor(itemId: number): string {
           <Button
             v-if="hasChildren(node)"
             type="button"
+            class="sub-action--desktop"
             :icon="expanded.has(node.id) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
             text
             rounded
@@ -144,6 +193,7 @@ function dropClassFor(itemId: number): string {
           />
           <Button
             type="button"
+            class="sub-action--desktop"
             icon="pi pi-plus"
             text
             rounded
@@ -153,6 +203,7 @@ function dropClassFor(itemId: number): string {
           />
           <Button
             type="button"
+            class="sub-action--desktop"
             icon="pi pi-sitemap"
             text
             rounded
@@ -162,6 +213,7 @@ function dropClassFor(itemId: number): string {
           />
           <Button
             type="button"
+            class="sub-action--desktop"
             icon="pi pi-pencil"
             text
             rounded
@@ -170,6 +222,7 @@ function dropClassFor(itemId: number): string {
           />
           <Button
             type="button"
+            class="sub-action--desktop"
             icon="pi pi-copy"
             text
             rounded
@@ -180,12 +233,23 @@ function dropClassFor(itemId: number): string {
           <Button
             v-if="!hasChildren(node)"
             type="button"
+            class="sub-action--desktop"
             icon="pi pi-trash"
             text
             rounded
             size="small"
             severity="danger"
             @click="emit('remove', node)"
+          />
+          <Button
+            type="button"
+            class="sub-action--mobile"
+            icon="pi pi-ellipsis-v"
+            text
+            rounded
+            size="small"
+            :aria-label="t('common.moreActions')"
+            @click="toggleRowMenu(node, $event)"
           />
         </div>
       </div>
@@ -213,6 +277,7 @@ function dropClassFor(itemId: number): string {
       />
     </li>
   </TransitionGroup>
+  <Menu ref="rowMenu" :model="rowMenuItems" popup />
 </template>
 
 <style scoped>
@@ -223,6 +288,8 @@ function dropClassFor(itemId: number): string {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .sub-tree.depth-0 {
@@ -410,12 +477,39 @@ function dropClassFor(itemId: number): string {
   align-items: center;
   gap: 0.05rem;
   margin-left: auto;
+  flex-shrink: 0;
+}
+
+.sub-action--mobile {
+  display: none;
 }
 
 @media (max-width: 900px) {
   .sub-tree__score,
-  .sub-tree__status {
+  .sub-tree__status,
+  .sub-action--desktop {
     display: none;
+  }
+
+  .sub-action--mobile {
+    display: inline-flex;
+  }
+
+  .sub-tree__row {
+    min-width: 0;
+    gap: 0.3rem;
+    padding-inline: 0.35rem;
+  }
+
+  .sub-tree__body small {
+    display: none;
+  }
+
+  .sub-tree__body strong {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    word-break: break-word;
   }
 }
 </style>

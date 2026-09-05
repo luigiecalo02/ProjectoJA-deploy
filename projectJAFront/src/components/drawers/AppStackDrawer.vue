@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import Drawer from 'primevue/drawer'
 import { stackDrawerThemes, type StackDrawerLevel } from './stackDrawerTheme'
 
@@ -25,8 +26,12 @@ const emit = defineEmits<{
   'update:visible': [value: boolean]
 }>()
 
+const isMobile = useMediaQuery('(max-width: 900px)')
 const theme = computed(() => stackDrawerThemes[props.level])
-const isBottom = computed(() => props.position === 'bottom')
+const resolvedPosition = computed(() =>
+  props.position === 'bottom' || isMobile.value ? 'bottom' : 'right',
+)
+const isBottom = computed(() => resolvedPosition.value === 'bottom')
 
 const drawerVisible = computed({
   get: () => props.visible,
@@ -67,7 +72,7 @@ const rootStyle = computed(() => {
 <template>
   <Drawer
     v-model:visible="drawerVisible"
-    :position="position"
+    :position="resolvedPosition"
     :block-scroll="blockScroll"
     append-to="body"
     :pt="{
@@ -281,6 +286,10 @@ const rootStyle = computed(() => {
     bottom: 0 !important;
     border-radius: 18px 18px 0 0 !important;
     box-shadow: 0 -10px 32px rgb(15 23 42 / 0.22) !important;
+  }
+
+  .p-drawer.stack-drawer--bottom .stack-drawer-panel__header {
+    border-radius: 18px 18px 0 0;
   }
 }
 </style>

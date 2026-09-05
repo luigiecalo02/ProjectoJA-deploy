@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
+import Menu from 'primevue/menu'
+import type { MenuItem } from 'primevue/menuitem'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
@@ -103,6 +105,8 @@ const childAssignedCriterioIds = ref<number[]>([])
 const childCriterioPoints = reactive<Record<number, number | null>>({})
 const search = ref('')
 const selectedId = ref<number | null>(null)
+const rowMenu = ref<{ toggle: (event: Event) => void } | null>(null)
+const rowMenuTarget = ref<ClubEvent | null>(null)
 const detailTab = ref<'info' | 'reglas' | 'puntaje' | 'categoria'>('info')
 const materiales = ref<EventoArchivoMaterial[]>([])
 const pendingMaterialFiles = ref<File[]>([])
@@ -469,6 +473,48 @@ function toggleChildren(id: number): void {
 function selectItem(item: ClubEvent): void {
   selectedId.value = item.id
   detailTab.value = 'info'
+}
+
+const rowMenuItems = computed<MenuItem[]>(() => {
+  const item = rowMenuTarget.value
+  if (!item) return []
+  const items: MenuItem[] = [
+    {
+      label: t('events.wizard.subAddChild'),
+      icon: 'pi pi-plus',
+      command: () => openCreateChild(item),
+    },
+    {
+      label: t('events.wizard.subOpenChildren'),
+      icon: 'pi pi-sitemap',
+      command: () => enterChildren(item),
+    },
+    {
+      label: t('common.edit'),
+      icon: 'pi pi-pencil',
+      command: () => openEdit(item),
+    },
+    {
+      label: t('events.wizard.subDuplicate'),
+      icon: 'pi pi-copy',
+      command: () => void duplicateSubevent(item),
+    },
+  ]
+  if (!hasChildren(item)) {
+    items.push({
+      label: t('common.delete'),
+      icon: 'pi pi-trash',
+      command: () => removeSubevent(item),
+    })
+  }
+  return items
+})
+
+async function toggleRowMenu(item: ClubEvent, event: Event): Promise<void> {
+  event.stopPropagation()
+  rowMenuTarget.value = item
+  await nextTick()
+  rowMenu.value?.toggle(event)
 }
 
 const stats = computed(() => {
@@ -2266,9 +2312,9 @@ onBeforeUnmount(() => {
                 <tr>
                   <th>{{ t('events.wizard.subColOrder') }}</th>
                   <th>{{ t('events.wizard.subColName') }}</th>
-                  <th>{{ t('events.wizard.subColScore') }}</th>
-                  <th>{{ t('events.wizard.subColStatus') }}</th>
-                  <th>{{ t('events.wizard.subColActions') }}</th>
+                  <th class="col-score">{{ t('events.wizard.subColScore') }}</th>
+                  <th class="col-status">{{ t('events.wizard.subColStatus') }}</th>
+                  <th class="col-actions">{{ t('events.wizard.subColActions') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -2331,8 +2377,8 @@ onBeforeUnmount(() => {
                         </div>
                       </div>
                     </td>
-                    <td>{{ Number(item.puntaje_maximo || 0) }} pts</td>
-                    <td>
+                    <td class="col-score">{{ Number(item.puntaje_maximo || 0) }} pts</td>
+                    <td class="col-status">
                       <span
                         class="status-pill"
                         :class="item.estado === 'publicado' ? 'is-active' : 'is-draft'"
@@ -2348,6 +2394,7 @@ onBeforeUnmount(() => {
                       <Button
                         v-if="hasChildren(item)"
                         type="button"
+                        class="sub-action--desktop"
                         :icon="isExpanded(item.id) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
                         text
                         rounded
@@ -2357,6 +2404,7 @@ onBeforeUnmount(() => {
                       />
                       <Button
                         type="button"
+                        class="sub-action--desktop"
                         icon="pi pi-plus"
                         text
                         rounded
@@ -2366,6 +2414,7 @@ onBeforeUnmount(() => {
                       />
                       <Button
                         type="button"
+                        class="sub-action--desktop"
                         icon="pi pi-sitemap"
                         text
                         rounded
@@ -2373,9 +2422,18 @@ onBeforeUnmount(() => {
                         v-tooltip.top="t('events.wizard.subOpenChildren')"
                         @click="enterChildren(item)"
                       />
-                      <Button type="button" icon="pi pi-pencil" text rounded size="small" @click="openEdit(item)" />
                       <Button
                         type="button"
+                        class="sub-action--desktop"
+                        icon="pi pi-pencil"
+                        text
+                        rounded
+                        size="small"
+                        @click="openEdit(item)"
+                      />
+                      <Button
+                        type="button"
+                        class="sub-action--desktop"
                         icon="pi pi-copy"
                         text
                         rounded
@@ -2387,12 +2445,23 @@ onBeforeUnmount(() => {
                       <Button
                         v-if="!hasChildren(item)"
                         type="button"
+                        class="sub-action--desktop"
                         icon="pi pi-trash"
                         text
                         rounded
                         size="small"
                         severity="danger"
                         @click="removeSubevent(item)"
+                      />
+                      <Button
+                        type="button"
+                        class="sub-action--mobile"
+                        icon="pi pi-ellipsis-v"
+                        text
+                        rounded
+                        size="small"
+                        :aria-label="t('common.moreActions')"
+                        @click="toggleRowMenu(item, $event)"
                       />
                     </td>
                   </tr>
@@ -2425,6 +2494,8 @@ onBeforeUnmount(() => {
                 </template>
               </tbody>
             </table>
+
+            <Menu ref="rowMenu" :model="rowMenuItems" popup />
 
             <div class="sub-table-footer">
               <span class="pj-muted">{{ t('events.wizard.subDragHint') }}</span>
@@ -3120,11 +3191,11 @@ onBeforeUnmount(() => {
   width: 3.5rem;
 }
 
-.sub-table th:nth-child(3) {
+.sub-table th.col-score {
   width: 5.5rem;
 }
 
-.sub-table th:nth-child(4) {
+.sub-table th.col-status {
   width: 7rem;
 }
 
@@ -3218,6 +3289,8 @@ onBeforeUnmount(() => {
 
 .sub-nest-cell {
   border-top: 0 !important;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .sub-name {
@@ -3306,6 +3379,10 @@ onBeforeUnmount(() => {
 
 .col-actions {
   white-space: nowrap;
+}
+
+.sub-action--mobile {
+  display: none;
 }
 
 .sub-table-footer {
@@ -3738,6 +3815,64 @@ onBeforeUnmount(() => {
   }
 }
 
+@media (max-width: 900px) {
+  .sub-table {
+    table-layout: auto;
+  }
+
+  .sub-table th.col-score,
+  .sub-table td.col-score,
+  .sub-table th.col-status,
+  .sub-table td.col-status,
+  .sub-action--desktop {
+    display: none;
+  }
+
+  .sub-action--mobile {
+    display: inline-flex;
+  }
+
+  .sub-table th.col-actions,
+  .sub-table td.col-actions {
+    width: 2.6rem;
+    min-width: 2.6rem;
+    padding-left: 0.15rem;
+    padding-right: 0.2rem;
+  }
+
+  .sub-table th.col-actions {
+    font-size: 0;
+  }
+
+  .sub-table th,
+  .sub-table td {
+    padding: 0.5rem 0.4rem;
+  }
+
+  .sub-name {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .sub-name small {
+    display: none;
+  }
+
+  .sub-name strong {
+    font-size: 0.84rem;
+    line-height: 1.3;
+    display: block;
+    white-space: normal;
+    overflow: visible;
+    word-break: break-word;
+  }
+
+  .col-actions :deep(.p-button) {
+    width: 2rem;
+    height: 2rem;
+  }
+}
+
 @media (max-width: 640px) {
   .sub-stats {
     grid-template-columns: 1fr;
@@ -3755,6 +3890,16 @@ onBeforeUnmount(() => {
   .sub-search {
     margin-left: 0;
     max-width: none;
+  }
+
+  .sub-table th:nth-child(1),
+  .sub-table td.col-orden {
+    width: 2.6rem;
+  }
+
+  .sub-table-footer {
+    flex-wrap: wrap;
+    gap: 0.4rem;
   }
 }
 </style>
