@@ -19,6 +19,7 @@ import Textarea from 'primevue/textarea'
 import ToggleSwitch from 'primevue/toggleswitch'
 import PageLoader from '@/components/PageLoader.vue'
 import IconColorPopover from '@/components/IconColorPopover.vue'
+import IconMark from '@/components/IconMark.vue'
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
@@ -365,7 +366,7 @@ onMounted(() => {
                 <template #body="{ data }">
                   <div class="name-cell">
                     <span class="cat-icon" :style="iconBoxStyle(data.color)">
-                      <i :class="data.icono || 'pi pi-tag'" />
+                      <IconMark :icono="data.icono || 'pi pi-tag'" />
                     </span>
                     <div>
                       <strong>{{ data.nombre }}</strong>
@@ -434,7 +435,7 @@ onMounted(() => {
                 <template #body="{ data }">
                   <div class="name-cell">
                     <span class="cat-icon" :style="iconBoxStyle(data.color)">
-                      <i :class="data.icono || 'pi pi-list-check'" />
+                      <IconMark :icono="data.icono || 'pi pi-list-check'" />
                     </span>
                     <div>
                       <strong>{{ data.nombre }}</strong>

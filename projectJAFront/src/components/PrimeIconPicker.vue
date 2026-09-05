@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppSearchField from '@/components/AppSearchField.vue'
-import { primeIconOptions } from '@/utils/primeIcons'
+import IconMark from '@/components/IconMark.vue'
+import { useIconCatalog } from '@/composables/useIconCatalog'
 import { iconBoxStyle } from '@/utils/iconVisual'
+import { primeIconOptions } from '@/utils/primeIcons'
 
 const props = withDefaults(
   defineProps<{
@@ -22,23 +24,42 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const search = ref('')
+const { items, ensureLoaded, matches } = useIconCatalog()
 
 const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  if (!q) return primeIconOptions
-  return primeIconOptions.filter((item) => item.name.includes(q) || item.value.includes(q))
+  const q = search.value
+  const catalog = items.value.filter((item) => item.estado !== false && matches(item, q))
+  if (catalog.length) return catalog.map((item) => ({
+    key: `cat-${item.id}`,
+    value: item.valor,
+    preview: item.url || item.valor,
+    label: item.nombre,
+  }))
+  const fallback = primeIconOptions.filter(
+    (item) => !q.trim() || item.name.includes(q.trim().toLowerCase()) || item.value.includes(q.trim().toLowerCase()),
+  )
+  return fallback.map((item) => ({
+    key: item.value,
+    value: item.value,
+    preview: item.value,
+    label: item.name,
+  }))
 })
 
 function select(value: string): void {
   emit('update:modelValue', value)
 }
+
+onMounted(() => {
+  void ensureLoaded()
+})
 </script>
 
 <template>
   <div class="icon-picker">
     <div class="icon-picker__head">
       <span class="icon-picker__preview" :style="iconBoxStyle(color)">
-        <i :class="modelValue || 'pi pi-tag'" />
+        <IconMark :icono="modelValue" />
       </span>
       <AppSearchField
         v-model="search"
@@ -49,16 +70,16 @@ function select(value: string): void {
     <div class="icon-picker__grid" role="listbox">
       <button
         v-for="item in filtered"
-        :key="item.value"
+        :key="item.key"
         type="button"
         class="icon-picker__item"
         :class="{ 'is-selected': modelValue === item.value }"
-        :title="item.name"
-        :aria-label="item.name"
+        :title="item.label"
+        :aria-label="item.label"
         :aria-selected="modelValue === item.value"
         @click="select(item.value)"
       >
-        <i :class="item.value" />
+        <IconMark :icono="item.preview" />
       </button>
       <p v-if="!filtered.length" class="pj-muted icon-picker__empty">
         {{ t('events.catalogos.iconEmpty') }}

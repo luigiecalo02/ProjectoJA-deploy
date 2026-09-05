@@ -25,6 +25,7 @@ import type {
   CategoriaSubeventoPayload,
   CriterioEvaluacion,
   CriterioEvaluacionPayload,
+  IconoCatalogo,
   ActivityRoster,
   EventParticipation,
   EventoArchivoMaterial,
@@ -198,6 +199,36 @@ export const eventsService = {
 
   async removeCriterioEvaluacion(id: number): Promise<void> {
     await api.delete(`/api/v1/events/criterios-evaluacion/${id}`)
+  },
+
+  async iconos(options: { todos?: boolean; categoria?: string; q?: string } = {}): Promise<IconoCatalogo[]> {
+    const { data } = await api.get<ApiEnvelope<IconoCatalogo[]>>('/api/v1/events/iconos', {
+      params: {
+        ...(options.todos ? { todos: 1 } : {}),
+        ...(options.categoria ? { categoria: options.categoria } : {}),
+        ...(options.q ? { q: options.q } : {}),
+      },
+    })
+    return data.data ?? []
+  },
+
+  async createIcono(payload: FormData | Record<string, unknown>): Promise<IconoCatalogo> {
+    const { data } = await api.post<ApiEnvelope<IconoCatalogo>>('/api/v1/events/iconos', payload)
+    return data.data
+  },
+
+  async updateIcono(id: number, payload: FormData | Record<string, unknown>): Promise<IconoCatalogo> {
+    if (payload instanceof FormData) {
+      payload.append('_method', 'PATCH')
+      const { data } = await api.post<ApiEnvelope<IconoCatalogo>>(`/api/v1/events/iconos/${id}`, payload)
+      return data.data
+    }
+    const { data } = await api.patch<ApiEnvelope<IconoCatalogo>>(`/api/v1/events/iconos/${id}`, payload)
+    return data.data
+  },
+
+  async removeIcono(id: number): Promise<void> {
+    await api.delete(`/api/v1/events/iconos/${id}`)
   },
 
   async tiposSeguro(): Promise<TipoSeguro[]> {

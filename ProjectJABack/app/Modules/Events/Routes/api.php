@@ -2,6 +2,7 @@
 
 use App\Modules\Events\Http\Controllers\CategoriaSubeventoController;
 use App\Modules\Events\Http\Controllers\CriterioEvaluacionController;
+use App\Modules\Events\Http\Controllers\IconoController;
 use App\Modules\Events\Http\Controllers\EventArchivoController;
 use App\Modules\Events\Http\Controllers\EventController;
 use App\Modules\Events\Http\Controllers\EventEconomiaController;
@@ -34,6 +35,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('events/categorias-subevento/{categoriaSubevento}', [CategoriaSubeventoController::class, 'update']);
     Route::patch('events/categorias-subevento/{categoriaSubevento}', [CategoriaSubeventoController::class, 'update']);
     Route::delete('events/categorias-subevento/{categoriaSubevento}', [CategoriaSubeventoController::class, 'destroy']);
+
+    Route::get('events/iconos', [IconoController::class, 'index']);
+    Route::post('events/iconos', [IconoController::class, 'store']);
+    Route::post('events/iconos/{icono}', [IconoController::class, 'update']);
+    Route::put('events/iconos/{icono}', [IconoController::class, 'update']);
+    Route::patch('events/iconos/{icono}', [IconoController::class, 'update']);
+    Route::delete('events/iconos/{icono}', [IconoController::class, 'destroy']);
 
     Route::get('events/criterios-evaluacion', [CriterioEvaluacionController::class, 'index']);
     Route::post('events/criterios-evaluacion', [CriterioEvaluacionController::class, 'store']);

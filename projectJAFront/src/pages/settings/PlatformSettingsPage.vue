@@ -18,6 +18,7 @@ import TabPanel from 'primevue/tabpanel'
 import PageLoader from '@/components/PageLoader.vue'
 import BrandSettingsPage from '@/pages/settings/BrandSettingsPage.vue'
 import CuentasBancariasSettingsPage from '@/pages/settings/CuentasBancariasSettingsPage.vue'
+import EventIconosCatalog from '@/components/events/EventIconosCatalog.vue'
 import { usePermission } from '@/composables/usePermission'
 import { getApiErrorMessage } from '@/services/api'
 import { mailSettingsService } from '@/services/mailSettingsService'
@@ -30,7 +31,7 @@ const router = useRouter()
 const { can } = usePermission()
 const canUpdate = computed(() => can('settings.update'))
 
-const allowedTabs = ['correo', 'formulario', 'cuentas', 'apariencia'] as const
+const allowedTabs = ['correo', 'formulario', 'cuentas', 'apariencia', 'iconos'] as const
 const tab = ref(allowedTabs.includes(route.query.tab as (typeof allowedTabs)[number]) ? String(route.query.tab) : 'correo')
 
 watch(tab, (value) => {
@@ -147,6 +148,7 @@ async function sendTest(): Promise<void> {
         <Tab value="formulario">{{ t('settings.tabPublicForm') }}</Tab>
         <Tab value="cuentas">{{ t('settings.tabBankAccounts') }}</Tab>
         <Tab value="apariencia">{{ t('settings.tabAppearance') }}</Tab>
+        <Tab value="iconos">{{ t('settings.tabIconos') }}</Tab>
       </TabList>
       <TabPanels>
         <TabPanel value="correo">
@@ -236,6 +238,13 @@ async function sendTest(): Promise<void> {
         </TabPanel>
         <TabPanel value="apariencia">
           <BrandSettingsPage />
+        </TabPanel>
+        <TabPanel value="iconos">
+          <EventIconosCatalog
+            :can-create="canUpdate"
+            :can-update="canUpdate"
+            :can-delete="canUpdate"
+          />
         </TabPanel>
       </TabPanels>
     </Tabs>

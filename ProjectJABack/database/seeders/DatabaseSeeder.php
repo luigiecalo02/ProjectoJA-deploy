@@ -14,6 +14,7 @@ class DatabaseSeeder extends Seeder
             OrganizacionCatalogSeeder::class,
             TipoEventoSeeder::class,
             CategoriaSubeventoSeeder::class,
+            IconoCatalogSeeder::class,
             UbicacionSeeder::class,
         ]);
 

@@ -68,6 +68,34 @@ export interface CriterioEvaluacionPayload {
   orden?: number
 }
 
+export type IconoCatalogTipo = 'prime' | 'imagen'
+export type IconoCatalogCategoria =
+  | 'eventos'
+  | 'clubes'
+  | 'deportes'
+  | 'naturaleza'
+  | 'personas'
+  | 'tiempo'
+  | 'comunicacion'
+  | 'archivos'
+  | 'orientacion'
+  | 'sistema'
+  | 'personalizado'
+
+export interface IconoCatalogo {
+  id: number
+  nombre: string
+  slug: string
+  categoria: IconoCatalogCategoria | string
+  etiquetas: string[]
+  tipo: IconoCatalogTipo
+  valor: string
+  url?: string | null
+  orden?: number
+  estado?: boolean
+  es_sistema?: boolean
+}
+
 export interface EventoCriterioAsignado {
   id: number
   nombre: string

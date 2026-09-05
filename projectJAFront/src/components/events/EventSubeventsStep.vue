@@ -25,6 +25,7 @@ import { useJuezPropagate } from '@/composables/useJuezPropagate'
 import RichTextField from '@/components/RichTextField.vue'
 import RichTextView from '@/components/RichTextView.vue'
 import IconColorPopover from '@/components/IconColorPopover.vue'
+import IconMark from '@/components/IconMark.vue'
 import { cssColor } from '@/utils/color'
 import { clampIconSize, ICON_SIZE_DEFAULT } from '@/utils/iconSize'
 import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
@@ -2361,7 +2362,7 @@ onBeforeUnmount(() => {
                           class="sub-name__icon"
                           :style="iconStyleFor(item)"
                         >
-                          <i :class="iconFor(item)" />
+                          <IconMark :icono="iconFor(item)" />
                         </span>
                         <div>
                           <strong>{{ item.name }}</strong>
@@ -2517,7 +2518,7 @@ onBeforeUnmount(() => {
               class="sub-name__icon sub-name__icon--lg"
               :style="iconStyleFor(selected, 52)"
             >
-              <i :class="iconFor(selected)" />
+              <IconMark :icono="iconFor(selected)" />
             </span>
             <div>
               <h3>{{ selected.name }}</h3>

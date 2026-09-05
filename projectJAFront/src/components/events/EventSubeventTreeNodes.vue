@@ -6,6 +6,7 @@ import Menu from 'primevue/menu'
 import type { MenuItem } from 'primevue/menuitem'
 import type { ClubEvent } from '@/modules/events/types'
 import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
+import IconMark from '@/components/IconMark.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -158,7 +159,7 @@ async function toggleRowMenu(item: ClubEvent, event: Event): Promise<void> {
           class="sub-tree__icon"
           :style="iconStyleFor(node)"
         >
-          <i :class="iconFor(node)" />
+          <IconMark :icono="iconFor(node)" />
         </span>
 
         <div class="sub-tree__body">

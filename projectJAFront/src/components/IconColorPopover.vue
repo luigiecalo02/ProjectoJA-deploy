@@ -6,6 +6,7 @@ import ColorAlphaPicker from '@/components/terrenos/ColorAlphaPicker.vue'
 import PrimeIconPicker from '@/components/PrimeIconPicker.vue'
 import { clampIconSize, ICON_SIZE_DEFAULT, ICON_SIZE_MAX, ICON_SIZE_MIN } from '@/utils/iconSize'
 import { iconBoxStyle } from '@/utils/iconVisual'
+import IconMark from '@/components/IconMark.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -56,10 +57,9 @@ function onSize(value: string): void {
       :title="t('events.wizard.subVisualPick')"
       @click="toggle"
     >
-      <i
-        :class="icono || fallbackIcon"
-        :style="sizeEnabled ? { fontSize: `${previewSize}px` } : undefined"
-      />
+      <span :style="sizeEnabled ? { fontSize: `${previewSize}px` } : undefined">
+        <IconMark :icono="icono || fallbackIcon" />
+      </span>
       <span class="icon-color__edit" aria-hidden="true">
         <i class="pi pi-pencil" />
       </span>
