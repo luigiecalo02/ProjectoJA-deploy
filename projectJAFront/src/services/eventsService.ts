@@ -615,7 +615,7 @@ export const eventsService = {
   async update(id: number, payload: EventFormPayload): Promise<ClubEvent> {
     const { data } = await api.patch<ApiEnvelope<ClubEvent>>(`/api/v1/events/${id}`, payload)
     return data.data
-  }
+  },
 
   async resolveJuezConflicts(
     id: number,
