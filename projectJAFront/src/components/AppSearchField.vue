@@ -46,6 +46,9 @@ const emit = defineEmits<{
   display: flex;
   width: 100%;
   min-width: 0;
+  height: 3rem;
+  max-height: 3rem;
+  box-sizing: border-box;
   align-items: center;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--p-primary-color) 18%, var(--pj-border));

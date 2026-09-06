@@ -406,6 +406,8 @@ defineExpose({ openCreate })
 
 .icon-cat__search {
   flex: 1 1 14rem;
+  min-width: 0;
+  max-height: 3rem;
 }
 
 .icon-cat__filter {
@@ -590,6 +592,13 @@ defineExpose({ openCreate })
   .icon-cat__toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .icon-cat__search,
+  .icon-cat__filter {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
   }
 }
 </style>

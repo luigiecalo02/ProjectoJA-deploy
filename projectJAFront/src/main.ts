@@ -34,7 +34,26 @@ app.directive('tooltip', Tooltip)
 
 useThemeStore(pinia).init()
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('timeout')), ms)
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        window.clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
+
 void (async () => {
-  await useBrandStore(pinia).load()
+  const brand = useBrandStore(pinia)
+  if (navigator.onLine) {
+    await withTimeout(brand.load(), 3000).catch(() => undefined)
+  }
   app.mount('#app')
 })()
