@@ -1,11 +1,19 @@
+import { getFieldDevice } from '@/modules/fieldMode/device'
 import { clearEvidenceCache } from '@/modules/fieldMode/evidenceCache'
-import type { FieldOfflinePack, FieldOutboxItem, FieldPackRecord, FieldPhotoOutboxItem } from '@/modules/fieldMode/types'
+import type {
+  FieldOfflinePack,
+  FieldOutboxItem,
+  FieldPackRecord,
+  FieldPhotoOutboxItem,
+  FieldUploadLog,
+} from '@/modules/fieldMode/types'
 
 const DB_NAME = 'projectja_field'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const PACKS = 'packs'
 const OUTBOX = 'outbox'
 const PHOTOS = 'photos'
+const UPLOADS = 'uploads'
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -21,6 +29,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(PHOTOS)) {
         const store = db.createObjectStore(PHOTOS, { keyPath: 'id' })
+        store.createIndex('userId', 'userId', { unique: false })
+      }
+      if (!db.objectStoreNames.contains(UPLOADS)) {
+        const store = db.createObjectStore(UPLOADS, { keyPath: 'id' })
         store.createIndex('userId', 'userId', { unique: false })
       }
     }
@@ -46,11 +58,14 @@ function txDone(tx: IDBTransaction): Promise<void> {
 
 export async function saveFieldPack(userId: number, pack: FieldOfflinePack): Promise<void> {
   const db = await openDb()
+  const device = getFieldDevice()
   const tx = db.transaction(PACKS, 'readwrite')
   const record: FieldPackRecord = {
     userId,
     downloadedAt: pack.downloaded_at,
     pack,
+    deviceId: device.id,
+    deviceLabel: device.label,
   }
   tx.objectStore(PACKS).put(record)
   await txDone(tx)
@@ -105,9 +120,31 @@ export async function deletePhotoItem(id: string): Promise<void> {
   await txDone(tx)
 }
 
+export async function putUploadLog(item: FieldUploadLog): Promise<void> {
+  const db = await openDb()
+  const tx = db.transaction(UPLOADS, 'readwrite')
+  tx.objectStore(UPLOADS).put(item)
+  await txDone(tx)
+}
+
+export async function listUploads(userId: number): Promise<FieldUploadLog[]> {
+  const db = await openDb()
+  const tx = db.transaction(UPLOADS, 'readonly')
+  const items = await requestToPromise(tx.objectStore(UPLOADS).index('userId').getAll(userId))
+  return (items as FieldUploadLog[]) ?? []
+}
+
+async function deleteUploadsForUser(tx: IDBTransaction, userId: number): Promise<void> {
+  const uploads = tx.objectStore(UPLOADS)
+  const items = await requestToPromise(uploads.index('userId').getAll(userId))
+  for (const item of (items as FieldUploadLog[]) ?? []) {
+    uploads.delete(item.id)
+  }
+}
+
 export async function clearFieldDataForUser(userId: number): Promise<void> {
   const db = await openDb()
-  const tx = db.transaction([PACKS, OUTBOX, PHOTOS], 'readwrite')
+  const tx = db.transaction([PACKS, OUTBOX, PHOTOS, UPLOADS], 'readwrite')
   tx.objectStore(PACKS).delete(userId)
   const outbox = tx.objectStore(OUTBOX)
   const items = await requestToPromise(outbox.index('userId').getAll(userId))
@@ -119,16 +156,18 @@ export async function clearFieldDataForUser(userId: number): Promise<void> {
   for (const item of (photoItems as FieldPhotoOutboxItem[]) ?? []) {
     photos.delete(item.id)
   }
+  await deleteUploadsForUser(tx, userId)
   await txDone(tx)
   await clearEvidenceCache()
 }
 
 export async function clearAllFieldData(): Promise<void> {
   const db = await openDb()
-  const tx = db.transaction([PACKS, OUTBOX, PHOTOS], 'readwrite')
+  const tx = db.transaction([PACKS, OUTBOX, PHOTOS, UPLOADS], 'readwrite')
   tx.objectStore(PACKS).clear()
   tx.objectStore(OUTBOX).clear()
   tx.objectStore(PHOTOS).clear()
+  tx.objectStore(UPLOADS).clear()
   await txDone(tx)
   await clearEvidenceCache()
 }

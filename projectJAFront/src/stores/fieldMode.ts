@@ -17,7 +17,9 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
   const pendingCount = ref(0)
   const failedCount = ref(0)
   const pendingByEvent = ref<Record<number, number>>({})
+  const uploadedByEvent = ref<Record<number, number>>({})
   const lastDownloadedAt = ref<string | null>(null)
+  const deviceLabel = ref<string | null>(null)
   const lastSyncError = ref<string | null>(null)
   const initialized = ref(false)
 
@@ -28,23 +30,33 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     return pendingByEvent.value[eventId] ?? 0
   }
 
+  function uploadedForEvent(eventId: number): number {
+    return uploadedByEvent.value[eventId] ?? 0
+  }
+
   async function refreshMeta(): Promise<void> {
     const userId = auth.user?.id
     if (!userId) {
       pendingCount.value = 0
       failedCount.value = 0
       pendingByEvent.value = {}
+      uploadedByEvent.value = {}
       lastDownloadedAt.value = null
+      deviceLabel.value = null
       return
     }
-    const [counts, downloadedAt] = await Promise.all([
+    const [counts, downloadedAt, uploaded, device] = await Promise.all([
       fieldModeService.outboxCounts(userId),
       fieldModeService.lastDownloadedAt(userId),
+      fieldModeService.uploadedCounts(userId),
+      fieldModeService.packDevice(userId),
     ])
     pendingCount.value = counts.pending
     failedCount.value = counts.failed
     pendingByEvent.value = counts.byEvent
-    lastDownloadedAt.value = downloadedAt
+    uploadedByEvent.value = uploaded
+    lastDownloadedAt.value = downloadedAt ?? device.downloadedAt
+    deviceLabel.value = device.deviceLabel
   }
 
   async function downloadPack(eventId?: number): Promise<number> {
@@ -187,7 +199,9 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     failedCount,
     pendingByEvent,
     pendingForEvent,
+    uploadedForEvent,
     lastDownloadedAt,
+    deviceLabel,
     lastSyncError,
     canUseFieldMode,
     hasPending,

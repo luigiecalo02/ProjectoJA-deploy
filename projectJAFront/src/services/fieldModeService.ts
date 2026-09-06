@@ -7,7 +7,9 @@ import {
   getFieldPack,
   listOutbox,
   listPhotos,
+  listUploads,
   outboxKey,
+  putUploadLog,
   photoOutboxKey,
   putOutboxItem,
   putPhotoItem,
@@ -36,6 +38,21 @@ export class FieldPackMissingError extends Error {
 }
 
 let syncing = false
+
+async function markUploaded(
+  userId: number,
+  rootEventId: number,
+  id: string,
+  kind: 'score' | 'photo',
+): Promise<void> {
+  await putUploadLog({
+    id,
+    userId,
+    rootEventId,
+    kind,
+    uploadedAt: new Date().toISOString(),
+  })
+}
 
 async function persistEventPack(
   userId: number,
@@ -164,7 +181,9 @@ export const fieldModeService = {
         await persistEventPack(userId, rootEventId, (row) =>
           applyScoreToEventPack(row, actividadId, payload, saved),
         )
-        await deleteOutboxItem(outboxKey(userId, actividadId, payload.organizacion_id)).catch(() => undefined)
+        const scoreId = outboxKey(userId, actividadId, payload.organizacion_id)
+        await deleteOutboxItem(scoreId).catch(() => undefined)
+        await markUploaded(userId, rootEventId, scoreId, 'score')
         return { calificacion: saved, queued: false }
       } catch (error) {
         if (!isNetworkError(error)) throw error
@@ -192,6 +211,27 @@ export const fieldModeService = {
       }
     }
     return { pending, failed, byEvent }
+  },
+
+  async uploadedCounts(userId: number): Promise<Record<number, number>> {
+    const items = await listUploads(userId)
+    const byEvent: Record<number, number> = {}
+    for (const item of items) {
+      byEvent[item.rootEventId] = (byEvent[item.rootEventId] ?? 0) + 1
+    }
+    return byEvent
+  },
+
+  async packDevice(userId: number): Promise<{ deviceLabel: string | null; downloadedAt: string | null }> {
+    let record = await getFieldPack(userId)
+    if (record && !record.deviceLabel) {
+      await saveFieldPack(userId, record.pack)
+      record = await getFieldPack(userId)
+    }
+    return {
+      deviceLabel: record?.deviceLabel ?? null,
+      downloadedAt: record?.downloadedAt ?? null,
+    }
   },
 
   async enqueuePhoto(
@@ -255,6 +295,7 @@ export const fieldModeService = {
           applyEvidenceToEventPack(row, item.actividadId, item.organizacionId, saved),
         )
         await deletePhotoItem(item.id)
+        await markUploaded(userId, item.rootEventId, item.id, 'photo')
         synced += 1
       } catch (error) {
         if (isNetworkError(error)) {
@@ -293,6 +334,7 @@ export const fieldModeService = {
         try {
           await eventsService.saveCalificacion(item.actividadId, item.payload)
           await deleteOutboxItem(item.id)
+          await markUploaded(userId, item.rootEventId, item.id, 'score')
           synced += 1
         } catch (error) {
           if (isNetworkError(error)) {

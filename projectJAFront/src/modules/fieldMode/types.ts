@@ -32,6 +32,16 @@ export interface FieldPackRecord {
   userId: number
   downloadedAt: string
   pack: FieldOfflinePack
+  deviceId?: string
+  deviceLabel?: string
+}
+
+export interface FieldUploadLog {
+  id: string
+  userId: number
+  rootEventId: number
+  kind: 'score' | 'photo'
+  uploadedAt: string
 }
 
 export interface FieldScorePayload {

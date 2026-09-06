@@ -43,6 +43,35 @@ async function loadDesk(): Promise<void> {
   }
 }
 
+async function replaceEvent(eventId: number, name: string): Promise<void> {
+  if (!fieldMode.online) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning'),
+      detail: t('fieldMode.replaceNeedOnline'),
+      life: 3500,
+    })
+    return
+  }
+  try {
+    await fieldMode.downloadPack(eventId)
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('fieldMode.replacedPack', { name }),
+      life: 3500,
+    })
+    await loadDesk()
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: error instanceof Error ? error.message : t('common.error'),
+      life: 4000,
+    })
+  }
+}
+
 async function uploadEvent(eventId: number, name: string): Promise<void> {
   if (!fieldMode.online) {
     toast.add({
@@ -91,6 +120,9 @@ onMounted(() => {
     <header class="campo-desk__head">
       <h1>{{ t('fieldMode.campoTitle') }}</h1>
       <p>{{ t('fieldMode.campoSubtitle') }}</p>
+      <p v-if="fieldMode.deviceLabel" class="campo-desk__device">
+        {{ t('fieldMode.savedOnDevice', { device: fieldMode.deviceLabel }) }}
+      </p>
     </header>
 
     <p v-if="loading" class="pj-muted">{{ t('common.loading') }}</p>
@@ -120,20 +152,42 @@ onMounted(() => {
                 clubes: item.clubes,
               }) }}
             </span>
-            <span v-if="fieldMode.pendingForEvent(item.eventId)" class="campo-card__pending">
-              {{ t('fieldMode.pending', { count: fieldMode.pendingForEvent(item.eventId) }) }}
+            <span class="campo-card__status campo-card__status--ok">
+              {{ t('fieldMode.uploadedCount', { count: fieldMode.uploadedForEvent(item.eventId) }) }}
+            </span>
+            <span
+              class="campo-card__status"
+              :class="fieldMode.pendingForEvent(item.eventId) ? 'campo-card__pending' : ''"
+            >
+              {{
+                fieldMode.pendingForEvent(item.eventId)
+                  ? t('fieldMode.pendingCount', { count: fieldMode.pendingForEvent(item.eventId) })
+                  : t('fieldMode.nothingPending')
+              }}
             </span>
           </div>
         </button>
-        <Button
-          v-if="fieldMode.pendingForEvent(item.eventId)"
-          size="small"
-          icon="pi pi-cloud-upload"
-          :label="t('fieldMode.uploadWithCount', { count: fieldMode.pendingForEvent(item.eventId) })"
-          :disabled="!fieldMode.online"
-          :loading="fieldMode.syncing"
-          @click.stop="() => void uploadEvent(item.eventId, item.eventName)"
-        />
+        <div class="campo-card__actions">
+          <Button
+            v-if="fieldMode.pendingForEvent(item.eventId)"
+            size="small"
+            icon="pi pi-cloud-upload"
+            :label="t('fieldMode.uploadWithCount', { count: fieldMode.pendingForEvent(item.eventId) })"
+            :disabled="!fieldMode.online"
+            :loading="fieldMode.syncing"
+            @click.stop="() => void uploadEvent(item.eventId, item.eventName)"
+          />
+          <Button
+            size="small"
+            outlined
+            icon="pi pi-refresh"
+            :label="t('fieldMode.replacePack')"
+            :disabled="!fieldMode.online || fieldMode.downloading"
+            :loading="fieldMode.downloadingEventId === item.eventId"
+            :title="t('fieldMode.replacePackHint')"
+            @click.stop="() => void replaceEvent(item.eventId, item.eventName)"
+          />
+        </div>
       </li>
     </ul>
   </section>
@@ -154,6 +208,23 @@ onMounted(() => {
 .campo-card small,
 .campo-card span {
   color: var(--pj-text-muted);
+}
+
+.campo-desk__device {
+  margin: 0.4rem 0 0;
+  font-weight: 700;
+  color: var(--pj-navy);
+}
+
+.campo-card__status--ok {
+  color: var(--pj-success);
+  font-weight: 700;
+}
+
+.campo-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .campo-empty {

@@ -605,6 +605,11 @@ async function prepareFieldPack(event: ClubEvent): Promise<void> {
         : t('fieldMode.preparedEventEmpty'),
       life: 3500,
     })
+    if (count) {
+      packSummaryTarget.value = null
+      await router.push({ name: 'campo.judge', params: { id: event.id } })
+      return
+    }
     if (!fieldMode.online) {
       await applyCachedEvents()
     }
