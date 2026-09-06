@@ -6,6 +6,7 @@ import {
   type RouteRecordRaw,
 } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useFieldModeStore } from '@/stores/fieldMode'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -427,6 +428,21 @@ router.beforeEach(async (
 
   if (auth.isAuthenticated && !auth.requiresContext && to.meta.contextSelection) {
     return next({ name: 'dashboard' })
+  }
+
+  if (
+    !navigator.onLine
+    && auth.isAuthenticated
+    && !auth.requiresContext
+    && to.name === 'dashboard'
+    && auth.hasPermission('events.evaluate')
+    && auth.hasPermission('events.view')
+  ) {
+    const fieldMode = useFieldModeStore()
+    const cached = await fieldMode.cachedEvents()
+    if (cached.length > 0) {
+      return next({ name: 'events' })
+    }
   }
 
   if (

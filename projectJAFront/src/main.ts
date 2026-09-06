@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import ToastService from 'primevue/toastservice'
 import Tooltip from 'primevue/tooltip'
+import { registerSW } from 'virtual:pwa-register'
 import { ProjectJaPreset } from '@/theme/preset'
 import { i18n } from '@/i18n'
 import router from '@/router'
@@ -12,6 +13,8 @@ import '@/composables/usePwaInstall'
 import App from '@/App.vue'
 import 'primeicons/primeicons.css'
 import '@/assets/main.css'
+
+registerSW({ immediate: true })
 
 const app = createApp(App)
 const pinia = createPinia()
