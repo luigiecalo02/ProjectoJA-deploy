@@ -226,7 +226,13 @@ final class EventParticipationService
             ->groupBy('evento_id');
 
         $locked = $this->directorModificationsLocked($root);
-        $tree = $this->mapNode($root, $calificaciones, $evidencias, true, $locked);
+        $inscritos = EventoActividadParticipante::query()
+            ->where('organizacion_id', $orgId)
+            ->whereIn('evento_id', $eventoIds)
+            ->selectRaw('evento_id, COUNT(*) as total')
+            ->groupBy('evento_id')
+            ->pluck('total', 'evento_id');
+        $tree = $this->mapNode($root, $calificaciones, $evidencias, true, $locked, $inscritos);
         $progreso = $this->buildProgress($root, $calificaciones);
 
         $clubLogo = Club::query()
@@ -475,6 +481,7 @@ final class EventParticipationService
             ->whereIn('evento_id', $eventIds)
             ->where('tipo', 'club')
             ->where('organizacion_id', $ctx['organizacion_id'])
+            ->where('estado', '!=', EventoInscripcion::ESTADO_BORRADOR)
             ->pluck('evento_id')
             ->map(fn ($id) => (int) $id)
             ->all();
@@ -549,10 +556,10 @@ final class EventParticipationService
      * @param  Collection<int, Collection<int, EventoEvidencia>>  $evidencias
      * @return array<string, mixed>
      */
-    private function mapNode(Event $event, $calificaciones, $evidencias, bool $isRoot, bool $modificacionBloqueada): array
+    private function mapNode(Event $event, $calificaciones, $evidencias, bool $isRoot, bool $modificacionBloqueada, $inscritos): array
     {
         $hijos = ($event->hijos ?? collect())
-            ->map(fn (Event $hijo) => $this->mapNode($hijo, $calificaciones, $evidencias, false, $modificacionBloqueada))
+            ->map(fn (Event $hijo) => $this->mapNode($hijo, $calificaciones, $evidencias, false, $modificacionBloqueada, $inscritos))
             ->values()
             ->all();
 
@@ -583,6 +590,8 @@ final class EventParticipationService
             'puntaje_desde_hijos' => (bool) $event->puntaje_desde_hijos,
             'puntaje_por_participar' => (bool) $event->puntaje_por_participar,
             'requiere_evidencia' => (bool) $event->requiere_evidencia,
+            'requiere_inscripcion' => $this->controlsParticipants($event),
+            'inscrito' => (int) ($inscritos[(int) $event->id] ?? $inscritos[(string) $event->id] ?? 0) > 0,
             'tipos_evidencia' => array_values($event->tipos_evidencia ?? []),
             'maneja_fecha_fin' => (bool) $event->maneja_fecha_fin,
             'maneja_penalizaciones' => (bool) $event->maneja_penalizaciones,

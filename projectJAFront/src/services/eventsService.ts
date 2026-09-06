@@ -318,6 +318,17 @@ export const eventsService = {
     return data.data
   },
 
+  async saveEnrollDraft(
+    eventId: number,
+    payload: EventoInscripcionEnrollPayload,
+  ): Promise<EventoInscripcion> {
+    const { data } = await api.put<ApiEnvelope<EventoInscripcion>>(
+      `/api/v1/events/${eventId}/enroll-draft`,
+      payload,
+    )
+    return data.data
+  },
+
   async enroll(
     eventId: number,
     payload?: EventoInscripcionEnrollPayload,

@@ -50,26 +50,7 @@ final class EventInscripcionService
         ?float $comprobanteValor = null,
     ): EventoInscripcion
     {
-        $ctx = $this->participation->assertClubDirectorContext($actor);
-        $root = $this->resolveRoot($event);
-        while ($root->evento_padre_id) {
-            $root = Event::query()->findOrFail($root->evento_padre_id);
-        }
-
-        if (! $actor->can('view', $root)) {
-            throw new AccessDeniedHttpException('No puedes ver este evento.');
-        }
-        if ($root->estado === Event::ESTADO_CANCELADO) {
-            throw ValidationException::withMessages(['evento' => ['Este evento está cancelado.']]);
-        }
-        if (! $root->permite_inscripcion_club) {
-            throw ValidationException::withMessages(['evento' => ['Este evento no permite inscripción de clubes.']]);
-        }
-        if ($root->starts_at && now()->greaterThan($root->starts_at->copy()->endOfDay())) {
-            throw ValidationException::withMessages([
-                'evento' => ['Las inscripciones cerraron al finalizar el día de inicio del evento.'],
-            ]);
-        }
+        [$root, $ctx] = $this->assertEnrollAccess($actor, $event);
 
         $participantes = $this->normalizarParticipantes($data);
         $personaIds = array_values(array_unique(array_map(
@@ -126,7 +107,8 @@ final class EventInscripcionService
 
         return DB::transaction(function () use ($actor, $root, $ctx, $participantes, $data, $comprobante, $comprobanteValor) {
             $existing = $this->participation->findRootInscripcion($root, $ctx['organizacion_id']);
-            $snapshotAnterior = $existing
+            $esOficialPrevia = $existing?->esOficial() ?? false;
+            $snapshotAnterior = $esOficialPrevia
                 ? $this->historialService->snapshot($existing)
                 : ['total' => 0.0, 'participantes' => []];
             $participantesAnteriores = collect($snapshotAnterior['participantes'] ?? [])
@@ -269,22 +251,103 @@ final class EventInscripcionService
             $movimiento = $actualizada->movimientos()->orderByDesc('id')->first();
             $esNuevoMovimiento = $movimiento
                 && (int) $movimiento->id !== (int) $movimientoAnteriorId;
-            if ($esNuevoMovimiento && (float) $movimiento->valor_diferencia > 0) {
-                if (! $comprobante) {
-                    throw ValidationException::withMessages([
-                        'comprobante' => ['Debes subir el comprobante para registrar este cambio.'],
-                    ]);
-                }
+            $exigeDocumento = $esNuevoMovimiento && (
+                $esOficialPrevia || (float) ($movimiento?->valor_diferencia ?? 0) > 0
+            );
+            if ($exigeDocumento && ! $comprobante) {
+                throw ValidationException::withMessages([
+                    'comprobante' => ['Debes subir el comprobante para registrar este cambio.'],
+                ]);
+            }
+            if ($esNuevoMovimiento && $comprobante) {
                 $this->addComprobante(
                     $actor,
                     $actualizada,
                     $comprobante,
-                    $comprobanteValor ?? (float) $movimiento->valor_diferencia,
+                    $comprobanteValor ?? max(0, (float) $movimiento->valor_diferencia),
                     (int) $movimiento->id,
                 );
             }
 
+            $actualizada->forceFill([
+                'borrador_payload' => null,
+                'estado' => EventoInscripcion::ESTADO_PENDIENTE_REVISION,
+            ])->save();
+
             return $actualizada->fresh([
+                'personas.persona',
+                'personas.reservas.oferta.producto',
+                'comprobantes.archivo',
+                'comprobantes.comentarios.autor',
+                'seguros',
+                'reservas',
+                'movimientos.comprobantes.archivo',
+                'movimientos.comprobantes.comentarios.autor',
+            ]);
+        });
+    }
+
+    /** @param array<string, mixed> $data */
+    public function saveEnrollDraft(User $actor, Event $event, array $data): EventoInscripcion
+    {
+        [$root, $ctx] = $this->assertEnrollAccess($actor, $event);
+        $participantes = $this->normalizarParticipantes($data);
+        $personaIds = array_values(array_unique(array_map(
+            'intval',
+            array_filter(array_column($participantes, 'persona_id'))
+        )));
+        $miembroIds = array_values(array_unique(array_map(
+            'intval',
+            array_filter(array_column(array_filter(
+                $participantes,
+                fn (array $row) => in_array($row['tipo'], [
+                    EventoInscripcionPersona::TIPO_MIEMBRO,
+                    EventoInscripcionPersona::TIPO_DIRECTIVA,
+                ], true)
+            ), 'persona_id'))
+        )));
+        if ($personaIds === []) {
+            $tieneAcompanantes = collect($participantes)->contains(
+                fn (array $row) => in_array($row['tipo'], [
+                    EventoInscripcionPersona::TIPO_ACOMPANANTE,
+                    EventoInscripcionPersona::TIPO_ACOMPANANTE_MENOR,
+                    EventoInscripcionPersona::TIPO_VISITANTE_PASADIA,
+                ], true)
+            );
+            if (! $tieneAcompanantes) {
+                throw ValidationException::withMessages([
+                    'participantes' => ['Debes seleccionar al menos un participante.'],
+                ]);
+            }
+        }
+        if ($miembroIds !== []) {
+            $this->assertPersonasBelongToClub($miembroIds, $ctx['organizacion_id']);
+        }
+
+        return DB::transaction(function () use ($actor, $root, $ctx, $participantes, $data) {
+            $existing = $this->participation->findRootInscripcion($root, $ctx['organizacion_id']);
+            $estado = $existing?->esOficial()
+                ? $existing->estado
+                : EventoInscripcion::ESTADO_BORRADOR;
+
+            $inscripcion = EventoInscripcion::query()->updateOrCreate(
+                [
+                    'evento_id' => $root->id,
+                    'tipo' => 'club',
+                    'organizacion_id' => $ctx['organizacion_id'],
+                ],
+                [
+                    'persona_id' => $existing?->persona_id,
+                    'estado' => $estado,
+                    'inscrito_por' => $actor->id,
+                    'borrador_payload' => [
+                        'participantes' => $participantes,
+                        'reservas' => $data['reservas'] ?? [],
+                    ],
+                ]
+            );
+
+            return $inscripcion->fresh([
                 'personas.persona',
                 'personas.reservas.oferta.producto',
                 'comprobantes.archivo',
@@ -638,6 +701,7 @@ final class EventInscripcionService
                 'eventoCabana',
             ])
             ->where('evento_id', $root->id)
+            ->where('estado', '!=', EventoInscripcion::ESTADO_BORRADOR)
             ->whereIn('tipo', [EventoInscripcion::TIPO_CLUB, EventoInscripcion::TIPO_INDIVIDUAL])
             ->orderByRaw('primera_evidencia_at IS NULL')
             ->orderBy('primera_evidencia_at')
@@ -1055,6 +1119,35 @@ final class EventInscripcionService
             'evento_lote_id' => null,
             'evento_cabana_id' => null,
         ]);
+    }
+
+    /**
+     * @return array{0: Event, 1: array{organizacion_id: int, organizacion: mixed, role: string}}
+     */
+    private function assertEnrollAccess(User $actor, Event $event): array
+    {
+        $ctx = $this->participation->assertClubDirectorContext($actor);
+        $root = $this->resolveRoot($event);
+        while ($root->evento_padre_id) {
+            $root = Event::query()->findOrFail($root->evento_padre_id);
+        }
+
+        if (! $actor->can('view', $root)) {
+            throw new AccessDeniedHttpException('No puedes ver este evento.');
+        }
+        if ($root->estado === Event::ESTADO_CANCELADO) {
+            throw ValidationException::withMessages(['evento' => ['Este evento está cancelado.']]);
+        }
+        if (! $root->permite_inscripcion_club) {
+            throw ValidationException::withMessages(['evento' => ['Este evento no permite inscripción de clubes.']]);
+        }
+        if ($root->starts_at && now()->greaterThan($root->starts_at->copy()->endOfDay())) {
+            throw ValidationException::withMessages([
+                'evento' => ['Las inscripciones cerraron al finalizar el día de inicio del evento.'],
+            ]);
+        }
+
+        return [$root, $ctx];
     }
 
     private function resolveRoot(Event $event): Event

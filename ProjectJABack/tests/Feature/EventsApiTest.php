@@ -7,6 +7,7 @@ use App\Modules\Clubs\Models\Club;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoInscripcion;
+use App\Modules\Events\Models\EventoInscripcionMovimiento;
 use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
@@ -390,7 +391,7 @@ class EventsApiTest extends TestCase
         $this->assertFalse($event->isVisibleTo($conqUser));
     }
 
-    public function test_judge_offline_pack_includes_on_site_calificable_events(): void
+    public function test_judge_offline_pack_includes_all_calificable_children(): void
     {
         $admin = $this->admin();
         Sanctum::actingAs($admin);
@@ -418,8 +419,47 @@ class EventsApiTest extends TestCase
             'puntaje_maximo' => 100,
         ]);
 
-        Event::query()->create([
-            'name' => 'Evento remoto',
+        $remoteChild = Event::query()->create([
+            'name' => 'Especialidad remota',
+            'evento_padre_id' => $root->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDays(2),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_PUBLICADO,
+            'es_en_sitio' => false,
+            'es_calificable' => true,
+            'puntaje_maximo' => 40,
+        ]);
+
+        $block = Event::query()->create([
+            'name' => 'Bloque especialidades',
+            'evento_padre_id' => $root->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDays(2),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_PUBLICADO,
+            'es_en_sitio' => false,
+            'es_calificable' => true,
+            'puntaje_desde_hijos' => true,
+        ]);
+
+        $grandchild = Event::query()->create([
+            'name' => 'Especialidad nieto',
+            'evento_padre_id' => $block->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDays(2),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_PUBLICADO,
+            'es_en_sitio' => false,
+            'es_calificable' => true,
+            'puntaje_maximo' => 25,
+        ]);
+
+        $foreignRoot = Event::query()->create([
+            'name' => 'Evento remoto ajeno',
             'starts_at' => now()->addDay(),
             'ends_at' => now()->addDays(2),
             'created_by' => $admin->id,
@@ -437,11 +477,21 @@ class EventsApiTest extends TestCase
 
         $events = $response->json('data.events');
         $this->assertIsArray($events);
-        $this->assertCount(1, $events);
-        $this->assertSame($root->id, $events[0]['event']['id']);
-        $activityIds = array_column($events[0]['activities'], 'actividad_id');
+        $pack = collect($events)->firstWhere('event.id', $root->id);
+        $this->assertNotNull($pack);
+        $activityIds = array_column($pack['activities'], 'actividad_id');
         $this->assertContains($activity->id, $activityIds);
-        $this->assertNotEmpty($events[0]['board']['arbol'] ?? []);
+        $this->assertContains($remoteChild->id, $activityIds);
+        $this->assertContains($grandchild->id, $activityIds);
+        $this->assertNotContains($block->id, $activityIds);
+        $this->assertNotContains($foreignRoot->id, $activityIds);
+        $childIds = array_column($pack['event']['hijos'] ?? [], 'id');
+        $this->assertContains($activity->id, $childIds);
+        $this->assertContains($remoteChild->id, $childIds);
+        $this->assertContains($block->id, $childIds);
+        $blockNode = collect($pack['event']['hijos'] ?? [])->firstWhere('id', $block->id);
+        $this->assertContains($grandchild->id, array_column($blockNode['hijos'] ?? [], 'id'));
+        $this->assertNotEmpty($pack['board']['arbol'] ?? []);
     }
 
     public function test_judge_offline_pack_can_filter_a_single_event(): void
@@ -558,5 +608,141 @@ class EventsApiTest extends TestCase
         ])->assertCreated()->json('data');
 
         $this->assertSame(0, $created['inscritos_count']);
+    }
+
+    public function test_director_can_save_enroll_draft_without_creating_movement(): void
+    {
+        [$admin, $event, $persona] = $this->clubEnrollmentContext('Borrador');
+        Sanctum::actingAs($admin);
+
+        $response = $this->putJson("/api/v1/events/{$event->id}/enroll-draft", [
+            'participantes' => [[
+                'ref' => 'miembro:'.$persona->id,
+                'persona_id' => $persona->id,
+                'tipo' => 'miembro',
+            ]],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.estado', EventoInscripcion::ESTADO_BORRADOR)
+            ->assertJsonPath('data.borrador.participantes.0.persona_id', $persona->id);
+
+        $this->assertDatabaseHas('evento_inscripcion', [
+            'id' => $response->json('data.id'),
+            'estado' => EventoInscripcion::ESTADO_BORRADOR,
+        ]);
+        $this->assertDatabaseMissing('evento_inscripcion_movimiento', [
+            'inscripcion_id' => $response->json('data.id'),
+        ]);
+        $this->assertDatabaseMissing('evento_inscripcion_persona', [
+            'inscripcion_id' => $response->json('data.id'),
+        ]);
+
+        $this->getJson("/api/v1/events/{$event->id}/inscripciones-revision")
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
+    public function test_official_enrollment_change_requires_receipt(): void
+    {
+        Storage::fake('public');
+        [$admin, $event, $persona] = $this->clubEnrollmentContext('Cambio');
+        $otro = $this->personaInClub((int) $admin->active_organizacion_id);
+        Sanctum::actingAs($admin);
+
+        $this->postJson("/api/v1/events/{$event->id}/enroll", [
+            'participantes' => [[
+                'ref' => 'miembro:'.$persona->id,
+                'persona_id' => $persona->id,
+                'tipo' => 'miembro',
+            ]],
+        ])->assertCreated()->assertJsonPath('data.estado', EventoInscripcion::ESTADO_PENDIENTE_REVISION);
+
+        $this->postJson("/api/v1/events/{$event->id}/enroll", [
+            'participantes' => [
+                [
+                    'ref' => 'miembro:'.$persona->id,
+                    'persona_id' => $persona->id,
+                    'tipo' => 'miembro',
+                ],
+                [
+                    'ref' => 'miembro:'.$otro->id,
+                    'persona_id' => $otro->id,
+                    'tipo' => 'miembro',
+                ],
+            ],
+        ])->assertStatus(422)->assertJsonValidationErrors(['comprobante']);
+
+        $this->post("/api/v1/events/{$event->id}/enroll", [
+            'participantes' => [
+                [
+                    'ref' => 'miembro:'.$persona->id,
+                    'persona_id' => $persona->id,
+                    'tipo' => 'miembro',
+                ],
+                [
+                    'ref' => 'miembro:'.$otro->id,
+                    'persona_id' => $otro->id,
+                    'tipo' => 'miembro',
+                ],
+            ],
+            'comprobante' => UploadedFile::fake()->image('recibo.jpg'),
+            'comprobante_valor' => 0,
+        ])->assertCreated()->assertJsonPath('data.estado', EventoInscripcion::ESTADO_PENDIENTE_REVISION);
+
+        $this->assertGreaterThanOrEqual(2, EventoInscripcionMovimiento::query()->count());
+    }
+
+    /**
+     * @return array{0: User, 1: Event, 2: Persona}
+     */
+    private function clubEnrollmentContext(string $suffix): array
+    {
+        $admin = $this->admin();
+        $asociacion = $this->createOrg('Asociación '.$suffix, null, Organizacion::TIPO_ASOCIACION);
+        $iglesia = $this->createOrg('Iglesia '.$suffix, $asociacion->id, Organizacion::TIPO_IGLESIA);
+        $clubOrg = $this->createOrg('Club '.$suffix, $iglesia->id, Organizacion::TIPO_CLUB);
+        Club::query()->create([
+            'organizacion_id' => $clubOrg->id,
+            'nombre' => 'Club '.$suffix,
+            'tipos' => ['conquistadores'],
+            'is_active' => true,
+        ]);
+        $admin->forceFill(['active_organizacion_id' => $clubOrg->id])->save();
+
+        Sanctum::actingAs($admin);
+        $eventId = $this->postJson('/api/v1/events', [
+            'name' => 'Evento '.$suffix,
+            'starts_at' => now()->addMonth()->toDateTimeString(),
+            'ends_at' => now()->addMonths(2)->toDateTimeString(),
+            'organizacion_id' => $asociacion->id,
+            'organizacion_ids' => [$asociacion->id],
+            'estado' => 'publicado',
+            'permite_inscripcion_club' => true,
+            'requiere_pago' => false,
+        ])->assertCreated()->json('data.id');
+
+        $event = Event::query()->findOrFail($eventId);
+        $persona = $this->personaInClub($clubOrg->id);
+
+        return [$admin->fresh(), $event, $persona];
+    }
+
+    private function personaInClub(int $organizacionId): Persona
+    {
+        $persona = Persona::query()->create([
+            'tipo_identificacion' => 'CC',
+            'identificacion' => 'ID'.random_int(100000, 999999).uniqid(),
+            'nombre1' => 'Integrante',
+            'apellido1' => 'Club',
+            'correo' => 'int'.uniqid().'@test.local',
+        ]);
+        PersonaOrganizacion::query()->create([
+            'persona_id' => $persona->id,
+            'organizacion_id' => $organizacionId,
+            'estado' => true,
+        ]);
+
+        return $persona;
     }
 }

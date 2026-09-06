@@ -37,7 +37,7 @@ function isClickable(node: ClubEvent): boolean {
     return Boolean(node.asignado_a_mi && node.es_calificable && !node.puntaje_desde_hijos)
   }
   if (props.mode === 'director') {
-    return Boolean(node.requiere_evidencia || node.es_calificable)
+    return Boolean(node.requiere_evidencia || node.es_calificable || node.requiere_inscripcion)
   }
   return false
 }
@@ -126,6 +126,20 @@ function onOpen(node: ClubEvent): void {
               {{ node.progreso_evidencia.sin_evidencia }} {{ t('events.listWithoutEvidenceShort') }}
             </span>
           </template>
+          <span
+            v-if="node.inscripcion_actividad === 'inscrito'"
+            class="stat is-ok"
+          >
+            <i class="pi pi-check-circle" />
+            {{ t('events.listInscriptionDone') }}
+          </span>
+          <span
+            v-else-if="node.inscripcion_actividad === 'pendiente'"
+            class="stat is-pending"
+          >
+            <i class="pi pi-clock" />
+            {{ t('events.listInscriptionPending') }}
+          </span>
         </div>
 
         <i v-if="isClickable(node)" class="pi pi-arrow-right evt-tree__go" />

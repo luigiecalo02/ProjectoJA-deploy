@@ -71,7 +71,7 @@ final class EventJudgeService
     }
 
     /**
-     * Paquete para calificar sin red: eventos asignados, calificables y en sitio.
+     * Paquete para calificar sin red: eventos asignados y calificables (hijos incluidos).
      *
      * @return array{downloaded_at: string, events: list<array<string, mixed>>}
      */
@@ -1901,7 +1901,7 @@ final class EventJudgeService
     {
         $ids = [];
         $walk = function (Event $node) use (&$walk, &$ids, $scope): void {
-            if ($this->isOnSite($node) && $this->canScoreInScope($node, $scope)) {
+            if ($this->canScoreInScope($node, $scope)) {
                 $ids[] = (int) $node->id;
             }
             foreach ($node->hijos ?? [] as $hijo) {
@@ -1995,7 +1995,7 @@ final class EventJudgeService
             ->values()
             ->all();
         $juezIds[] = (int) $actor->id;
-        $onSiteChildren = $this->mapOfflineListChildren($root);
+        $children = $this->mapOfflineListChildren($root);
 
         return [
             'id' => (int) $root->id,
@@ -2019,8 +2019,8 @@ final class EventJudgeService
             'tipos_organizacion' => [],
             'requiere_pago' => (bool) $root->requiere_pago,
             'cupo_ilimitado' => (bool) ($root->cupo_ilimitado ?? true),
-            'hijos' => $onSiteChildren,
-            'hijos_count' => count($onSiteChildren),
+            'hijos' => $children,
+            'hijos_count' => count($children),
         ];
     }
 
@@ -2032,9 +2032,6 @@ final class EventJudgeService
         $out = [];
         foreach ($node->hijos ?? [] as $hijo) {
             $nested = $this->mapOfflineListChildren($hijo);
-            if (! $this->isOnSite($hijo) && $nested === []) {
-                continue;
-            }
             $out[] = [
                 'id' => (int) $hijo->id,
                 'name' => $hijo->name,
@@ -2053,11 +2050,6 @@ final class EventJudgeService
         }
 
         return $out;
-    }
-
-    private function isOnSite(Event $node): bool
-    {
-        return (bool) $node->es_en_sitio;
     }
 
     /**

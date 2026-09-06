@@ -552,7 +552,10 @@ class Event extends Model
             ->selectRaw('evento_inscripcion.evento_id as evento_id, COUNT(*) as total')
             ->join('evento_inscripcion', 'evento_inscripcion.id', '=', 'evento_inscripcion_persona.inscripcion_id')
             ->whereIn('evento_inscripcion.evento_id', $ids)
-            ->where('evento_inscripcion.estado', '!=', EventoInscripcion::ESTADO_NO_APROBADA)
+            ->whereNotIn('evento_inscripcion.estado', [
+                EventoInscripcion::ESTADO_NO_APROBADA,
+                EventoInscripcion::ESTADO_BORRADOR,
+            ])
             ->where('evento_inscripcion_persona.estado', '!=', EventoInscripcionPersona::ESTADO_CANCELADA)
             ->groupBy('evento_inscripcion.evento_id')
             ->pluck('total', 'evento_id');

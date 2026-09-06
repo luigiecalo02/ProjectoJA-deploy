@@ -176,6 +176,8 @@ export interface ParticipationNode {
   puntaje_desde_hijos?: boolean
   puntaje_por_participar?: boolean
   requiere_evidencia: boolean
+  requiere_inscripcion?: boolean
+  inscrito?: boolean
   tipos_evidencia: string[]
   maneja_fecha_fin?: boolean
   maneja_penalizaciones?: boolean
@@ -765,6 +767,8 @@ export interface ClubEvent {
   } | null
   /** Director: evidencia de su club en este nodo */
   evidencia_enviada?: boolean | null
+  requiere_inscripcion?: boolean
+  inscripcion_actividad?: 'pendiente' | 'inscrito' | null
   progreso_evidencia?: {
     con_evidencia: number
     sin_evidencia: number
@@ -1011,6 +1015,7 @@ export interface EventoAcompanantePersonaPayload {
 }
 
 export type EventoInscripcionEstado =
+  | 'borrador'
   | 'pendiente_revision'
   | 'en_revision'
   | 'aprobada'
@@ -1158,6 +1163,7 @@ export interface EventoInscripcion {
   evento_lote?: { id: number; codigo?: string | null; nombre?: string | null } | null
   evento_cabana?: { id: number; nombre: string } | null
   estado: EventoInscripcionEstado
+  borrador?: EventoInscripcionEnrollPayload | null
   total_declarado?: number | null
   total_consignado?: number
   total_consignado_aprobado?: number

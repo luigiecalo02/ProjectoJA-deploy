@@ -9,7 +9,8 @@ import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import PageLoader from '@/components/PageLoader.vue'
 import AppSearchField from '@/components/AppSearchField.vue'
-import ComprobanteComments from '@/components/events/ComprobanteComments.vue'
+import AppStackDrawer from '@/components/drawers/AppStackDrawer.vue'
+import MovementReviewPanel from '@/components/events/MovementReviewPanel.vue'
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import type {
@@ -17,6 +18,7 @@ import type {
   EventoInscripcionComprobante,
   EventoInscripcionComprobanteComentario,
   EventoInscripcionEstado,
+  EventoInscripcionMovimiento,
   EventoComprobanteEstado,
 } from '@/modules/events/types'
 
@@ -27,6 +29,13 @@ const toast = useToast()
 
 const isMobile = useMediaQuery('(max-width: 900px)')
 const detailSheetVisible = ref(false)
+const selectedMovement = ref<EventoInscripcionMovimiento | null>(null)
+const movementDrawerVisible = computed({
+  get: () => selectedMovement.value !== null,
+  set: (value: boolean) => {
+    if (!value) selectedMovement.value = null
+  },
+})
 
 const loading = ref(true)
 const saving = ref(false)
@@ -66,10 +75,6 @@ const inscripcionEstadoOptions = computed(() => [
 
 function estadoLabel(estado: string): string {
   return t(`events.revisionEstado.${estado}`, estado)
-}
-
-function comprobanteEstadoLabel(estado: string): string {
-  return t(`events.comprobanteEstado.${estado}`, estado)
 }
 
 function participantTypeLabel(type?: string): string {
@@ -151,8 +156,12 @@ function money(value: number | string | null | undefined): string {
   })
 }
 
-function movementChangeCount(movement: NonNullable<EventoInscripcion['movimientos']>[number]): number {
+function movementChangeCount(movement: EventoInscripcionMovimiento): number {
   return Object.values(movement.cambios).reduce((sum, items) => sum + items.length, 0)
+}
+
+function openMovement(movement: EventoInscripcionMovimiento): void {
+  selectedMovement.value = movement
 }
 
 async function loadList(): Promise<void> {
@@ -202,6 +211,10 @@ async function updateComprobante(
   try {
     await eventsService.reviewComprobante(comprobante.id, { estado })
     if (selectedId.value) await selectInscripcion(selectedId.value)
+    if (selectedMovement.value && detail.value) {
+      selectedMovement.value =
+        detail.value.movimientos?.find((item) => item.id === selectedMovement.value?.id) ?? null
+    }
     toast.add({
       severity: 'success',
       summary: t('common.success'),
@@ -537,7 +550,28 @@ onMounted(() => {
           <p v-if="!(detail.movimientos || []).length" class="pj-muted">
             {{ t('events.revisionNoHistory') }}
           </p>
+          <button
+            v-if="isMobile"
+            v-for="movement in [...(detail.movimientos || [])].reverse()"
+            :key="movement.id"
+            type="button"
+            class="movement-row"
+            @click="openMovement(movement)"
+          >
+            <span>
+              <strong>{{ t('events.enrollChangeNumber', { number: movement.numero }) }}</strong>
+              <small>
+                {{ movementChangeCount(movement) }} {{ t('events.enrollRecordedChanges') }}
+              </small>
+            </span>
+            <span>
+              <strong>{{ money(movement.valor_diferencia) }}</strong>
+              <small>{{ money(movement.total_nuevo) }} {{ t('events.revisionAccumulated') }}</small>
+            </span>
+            <i class="pi pi-chevron-right" />
+          </button>
           <details
+            v-if="!isMobile"
             v-for="movement in [...(detail.movimientos || [])].reverse()"
             :key="movement.id"
             class="movement-review"
@@ -555,65 +589,12 @@ onMounted(() => {
               </span>
             </summary>
             <div class="movement-review__body">
-              <div class="movement-values">
-                <span>{{ t('events.enrollPreviousTotal') }} <strong>{{ money(movement.total_anterior) }}</strong></span>
-                <span>{{ t('events.enrollUpdatedTotal') }} <strong>{{ money(movement.total_nuevo) }}</strong></span>
-                <span>{{ t('events.comprobantesTotalConsigned') }} <strong>{{ money(movement.total_consignado) }}</strong></span>
-              </div>
-              <ul class="movement-changes">
-                <li v-for="item in movement.cambios.participantes_agregados" :key="`pa-${movement.id}-${item.ref}`">
-                  <i class="pi pi-user-plus" /> {{ t('events.enrollParticipantAdded') }}: {{ item.nombre }}
-                </li>
-                <li v-for="item in movement.cambios.participantes_retirados" :key="`pr-${movement.id}-${item.ref}`">
-                  <i class="pi pi-user-minus" /> {{ t('events.enrollParticipantRemoved') }}: {{ item.nombre }}
-                </li>
-                <li v-for="item in movement.cambios.participantes_modificados" :key="`pm-${movement.id}-${item.ref}`">
-                  <i class="pi pi-user-edit" /> {{ t('events.enrollParticipantUpdated') }}: {{ item.nombre }}
-                </li>
-                <li v-for="item in movement.cambios.servicios_agregados" :key="`sa-${movement.id}-${item.participante_ref}-${item.clave}`">
-                  <i class="pi pi-plus-circle" /> {{ t('events.enrollServiceAdded') }}: {{ item.producto }} — {{ item.participante_nombre }}
-                </li>
-                <li v-for="item in movement.cambios.servicios_retirados" :key="`sr-${movement.id}-${item.participante_ref}-${item.clave}`">
-                  <i class="pi pi-minus-circle" /> {{ t('events.enrollServiceRemoved') }}: {{ item.producto }} — {{ item.participante_nombre }}
-                </li>
-                <li v-for="item in movement.cambios.servicios_modificados" :key="`sm-${movement.id}-${item.clave}`">
-                  <i class="pi pi-pencil" /> {{ t('events.enrollServiceUpdated') }}: {{ item.nuevo.producto }} — {{ item.nuevo.participante_nombre }}
-                </li>
-              </ul>
-              <div class="movement-receipts">
-                <h4>
-                  <i class="pi pi-receipt" />
-                  {{ t('events.revisionMovementReceipts') }}
-                </h4>
-                <p v-if="!(movement.comprobantes || []).length" class="pj-muted">
-                  {{ t('events.comprobantesEmpty') }}
-                </p>
-                <article
-                  v-for="c in movement.comprobantes || []"
-                  :key="c.id"
-                  class="comprobante-review"
-                >
-                  <div class="comprobante-review__info">
-                    <i class="pi pi-file comprobante-review__icon" />
-                    <span><strong>{{ money(c.valor) }}</strong><small>{{ c.archivo_nombre || '—' }}</small></span>
-                    <span class="status-pill status-pill--muted">{{ comprobanteEstadoLabel(c.estado) }}</span>
-                  </div>
-                  <div class="comprobante-review__actions">
-                    <a v-if="c.archivo_url" :href="c.archivo_url" target="_blank" rel="noopener">
-                      <Button type="button" icon="pi pi-eye" text rounded :aria-label="t('common.view')" />
-                    </a>
-                    <Button type="button" icon="pi pi-check" severity="success" text rounded :disabled="c.estado === 'aprobado' || saving" :aria-label="t('events.comprobantesApprove')" @click="updateComprobante(c, 'aprobado')" />
-                    <Button type="button" icon="pi pi-times" severity="danger" text rounded :disabled="c.estado === 'rechazado' || saving" :aria-label="t('events.comprobantesReject')" @click="updateComprobante(c, 'rechazado')" />
-                    <Button type="button" icon="pi pi-clock" text rounded :disabled="c.estado === 'pendiente' || saving" :aria-label="t('events.comprobantesPending')" @click="updateComprobante(c, 'pendiente')" />
-                  </div>
-                  <ComprobanteComments
-                    class="comprobante-review__comments"
-                    :comprobante-id="c.id"
-                    :comentarios="c.comentarios ?? []"
-                    @added="onReceiptCommentAdded(c.id, $event)"
-                  />
-                </article>
-              </div>
+              <MovementReviewPanel
+                :movement="movement"
+                :saving="saving"
+                @review="updateComprobante"
+                @comment-added="onReceiptCommentAdded"
+              />
             </div>
           </details>
         </section>
@@ -658,6 +639,20 @@ onMounted(() => {
         {{ t('events.revisionSelectOne') }}
       </div>
     </div>
+
+    <AppStackDrawer
+      v-model:visible="movementDrawerVisible"
+      :level="2"
+      :title="selectedMovement ? t('events.enrollChangeNumber', { number: selectedMovement.numero }) : t('events.revisionMovementTitle')"
+    >
+      <MovementReviewPanel
+        v-if="selectedMovement"
+        :movement="selectedMovement"
+        :saving="saving"
+        @review="updateComprobante"
+        @comment-added="onReceiptCommentAdded"
+      />
+    </AppStackDrawer>
   </section>
 </template>
 
@@ -1078,6 +1073,42 @@ onMounted(() => {
 
 .persona-review__total strong {
   color: #0f766e;
+}
+
+.movement-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--pj-border) 65%, transparent);
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.movement-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.movement-row > span:nth-child(2) {
+  align-items: flex-end;
+}
+
+.movement-row small {
+  color: var(--pj-text-muted);
+  font-size: 0.72rem;
+}
+
+.movement-row i {
+  color: var(--pj-text-muted);
 }
 
 .movement-review {

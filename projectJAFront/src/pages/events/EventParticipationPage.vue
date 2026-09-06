@@ -37,7 +37,7 @@ import {
   type MediaGalleryItem,
 } from '@/modules/media/types'
 
-type EvalStatus = 'calificada' | 'en_revision' | 'pendiente'
+type EvalStatus = 'calificada' | 'en_revision' | 'pendiente' | 'inscrito' | 'neutral'
 type FlatNode = ParticipationNode & { depth: number }
 
 const { t } = useI18n()
@@ -405,20 +405,30 @@ onBeforeUnmount(() => {
   stopDeadlineTicker()
 })
 
+function isActionableNode(node: ParticipationNode): boolean {
+  return Boolean(node.es_calificable || node.requiere_evidencia || node.requiere_inscripcion)
+}
+
 function nodeStatus(node: ParticipationNode): EvalStatus {
-  if (node.calificacion) {
-    if (node.puntaje_desde_hijos && node.calificacion.es_agregado && node.calificacion.observaciones?.includes('Parcial')) {
-      return 'en_revision'
+  if (node.requiere_evidencia) {
+    if (node.calificacion) {
+      if (node.puntaje_desde_hijos && node.calificacion.es_agregado && node.calificacion.observaciones?.includes('Parcial')) {
+        return 'en_revision'
+      }
+      return 'calificada'
     }
-    return 'calificada'
+    if ((node.evidencias?.length ?? 0) > 0) return 'en_revision'
+    if (node.puntaje_desde_hijos) {
+      const leaves = collectScoreableLeaves(node)
+      if (leaves.length && leaves.every((n) => n.calificacion)) return 'calificada'
+      if (leaves.some((n) => n.calificacion || (n.evidencias?.length ?? 0) > 0)) return 'en_revision'
+    }
+    return 'pendiente'
   }
-  if ((node.evidencias?.length ?? 0) > 0) return 'en_revision'
-  if (node.puntaje_desde_hijos) {
-    const leaves = collectScoreableLeaves(node)
-    if (leaves.length && leaves.every((n) => n.calificacion)) return 'calificada'
-    if (leaves.some((n) => n.calificacion || (n.evidencias?.length ?? 0) > 0)) return 'en_revision'
+  if (node.requiere_inscripcion) {
+    return node.inscrito ? 'inscrito' : 'pendiente'
   }
-  return 'pendiente'
+  return 'neutral'
 }
 
 function collectScoreableLeaves(node: ParticipationNode): ParticipationNode[] {
@@ -435,11 +445,18 @@ function collectScoreableLeaves(node: ParticipationNode): ParticipationNode[] {
 }
 
 function statusMeta(status: EvalStatus): { label: string; css: string; icon: string } {
-  if (status === 'calificada') {
-    return { label: t('events.statusScored'), css: 'is-scored', icon: 'pi pi-check-circle' }
+  if (status === 'calificada' || status === 'inscrito') {
+    return {
+      label: status === 'inscrito' ? t('events.statusEnrolled') : t('events.statusScored'),
+      css: 'is-scored',
+      icon: 'pi pi-check-circle',
+    }
   }
   if (status === 'en_revision') {
     return { label: t('events.statusReview'), css: 'is-review', icon: 'pi pi-clock' }
+  }
+  if (status === 'neutral') {
+    return { label: '', css: 'is-neutral', icon: 'pi pi-sitemap' }
   }
   return { label: t('events.statusPending'), css: 'is-pending', icon: 'pi pi-circle' }
 }
@@ -470,7 +487,9 @@ async function load(keepSelection = false): Promise<void> {
       }
     }
     const stillThere = prev && nodes.some((n) => n.id === prev)
-    selectedId.value = preferred ?? (stillThere ? prev : null)
+    const fallback = preferred ?? (stillThere ? prev : null)
+    const fallbackNode = fallback ? nodes.find((n) => n.id === fallback) : null
+    selectedId.value = fallbackNode && isActionableNode(fallbackNode) ? fallback : null
     const current = selected.value
     if (current) {
       selectNode(current)
@@ -492,6 +511,7 @@ async function load(keepSelection = false): Promise<void> {
 }
 
 function selectNode(node: ParticipationNode): void {
+  if (!isActionableNode(node)) return
   selectedId.value = node.id
   if (isMobile.value) detailSheetVisible.value = true
   const latest = node.evidencias?.[0]
@@ -803,7 +823,10 @@ watch(isMobile, (mobile) => {
             :key="node.id"
             type="button"
             class="eval-item"
-            :class="{ 'is-active': selectedId === node.id }"
+            :class="{
+              'is-active': selectedId === node.id,
+              'is-inert': !isActionableNode(node),
+            }"
             :style="{ paddingLeft: `${0.85 + nodeDepth(node) * 0.7}rem` }"
             @click="selectNode(node)"
           >
@@ -819,7 +842,11 @@ watch(isMobile, (mobile) => {
                 {{ node.puntaje_maximo != null ? `${node.puntaje_maximo} pts` : '—' }}
               </span>
             </span>
-            <span class="status-badge" :class="statusMeta(nodeStatus(node)).css">
+            <span
+              v-if="nodeStatus(node) !== 'neutral'"
+              class="status-badge"
+              :class="statusMeta(nodeStatus(node)).css"
+            >
               {{ statusMeta(nodeStatus(node)).label }}
             </span>
           </button>
@@ -864,7 +891,11 @@ watch(isMobile, (mobile) => {
                 <div>
                   <div class="detail-head__title-row">
                     <h2>{{ selected.name }}</h2>
-                    <span class="status-badge" :class="statusMeta(nodeStatus(selected)).css">
+                    <span
+                      v-if="nodeStatus(selected) !== 'neutral'"
+                      class="status-badge"
+                      :class="statusMeta(nodeStatus(selected)).css"
+                    >
                       {{ statusMeta(nodeStatus(selected)).label }}
                     </span>
                   </div>
@@ -1520,6 +1551,11 @@ watch(isMobile, (mobile) => {
 
 .eval-item:hover {
   background: color-mix(in srgb, var(--pj-navy) 5%, transparent);
+}
+
+.eval-item.is-inert {
+  cursor: default;
+  opacity: 0.72;
 }
 
 .eval-item.is-active {

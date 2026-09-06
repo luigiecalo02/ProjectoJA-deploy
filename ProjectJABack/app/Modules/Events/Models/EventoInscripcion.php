@@ -19,6 +19,8 @@ class EventoInscripcion extends Model
 
     public const TIPO_INDIVIDUAL = 'individual';
 
+    public const ESTADO_BORRADOR = 'borrador';
+
     public const ESTADO_PENDIENTE_REVISION = 'pendiente_revision';
 
     public const ESTADO_EN_REVISION = 'en_revision';
@@ -43,6 +45,7 @@ class EventoInscripcion extends Model
         'revisado_por',
         'revisado_at',
         'observacion_revision',
+        'borrador_payload',
     ];
 
     protected function casts(): array
@@ -50,6 +53,7 @@ class EventoInscripcion extends Model
         return [
             'total_declarado' => 'decimal:2',
             'revisado_at' => 'datetime',
+            'borrador_payload' => 'array',
         ];
     }
 
@@ -141,5 +145,15 @@ class EventoInscripcion extends Model
     public function estaAprobada(): bool
     {
         return $this->estado === self::ESTADO_APROBADA;
+    }
+
+    public function esBorrador(): bool
+    {
+        return $this->estado === self::ESTADO_BORRADOR;
+    }
+
+    public function esOficial(): bool
+    {
+        return $this->estado !== self::ESTADO_BORRADOR;
     }
 }

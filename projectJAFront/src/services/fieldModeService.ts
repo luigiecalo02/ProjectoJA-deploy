@@ -37,27 +37,34 @@ async function persistEventPack(
 export const fieldModeService = {
   async downloadPack(userId: number, eventId?: number): Promise<FieldOfflinePack> {
     const incoming = await eventsService.judgeOfflinePack(eventId)
+    const stamped: FieldOfflinePack = {
+      ...incoming,
+      events: incoming.events.map((item) => ({
+        ...item,
+        downloaded_at: incoming.downloaded_at,
+      })),
+    }
     if (!eventId) {
-      await saveFieldPack(userId, incoming)
-      return incoming
+      await saveFieldPack(userId, stamped)
+      return stamped
     }
 
     const existing = await getFieldPack(userId)
     if (!existing) {
-      await saveFieldPack(userId, incoming)
-      return incoming
+      await saveFieldPack(userId, stamped)
+      return stamped
     }
 
     const byId = new Map(existing.pack.events.map((item) => [item.event.id, item]))
-    for (const item of incoming.events) {
+    for (const item of stamped.events) {
       byId.set(item.event.id, item)
     }
     const merged: FieldOfflinePack = {
-      downloaded_at: incoming.downloaded_at,
+      downloaded_at: stamped.downloaded_at,
       events: [...byId.values()],
     }
     await saveFieldPack(userId, merged)
-    return incoming
+    return stamped
   },
 
   async cachedPack(userId: number): Promise<FieldOfflinePack | null> {

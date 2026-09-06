@@ -230,6 +230,39 @@ final class EventEconomiaController
         return ApiResponse::success($this->inscripcionPayload($inscripcion), 'Inscripción registrada', Response::HTTP_CREATED);
     }
 
+    public function saveEnrollDraft(Request $request, Event $event): JsonResponse
+    {
+        $data = $request->validate([
+            'persona_ids' => ['sometimes', 'array'],
+            'persona_ids.*' => ['integer', 'exists:personas,id'],
+            'participantes' => ['required_without:persona_ids', 'array', 'min:1'],
+            'participantes.*.ref' => ['required', 'string', 'max:100', 'distinct'],
+            'participantes.*.persona_id' => ['nullable', 'integer', 'exists:personas,id', 'distinct'],
+            'participantes.*.tipo' => ['required', Rule::in([
+                'miembro', 'directiva', 'acompanante', 'acompanante_menor', 'visitante_pasadia',
+            ])],
+            'participantes.*.cargo_directiva' => ['nullable', Rule::in([
+                'director', 'subdirector', 'secretario', 'tesorero',
+            ])],
+            'participantes.*.nombre' => ['required_without:participantes.*.persona_id', 'nullable', 'string', 'max:255'],
+            'participantes.*.identificacion' => ['nullable', 'string', 'max:64'],
+            'participantes.*.fecha_nacimiento' => ['nullable', 'date'],
+            'participantes.*.parentesco' => ['nullable', 'string', 'max:100'],
+            'participantes.*.descuento_codigo' => ['nullable', 'string', 'max:64'],
+            'reservas' => ['sometimes', 'array'],
+            'reservas.*.evento_producto_servicio_id' => ['required_with:reservas', 'integer'],
+            'reservas.*.participante_ref' => ['required_with:reservas', 'string', 'max:100'],
+            'reservas.*.fecha_inicio' => ['nullable', 'date'],
+            'reservas.*.fecha_fin' => ['nullable', 'date'],
+            'reservas.*.fecha' => ['nullable', 'date'],
+            'reservas.*.cantidad' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $inscripcion = $this->inscripcionService->saveEnrollDraft($request->user(), $event, $data);
+
+        return ApiResponse::success($this->inscripcionPayload($inscripcion), 'Borrador guardado');
+    }
+
     public function storeComprobante(Request $request, EventoInscripcion $eventoInscripcion): JsonResponse
     {
         $request->validate([
@@ -508,6 +541,7 @@ final class EventEconomiaController
                 'nombre' => $i->eventoCabana->nombre,
             ] : null,
             'estado' => $i->estado,
+            'borrador' => $i->borrador_payload,
             'total_declarado' => $i->total_declarado,
             'total_consignado' => $resumenComprobantes['total_consignado'],
             'total_consignado_aprobado' => $resumenComprobantes['total_aprobado'],

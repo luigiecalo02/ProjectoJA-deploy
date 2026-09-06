@@ -20,6 +20,7 @@ export interface FieldEventPack {
   event: ClubEvent
   board: JudgeBoard
   activities: FieldActivitySlice[]
+  downloaded_at?: string | null
 }
 
 export interface FieldOfflinePack {

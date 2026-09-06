@@ -4,7 +4,7 @@ import { useOnline } from '@vueuse/core'
 import { fieldModeService } from '@/services/fieldModeService'
 import { useAuthStore } from '@/stores/auth'
 import type { ClubEvent, JudgeBoard, JudgeCalificacion } from '@/modules/events/types'
-import type { FieldScorePayload } from '@/modules/fieldMode/types'
+import type { FieldEventPack, FieldScorePayload } from '@/modules/fieldMode/types'
 
 export const useFieldModeStore = defineStore('fieldMode', () => {
   const auth = useAuthStore()
@@ -67,6 +67,17 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     const userId = auth.user?.id
     if (!userId) return []
     return fieldModeService.cachedEvents(userId)
+  }
+
+  async function cachedPack() {
+    const userId = auth.user?.id
+    if (!userId) return null
+    return fieldModeService.cachedPack(userId)
+  }
+
+  async function cachedEventPack(eventId: number): Promise<FieldEventPack | null> {
+    const pack = await cachedPack()
+    return pack?.events.find((item) => item.event.id === eventId) ?? null
   }
 
   async function getJudgeBoard(
@@ -150,6 +161,8 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     refreshMeta,
     downloadPack,
     cachedEvents,
+    cachedPack,
+    cachedEventPack,
     getJudgeBoard,
     saveCalificacion,
     syncPending,

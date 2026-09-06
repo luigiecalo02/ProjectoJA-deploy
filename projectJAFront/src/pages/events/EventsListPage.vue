@@ -29,6 +29,7 @@ import {
 import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
 import { cssColor } from '@/utils/color'
 import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
+import { summarizeEventPack, type FieldEventSummary } from '@/modules/fieldMode/packSummary'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -39,6 +40,14 @@ const fieldMode = useFieldModeStore()
 const canCreateEvent = computed(() => can('events.create') && fieldMode.online)
 const canPrepareField = computed(() => can('events.evaluate'))
 const usingOfflinePack = ref(false)
+const packSummaries = ref<Record<number, FieldEventSummary>>({})
+const packSummaryTarget = ref<FieldEventSummary | null>(null)
+const packSummaryVisible = computed({
+  get: () => packSummaryTarget.value !== null,
+  set: (value: boolean) => {
+    if (!value) packSummaryTarget.value = null
+  },
+})
 
 usePageChrome(() => {
   const actions: PageChromeAction[] = []
@@ -211,6 +220,7 @@ function goInscripcionesRevision(event: ClubEvent): void {
 function inscripcionStatusMeta(estado: string | null | undefined): { label: string; css: string } | null {
   if (!estado) return null
   const cssMap: Record<string, string> = {
+    borrador: 'insc--draft',
     pendiente_revision: 'insc--pending',
     en_revision: 'insc--review',
     aprobada: 'insc--approved',
@@ -466,12 +476,36 @@ const emptyListMessage = computed(() => {
   return t('events.empty')
 })
 
+async function refreshPackSummaries(): Promise<void> {
+  if (!canPrepareField.value) {
+    packSummaries.value = {}
+    return
+  }
+  const pack = await fieldMode.cachedPack()
+  const next: Record<number, FieldEventSummary> = {}
+  for (const eventPack of pack?.events ?? []) {
+    next[eventPack.event.id] = summarizeEventPack(eventPack, pack?.downloaded_at)
+  }
+  packSummaries.value = next
+}
+
+function openPackSummary(eventId: number): void {
+  const summary = packSummaries.value[eventId]
+  if (summary) packSummaryTarget.value = summary
+}
+
+function formatPackDate(iso?: string | null): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString()
+}
+
 async function applyCachedEvents(): Promise<boolean> {
   const cached = await fieldMode.cachedEvents()
   usingOfflinePack.value = true
   events.value = cached
   pagination.value = null
   expandedChildren.value = new Set()
+  await refreshPackSummaries()
   return cached.length > 0
 }
 
@@ -493,6 +527,7 @@ async function loadEvents(): Promise<void> {
     events.value = result.items
     pagination.value = result.pagination
     expandedChildren.value = new Set()
+    await refreshPackSummaries()
   } catch (error) {
     if (isNetworkError(error) && canPrepareField.value) {
       const hadPack = await applyCachedEvents()
@@ -556,6 +591,12 @@ async function uploadFieldScores(event: ClubEvent): Promise<void> {
 async function prepareFieldPack(event: ClubEvent): Promise<void> {
   try {
     const count = await fieldMode.downloadPack(event.id)
+    const eventPack = await fieldMode.cachedEventPack(event.id)
+    const summary = eventPack ? summarizeEventPack(eventPack, eventPack.downloaded_at) : null
+    if (summary) {
+      packSummaries.value = { ...packSummaries.value, [event.id]: summary }
+      packSummaryTarget.value = summary
+    }
     toast.add({
       severity: count ? 'success' : 'info',
       summary: t('common.success'),
@@ -805,15 +846,8 @@ onMounted(() => {
       </div>
     </header>
 
-    <p v-if="usingOfflinePack || fieldMode.lastDownloadedAt" class="pj-muted field-pack-hint">
-      <template v-if="usingOfflinePack">{{ t('fieldMode.usingPack') }}</template>
-      <template v-if="fieldMode.lastDownloadedAt">
-        {{
-          t('fieldMode.downloadedAt', {
-            date: new Date(fieldMode.lastDownloadedAt).toLocaleString(),
-          })
-        }}
-      </template>
+    <p v-if="usingOfflinePack" class="pj-muted field-pack-hint">
+      {{ t('fieldMode.usingPack') }}
     </p>
 
     <div v-if="isEventsAdmin" class="events-toolbar">
@@ -919,9 +953,24 @@ onMounted(() => {
             />
           </template>
           <div
-            v-if="inscripcionStatusMeta(event.inscripcion_estado) || canEnroll(event) || canParticipate(event)"
+            v-if="inscripcionStatusMeta(event.inscripcion_estado) || canEnroll(event) || canParticipate(event) || canPrepareField"
             class="event-card__side event-card__side--banner"
           >
+            <button
+              v-if="packSummaries[event.id]"
+              type="button"
+              class="pack-chip"
+              @click="openPackSummary(event.id)"
+            >
+              <strong>{{ t('fieldMode.packReadyAt', { date: formatPackDate(packSummaries[event.id].downloadedAt) }) }}</strong>
+              <small>{{ t('fieldMode.packSummaryChip', {
+                subeventos: packSummaries[event.id].subeventos.length,
+                clubes: packSummaries[event.id].clubes,
+              }) }}</small>
+            </button>
+            <span v-else-if="canPrepareField" class="pack-chip pack-chip--empty">
+              {{ t('fieldMode.packNotReady') }}
+            </span>
             <span
               v-if="inscripcionStatusMeta(event.inscripcion_estado)"
               class="inscripcion-chip"
@@ -1020,6 +1069,17 @@ onMounted(() => {
                 ·
                 {{ event.progreso_evidencia.sin_evidencia }} {{ t('events.listWithoutEvidenceShort') }}
               </span>
+              <button
+                v-if="packSummaries[event.id]"
+                type="button"
+                class="audience-badge badge--pack"
+                @click="openPackSummary(event.id)"
+              >
+                {{ t('fieldMode.packReadyAt', { date: formatPackDate(packSummaries[event.id].downloadedAt) }) }}
+              </button>
+              <span v-else-if="canPrepareField" class="audience-badge badge--pack-empty">
+                {{ t('fieldMode.packNotReady') }}
+              </span>
             </div>
           </div>
 
@@ -1104,6 +1164,41 @@ onMounted(() => {
         @page="onPage"
       />
     </div>
+
+    <Dialog
+      v-model:visible="packSummaryVisible"
+      modal
+      :header="t('fieldMode.packSummaryTitle')"
+      :style="{ width: 'min(32rem, 94vw)' }"
+    >
+      <template v-if="packSummaryTarget">
+        <p v-if="packSummaryTarget.downloadedAt" class="pj-muted">
+          {{ t('fieldMode.packReadyAt', { date: formatPackDate(packSummaryTarget.downloadedAt) }) }}
+        </p>
+        <p class="pack-summary__lead">
+          {{ t('fieldMode.packSummaryLead', {
+            subeventos: packSummaryTarget.subeventos.length,
+            clubes: packSummaryTarget.clubes,
+          }) }}
+        </p>
+        <p v-if="!packSummaryTarget.subeventos.length" class="pj-muted">
+          {{ t('fieldMode.packSummaryEmpty') }}
+        </p>
+        <ul v-else class="pack-summary__list">
+          <li v-for="item in packSummaryTarget.subeventos" :key="item.actividadId">
+            <strong>{{ item.nombre }}</strong>
+            <span>
+              {{ t('fieldMode.packSummaryClubs', { count: item.clubes }) }}
+              ·
+              {{ t('fieldMode.packSummaryPending', { count: item.clubesPendientes }) }}
+            </span>
+          </li>
+        </ul>
+      </template>
+      <template #footer>
+        <Button :label="t('fieldMode.packSummaryClose')" @click="packSummaryTarget = null" />
+      </template>
+    </Dialog>
 
     <Dialog
       v-model:visible="deleteDialogVisible"
@@ -1369,6 +1464,63 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
+.badge--pack,
+.pack-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  background: color-mix(in srgb, #2563eb 12%, transparent);
+  color: #1d4ed8;
+  border: 1px solid color-mix(in srgb, #2563eb 22%, transparent);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.28rem 0.65rem;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pack-chip small {
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.pack-chip--empty,
+.badge--pack-empty {
+  cursor: default;
+  background: color-mix(in srgb, #64748b 10%, transparent);
+  color: #64748b;
+  border-color: color-mix(in srgb, #64748b 22%, transparent);
+}
+
+.pack-summary__lead {
+  margin: 0 0 0.75rem;
+}
+
+.pack-summary__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.pack-summary__list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
+  border-radius: 10px;
+}
+
+.pack-summary__list span {
+  color: var(--pj-text-muted);
+  font-size: 0.82rem;
+}
+
 .badge--default {
   background: color-mix(in srgb, var(--pj-navy) 10%, transparent);
   color: var(--pj-navy);
@@ -1415,6 +1567,11 @@ onMounted(() => {
   font-weight: 700;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
+}
+
+.insc--draft {
+  background: color-mix(in srgb, #64748b 16%, transparent);
+  color: #475569;
 }
 
 .insc--pending {

@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Cabanas\Models\AsignacionCama;
 use App\Modules\Cabanas\Services\ElegibilidadCamaService;
 use App\Modules\Events\Models\Event;
+use App\Modules\Events\Models\EventoActividadParticipante;
 use App\Modules\Events\Models\EventoEvidencia;
 use App\Modules\Events\Models\EventoInscripcion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
@@ -209,7 +210,13 @@ final class EventListEnricher
         $payload['inscripcion_id'] = $inscripcion?->id;
         $payload['puede_elegir_lote'] = $inscripcion?->estaAprobada() ?? false;
 
-        return $this->mapDirectorTree($payload, $root, $withEvidence);
+        $inscribed = EventoActividadParticipante::query()
+            ->where('organizacion_id', $orgId)
+            ->selectRaw('evento_id, COUNT(*) as total')
+            ->groupBy('evento_id')
+            ->pluck('total', 'evento_id');
+
+        return $this->mapDirectorTree($payload, $root, $withEvidence, $inscribed);
     }
 
     /**
@@ -217,18 +224,23 @@ final class EventListEnricher
      * @param  array<int, true>  $withEvidence
      * @return array<string, mixed>
      */
-    private function mapDirectorTree(array $payload, Event $root, array $withEvidence): array
+    private function mapDirectorTree(array $payload, Event $root, array $withEvidence, $inscribed): array
     {
         $id = (int) $payload['id'];
         $node = $id === (int) $root->id ? $root : $this->findNode($root, $id);
         $requires = (bool) ($payload['requiere_evidencia'] ?? false)
             || (bool) ($node?->requiere_evidencia);
 
-        if ($requires && $node && $node->es_calificable && ! $node->puntaje_desde_hijos) {
+        if ($requires && $node && ! $node->puntaje_desde_hijos) {
             $payload['evidencia_enviada'] = isset($withEvidence[$id]);
         } else {
             $payload['evidencia_enviada'] = null;
         }
+
+        $payload['requiere_inscripcion'] = $node ? $this->controlsParticipants($node) : false;
+        $payload['inscripcion_actividad'] = $payload['requiere_inscripcion']
+            ? ((int) ($inscribed[$id] ?? $inscribed[(string) $id] ?? 0) > 0 ? 'inscrito' : 'pendiente')
+            : null;
 
         $children = $payload['hijos'] ?? [];
         if (! is_array($children)) {
@@ -242,7 +254,7 @@ final class EventListEnricher
             if (! is_array($child)) {
                 continue;
             }
-            $mappedChild = $this->mapDirectorTree($child, $root, $withEvidence);
+            $mappedChild = $this->mapDirectorTree($child, $root, $withEvidence, $inscribed);
             $mapped[] = $mappedChild;
             if ($mappedChild['evidencia_enviada'] === true) {
                 $con++;
@@ -336,7 +348,7 @@ final class EventListEnricher
     {
         $ids = [];
         $walk = function (Event $n) use (&$walk, &$ids): void {
-            if ($n->requiere_evidencia && $n->es_calificable && ! $n->puntaje_desde_hijos && $n->evento_padre_id) {
+            if ($n->requiere_evidencia && ! $n->puntaje_desde_hijos && $n->evento_padre_id) {
                 $ids[] = (int) $n->id;
             }
             foreach ($n->hijos ?? [] as $hijo) {
@@ -361,6 +373,18 @@ final class EventListEnricher
         }
 
         return isset($scope['assigned_ids'][(int) $node->id]);
+    }
+
+    private function controlsParticipants(Event $actividad): bool
+    {
+        return $actividad->participantes_min !== null
+            || $actividad->participantes_max !== null
+            || (bool) $actividad->permite_inscribir_no_participantes
+            || $actividad->participantes_genero !== null
+            || $actividad->participantes_min_m !== null
+            || $actividad->participantes_max_m !== null
+            || $actividad->participantes_min_f !== null
+            || $actividad->participantes_max_f !== null;
     }
 
     private function findNode(Event $root, int $id): ?Event

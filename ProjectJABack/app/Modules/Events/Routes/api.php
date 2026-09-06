@@ -56,6 +56,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('events/{event}/acompanantes/personas', [EventEconomiaController::class, 'companionPersonas']);
     Route::post('events/{event}/acompanantes/personas', [EventEconomiaController::class, 'storeCompanionPersona']);
     Route::post('events/{event}/enroll', [EventEconomiaController::class, 'enroll']);
+    Route::put('events/{event}/enroll-draft', [EventEconomiaController::class, 'saveEnrollDraft']);
     Route::get('events/{event}/inscripciones-revision', [EventEconomiaController::class, 'listRevision']);
     Route::get('events/{event}/productos-servicios', [EventEconomiaController::class, 'ofertasEvento']);
     Route::put('events/{event}/productos-servicios', [EventEconomiaController::class, 'syncOfertasEvento']);

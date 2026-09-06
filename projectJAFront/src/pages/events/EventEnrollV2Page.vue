@@ -29,6 +29,7 @@ import type {
   EventoDescuentoDirectiva,
   EventoAcompanantePersona,
   EventoInscripcion,
+  EventoInscripcionEnrollPayload,
   EventoInscripcionComprobante,
   EventoInscripcionComprobanteComentario,
   EventoInscripcionMovimiento,
@@ -97,6 +98,7 @@ const isMobile = useMediaQuery('(max-width: 900px)')
 
 const loading = ref(true)
 const saving = ref(false)
+const savingDraft = ref(false)
 const uploading = ref(false)
 const editingReceiptId = ref<number | null>(null)
 const currentStep = ref<Step>('participantes')
@@ -183,7 +185,9 @@ const receiptDocumentItems = computed<MediaDocumentItem[]>(() => {
     kind: documentKindFromName(file.name),
   }]
 })
-const isEnrollmentModification = computed(() => Boolean(inscripcion.value?.id))
+const isEnrollmentModification = computed(() =>
+  Boolean(inscripcion.value?.id && inscripcion.value.estado !== 'borrador'),
+)
 const activeOffers = computed(() => offers.value.filter((offer) => offer.activo && offer.id))
 const tableOffers = computed(() =>
   activeOffers.value.filter((offer) => offer.producto?.tipo !== 'PASADIA'),
@@ -519,7 +523,7 @@ const summaryAmountToPay = computed(() =>
 
 const hasPendingEnrollmentSave = computed(() => {
   if (!selectedParticipants.value.length) return false
-  if (!inscripcion.value?.id) return true
+  if (!inscripcion.value?.id || inscripcion.value.estado === 'borrador') return true
   return summaryRows.value.length > 0
 })
 
@@ -944,6 +948,61 @@ function buildPayload() {
   }
 }
 
+function resetParticipantSelection(): void {
+  for (const member of members.value) {
+    member.seleccionado = false
+  }
+  companions.value = []
+  for (const key of Object.keys(serviceDrafts)) {
+    delete serviceDrafts[key]
+  }
+}
+
+function applyDraftReservas(reservas: EventoInscripcionEnrollPayload['reservas']): void {
+  for (const reserva of reservas ?? []) {
+    serviceDrafts[serviceKey(reserva.participante_ref, reserva.evento_producto_servicio_id)] = {
+      enabled: true,
+      cantidad: Math.max(1, Number(reserva.cantidad ?? 1)),
+    }
+  }
+}
+
+function hydrateDraftPayload(draft: EventoInscripcionEnrollPayload): void {
+  resetParticipantSelection()
+  for (const row of draft.participantes) {
+    const member = row.persona_id
+      ? members.value.find((item) => item.personaId === row.persona_id)
+      : null
+    if (member) {
+      member.seleccionado = true
+      member.tipo = row.tipo === 'directiva' ? 'directiva' : 'miembro'
+      member.cargoDirectiva = row.cargo_directiva ?? member.cargoDirectiva
+      member.descuentoCodigo = row.descuento_codigo ?? null
+      continue
+    }
+    companions.value.push({
+      ref: row.ref,
+      personaId: row.persona_id ?? null,
+      tipo:
+        row.tipo === 'visitante_pasadia'
+          ? 'visitante_pasadia'
+          : row.tipo === 'acompanante_menor'
+            ? 'acompanante_menor'
+            : 'acompanante',
+      nombre: row.nombre ?? '',
+      cargoDirectiva: row.cargo_directiva ?? null,
+      identificacion: row.identificacion ?? '',
+      fechaNacimiento: row.fecha_nacimiento ?? null,
+      parentesco: row.parentesco ?? '',
+      descuentoCodigo: row.descuento_codigo ?? null,
+      seleccionado: true,
+      cubierta: false,
+      retainedInsuranceValue: 0,
+    })
+  }
+  applyDraftReservas(draft.reservas)
+}
+
 function hydrateExistingEnrollment(existing: EventoInscripcion): void {
   for (const line of existing.personas ?? []) {
     const member = line.persona_id
@@ -1007,7 +1066,12 @@ async function loadData(): Promise<void> {
       inscripcion.value = await eventsService.getInscripcion(existingId)
       comprobantes.value = inscripcion.value.comprobantes ?? []
       comprobanteForm.valor = suggestedPayment()
-      hydrateExistingEnrollment(inscripcion.value)
+      if (inscripcion.value.personas?.length) {
+        hydrateExistingEnrollment(inscripcion.value)
+      }
+      if (inscripcion.value.borrador?.participantes?.length) {
+        hydrateDraftPayload(inscripcion.value.borrador)
+      }
       currentStep.value = 'participantes'
     }
   } catch (error) {
@@ -1074,9 +1138,49 @@ function goBack(): void {
   currentStep.value = steps.value[stepIndex.value - 1].key
 }
 
+async function saveDraft(): Promise<void> {
+  if (!selectedParticipants.value.length) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning'),
+      detail: t('events.enrollWizardSelectMembers'),
+      life: 3000,
+    })
+    return
+  }
+  savingDraft.value = true
+  try {
+    const saved = await eventsService.saveEnrollDraft(eventId.value, buildPayload())
+    inscripcion.value = saved
+    if (route.query.inscripcion_id !== String(saved.id)) {
+      await router.replace({
+        name: route.name ?? 'events.enroll',
+        params: route.params,
+        query: { ...route.query, inscripcion_id: String(saved.id) },
+      })
+    }
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('events.enrollDraftSaved'),
+      life: 3000,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: getApiErrorMessage(error),
+      life: 4000,
+    })
+  } finally {
+    savingDraft.value = false
+  }
+}
+
 async function submitEnroll(): Promise<void> {
   const amount = summaryAmountToPay.value
-  if (amount > 0 && (comprobanteForm.valor == null || !comprobanteForm.archivo)) {
+  const requiresDocument = isEnrollmentModification.value || amount > 0
+  if (requiresDocument && !comprobanteForm.archivo) {
     toast.add({
       severity: 'warn',
       summary: t('common.warning'),
@@ -1090,8 +1194,8 @@ async function submitEnroll(): Promise<void> {
     const created = await eventsService.enroll(
       eventId.value,
       buildPayload(),
-      amount > 0 && comprobanteForm.archivo && comprobanteForm.valor != null
-        ? { valor: comprobanteForm.valor, archivo: comprobanteForm.archivo }
+      comprobanteForm.archivo
+        ? { valor: comprobanteForm.valor ?? 0, archivo: comprobanteForm.archivo }
         : null,
     )
     inscripcion.value = created
@@ -1479,6 +1583,15 @@ onMounted(() => void loadData())
             <div><dt>{{ t('events.servicesTitle') }}</dt><dd>{{ money(totals.servicios) }}</dd></div>
           </dl>
           <div class="grand-total"><span>{{ t('events.enrollTotalPay') }}</span><strong>{{ money(totals.total) }}</strong></div>
+          <p class="pj-muted enroll-draft-hint">{{ t('events.enrollDraftHint') }}</p>
+          <Button
+            :label="t('events.enrollSaveDraft')"
+            icon="pi pi-save"
+            outlined
+            fluid
+            :loading="savingDraft"
+            @click="saveDraft"
+          />
           <Button :label="t('events.enrollContinueSummary')" icon="pi pi-arrow-right" icon-pos="right" fluid @click="goNext" />
         </aside>
       </div>
@@ -1619,7 +1732,10 @@ onMounted(() => void loadData())
             {{ t('events.enrollBankAccountEmpty') }}
           </Message>
         </aside>
-        <Message v-if="pendingEnrollment && summaryAmountToPay > 0" severity="warn" :closable="false">
+        <Message v-if="pendingEnrollment && isEnrollmentModification" severity="warn" :closable="false">
+          {{ t('events.enrollChangeRequiresDocument') }}
+        </Message>
+        <Message v-else-if="pendingEnrollment && summaryAmountToPay > 0" severity="warn" :closable="false">
           {{ t('events.enrollChangeRequiresReceipt') }}
         </Message>
         <Message v-if="inscripcion && !pendingEnrollment" severity="info" :closable="false">
@@ -1659,7 +1775,7 @@ onMounted(() => void loadData())
         <Message v-if="editingReceiptId" severity="info" :closable="false">
           {{ t('events.comprobantesReplacing') }}
         </Message>
-        <div v-if="pendingEnrollment ? summaryAmountToPay > 0 : paymentSummary.saldo > 0 || editingReceiptId" class="comprobante-form">
+        <div v-if="pendingEnrollment ? (isEnrollmentModification || summaryAmountToPay > 0) : paymentSummary.saldo > 0 || editingReceiptId" class="comprobante-form">
           <label class="comprobante-form__value">
             <span>{{ t('events.comprobantesValue') }}</span>
             <InputNumber v-model="comprobanteForm.valor" mode="currency" currency="COP" locale="es-CO" :placeholder="t('events.comprobantesValue')" />
@@ -1858,6 +1974,14 @@ onMounted(() => void loadData())
 
       <footer v-if="currentStep !== 'participantes'" class="enroll-footer">
         <Button :label="t('common.back')" outlined @click="goBack" />
+        <Button
+          v-if="currentStep === 'resumen'"
+          :label="t('events.enrollSaveDraft')"
+          icon="pi pi-save"
+          outlined
+          :loading="savingDraft"
+          @click="saveDraft"
+        />
         <Button
           v-if="currentStep === 'resumen'"
           :label="t('events.enrollContinueToPayment')"
@@ -2179,7 +2303,8 @@ onMounted(() => void loadData())
 .movement-receipt + .movement-receipt { margin-top: .35rem; }
 .movement-receipt > div:first-child { display: flex; flex-direction: column; }
 .movement-receipt small { color: var(--pj-text-muted); }
-.enroll-footer { display: flex; justify-content: space-between; margin: 1rem auto 0; max-width: 62rem; }
+.enroll-draft-hint { margin: 0.65rem 0 0.45rem; }
+.enroll-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; margin: 1rem auto 0; max-width: 62rem; }
 .companion-mode { display: flex; gap: .5rem; margin-bottom: 1rem; }
 .club-member-head { display: flex; align-items: center; gap: .7rem; min-width: 0; }
 .club-member-head > div { display: flex; flex-direction: column; min-width: 0; }
