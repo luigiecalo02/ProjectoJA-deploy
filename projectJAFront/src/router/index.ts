@@ -6,7 +6,6 @@ import {
   type RouteRecordRaw,
 } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { useFieldModeStore } from '@/stores/fieldMode'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -72,6 +71,30 @@ const routes: RouteRecordRaw[] = [
         path: '',
         name: 'auth.context',
         component: () => import('@/pages/auth/SelectContextPage.vue'),
+      },
+    ],
+  },
+  {
+    path: '/campo',
+    component: () => import('@/layouts/FieldLayout.vue'),
+    meta: { requiresAuth: true, fieldShell: true },
+    children: [
+      {
+        path: '',
+        name: 'campo',
+        component: () => import('@/pages/field/FieldDeskPage.vue'),
+        meta: { permission: 'events.evaluate', titleKey: 'fieldMode.campoTitle', fieldShell: true },
+      },
+      {
+        path: ':id',
+        name: 'campo.judge',
+        component: () => import('@/pages/events/EventJudgePage.vue'),
+        meta: {
+          permission: 'events.evaluate',
+          titleKey: 'events.judgeTitle',
+          backTo: { name: 'campo' },
+          fieldShell: true,
+        },
       },
     ],
   },
@@ -434,15 +457,11 @@ router.beforeEach(async (
     !navigator.onLine
     && auth.isAuthenticated
     && !auth.requiresContext
-    && to.name === 'dashboard'
     && auth.hasPermission('events.evaluate')
-    && auth.hasPermission('events.view')
+    && !to.meta.fieldShell
+    && to.meta.requiresAuth
   ) {
-    const fieldMode = useFieldModeStore()
-    const cached = await fieldMode.cachedEvents()
-    if (cached.length > 0) {
-      return next({ name: 'events' })
-    }
+    return next({ name: 'campo' })
   }
 
   if (

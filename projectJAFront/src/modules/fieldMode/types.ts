@@ -59,3 +59,21 @@ export interface FieldOutboxItem {
 export interface FieldOptimisticScore {
   calificacion: JudgeCalificacion
 }
+
+export type FieldPhotoStatus = 'pending' | 'syncing' | 'failed'
+
+export interface FieldPhotoOutboxItem {
+  id: string
+  userId: number
+  rootEventId: number
+  actividadId: number
+  organizacionId: number
+  blob: Blob
+  fileName: string
+  mimeType: string
+  titulo: string | null
+  status: FieldPhotoStatus
+  error?: string | null
+  createdAt: string
+  updatedAt: string
+}

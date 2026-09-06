@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -18,7 +18,9 @@ import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
 import { extractBannerHeroVars } from '@/utils/dominantColor'
 import { getApiErrorMessage, isNetworkError } from '@/services/api'
 import { FieldPackMissingError } from '@/services/fieldModeService'
+import { resolveCachedEvidenceUrl } from '@/modules/fieldMode/evidenceCache'
 import { useFieldModeStore } from '@/stores/fieldMode'
+import type { FieldPhotoOutboxItem } from '@/modules/fieldMode/types'
 import type {
   EventoEvidenciaItem,
   JudgeBoard,
@@ -66,6 +68,12 @@ const isMobile = useMediaQuery('(max-width: 900px)')
 const drawerPosition = computed(() => (isMobile.value ? 'bottom' : 'right'))
 
 const eventId = computed(() => Number(route.params.id))
+const isCampo = computed(() => route.name === 'campo.judge')
+const photoInput = ref<HTMLInputElement | null>(null)
+const attachingPhoto = ref(false)
+const localPhotos = ref<FieldPhotoOutboxItem[]>([])
+const localPhotoUrls = ref<Record<string, string>>({})
+const cachedPreviewSrc = ref<string | null>(null)
 const bannerUrl = computed(() => resolveAssetUrl(board.value?.evento.banner_url))
 const logoUrl = computed(() => resolveAssetUrl(board.value?.evento.image_url))
 const heroCoverUrl = computed(() => bannerUrl.value || logoUrl.value)
@@ -484,8 +492,24 @@ const scoreOverflow = computed(() => {
   return scoredTotal.value > maxScore.value + 0.001
 })
 
+const visibleEvidencias = computed<EventoEvidenciaItem[]>(() => {
+  const remote = selectedActivityClub.value?.evidencias ?? []
+  const local = localPhotos.value.map((item, index) => ({
+    id: -1000 - index,
+    evento_id: item.actividadId,
+    organizacion_id: item.organizacionId,
+    inscripcion_id: 0,
+    tipo: 'imagen',
+    titulo: item.titulo || t('fieldMode.photoLocal'),
+    url: localPhotoUrls.value[item.id] || null,
+    estado: item.status,
+    created_at: item.createdAt,
+  }))
+  return [...remote, ...local]
+})
+
 const selectedEvidence = computed<EventoEvidenciaItem | null>(() => {
-  const list = selectedActivityClub.value?.evidencias ?? []
+  const list = visibleEvidencias.value
   if (!list.length) return null
   if (selectedEvidenceId.value) {
     return list.find((e) => e.id === selectedEvidenceId.value) ?? list[0]
@@ -495,12 +519,107 @@ const selectedEvidence = computed<EventoEvidenciaItem | null>(() => {
 
 const evidencePreview = computed(() => {
   const ev = selectedEvidence.value
-  if (!ev?.url) return null
-  return previewFromEvidenceUrl(ev.url, {
-    preferredTipo: ev.tipo,
-    title: ev.titulo,
+  const src = cachedPreviewSrc.value || ev?.url
+  if (!src) return null
+  return previewFromEvidenceUrl(src, {
+    preferredTipo: ev?.tipo,
+    title: ev?.titulo,
   })
 })
+
+function revokeLocalPhotoUrls(): void {
+  for (const url of Object.values(localPhotoUrls.value)) {
+    URL.revokeObjectURL(url)
+  }
+  localPhotoUrls.value = {}
+}
+
+async function refreshLocalPhotos(): Promise<void> {
+  revokeLocalPhotoUrls()
+  if (!selectedOrgId.value || !selectedActividadId.value) {
+    localPhotos.value = []
+    return
+  }
+  const items = await fieldMode.cachedPhotos(
+    eventId.value,
+    selectedActividadId.value,
+    selectedOrgId.value,
+  )
+  localPhotos.value = items
+  const urls: Record<string, string> = {}
+  for (const item of items) {
+    urls[item.id] = URL.createObjectURL(item.blob)
+  }
+  localPhotoUrls.value = urls
+}
+
+async function onPhotoPicked(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!selectedOrgId.value || !selectedActividadId.value) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning'),
+      detail: t('fieldMode.photoNeedClub'),
+      life: 3500,
+    })
+    return
+  }
+  if (!file.type.startsWith('image/')) {
+    toast.add({
+      severity: 'warn',
+      summary: t('common.warning'),
+      detail: t('fieldMode.photoNeedImage'),
+      life: 3500,
+    })
+    return
+  }
+  attachingPhoto.value = true
+  try {
+    if (fieldMode.online) {
+      try {
+        await eventsService.storeJudgePhoto(selectedActividadId.value, {
+          organizacion_id: selectedOrgId.value,
+          archivo: file,
+        })
+        await load(true)
+        toast.add({
+          severity: 'success',
+          summary: t('common.success'),
+          detail: t('events.judgeSaved'),
+          life: 3000,
+        })
+        return
+      } catch (error) {
+        if (!isNetworkError(error)) throw error
+      }
+    }
+    await fieldMode.enqueuePhoto(
+      eventId.value,
+      selectedActividadId.value,
+      selectedOrgId.value,
+      file,
+    )
+    await refreshLocalPhotos()
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('fieldMode.photoQueued'),
+      life: 3500,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: getApiErrorMessage(error),
+      life: 4000,
+    })
+  } finally {
+    attachingPhoto.value = false
+  }
+}
 
 function hydrateForm(club: JudgeClub | null): void {
   observaciones.value = club?.calificacion?.observaciones || ''
@@ -585,7 +704,7 @@ async function load(keepClub = false): Promise<void> {
           : getApiErrorMessage(error),
       life: 4000,
     })
-    router.push({ name: 'events' })
+    router.push({ name: isCampo.value ? 'campo' : 'events' })
   } finally {
     loading.value = false
   }
@@ -890,13 +1009,33 @@ watch(drawerVisible, (open) => {
   }
 })
 
+watch(
+  [selectedOrgId, selectedActividadId],
+  () => {
+    void refreshLocalPhotos()
+  },
+)
+
+watch(selectedEvidence, async (ev) => {
+  if (!ev?.url) {
+    cachedPreviewSrc.value = null
+    return
+  }
+  cachedPreviewSrc.value = await resolveCachedEvidenceUrl(ev.url)
+})
+
 onMounted(() => {
   void (async () => {
     if (fieldMode.online && fieldMode.pendingForEvent(eventId.value) > 0) {
       await fieldMode.syncPending(eventId.value)
     }
     await load(false)
+    await refreshLocalPhotos()
   })()
+})
+
+onBeforeUnmount(() => {
+  revokeLocalPhotoUrls()
 })
 </script>
 
@@ -1342,13 +1481,32 @@ onMounted(() => {
 
                   <section class="evidence-panel">
                     <h3>{{ t('events.clubEvidenceTitle') }}</h3>
-                    <p v-if="!(selectedActivityClub?.evidencias?.length)" class="pj-muted">
+                    <div class="evidence-actions">
+                      <input
+                        ref="photoInput"
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        class="sr-only"
+                        @change="onPhotoPicked"
+                      />
+                      <Button
+                        type="button"
+                        size="small"
+                        icon="pi pi-camera"
+                        :label="t('fieldMode.photoAttach')"
+                        :loading="attachingPhoto"
+                        :disabled="!selectedOrgId"
+                        @click="photoInput?.click()"
+                      />
+                    </div>
+                    <p v-if="!visibleEvidencias.length" class="pj-muted">
                       {{ t('events.evidenceEmpty') }}
                     </p>
                     <template v-else>
                       <div class="evidence-tabs">
                         <button
-                          v-for="ev in selectedActivityClub.evidencias"
+                          v-for="ev in visibleEvidencias"
                           :key="ev.id"
                           type="button"
                           class="evidence-tab"
@@ -2070,6 +2228,24 @@ onMounted(() => {
 .evidence-panel h3 {
   margin: 0;
   font-size: 1rem;
+}
+
+.evidence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .criteria-table {

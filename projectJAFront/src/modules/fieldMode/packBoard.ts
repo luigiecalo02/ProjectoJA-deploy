@@ -1,4 +1,4 @@
-import type { JudgeBoard, JudgeCalificacion, JudgeClub, JudgeClubResumen } from '@/modules/events/types'
+import type { EventoEvidenciaItem, JudgeBoard, JudgeCalificacion, JudgeClub, JudgeClubResumen } from '@/modules/events/types'
 import type { FieldEventPack, FieldScorePayload } from '@/modules/fieldMode/types'
 
 function clone<T>(value: T): T {
@@ -103,6 +103,39 @@ export function applyScoreToEventPack(
       total,
       pct: total ? Math.round(((total - pendientes) / total) * 100) : 0,
     }
+  }
+
+  return next
+}
+
+export function applyEvidenceToEventPack(
+  eventPack: FieldEventPack,
+  actividadId: number,
+  organizacionId: number,
+  evidencia: EventoEvidenciaItem,
+): FieldEventPack {
+  const next = clone(eventPack)
+
+  const append = (clubes: JudgeClub[]): JudgeClub[] =>
+    clubes.map((club) => {
+      if (club.organizacion_id !== organizacionId) return club
+      const already = club.evidencias.some((item) => item.id === evidencia.id)
+      const evidencias = already ? club.evidencias : [...club.evidencias, evidencia]
+      return {
+        ...club,
+        evidencias,
+        evidencias_count: evidencias.length,
+        evidencias_en_actividad: (club.evidencias_en_actividad ?? club.evidencias.length) + (already ? 0 : 1),
+      }
+    })
+
+  next.activities = next.activities.map((slice) => {
+    if (slice.actividad_id !== actividadId) return slice
+    return { ...slice, clubes: append(slice.clubes) }
+  })
+
+  if (next.board.actividad?.id === actividadId) {
+    next.board.clubes = append(next.board.clubes)
   }
 
   return next

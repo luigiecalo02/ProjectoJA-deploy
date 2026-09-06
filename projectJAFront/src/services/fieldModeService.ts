@@ -1,16 +1,32 @@
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage, isNetworkError } from '@/services/api'
+import { collectCacheableEvidenceUrls, precacheEvidenceUrls } from '@/modules/fieldMode/evidenceCache'
 import {
   deleteOutboxItem,
+  deletePhotoItem,
   getFieldPack,
   listOutbox,
+  listPhotos,
   outboxKey,
+  photoOutboxKey,
   putOutboxItem,
+  putPhotoItem,
   saveFieldPack,
 } from '@/modules/fieldMode/db'
-import { applyScoreToEventPack, boardFromPack, optimisticCalificacion } from '@/modules/fieldMode/packBoard'
+import {
+  applyEvidenceToEventPack,
+  applyScoreToEventPack,
+  boardFromPack,
+  optimisticCalificacion,
+} from '@/modules/fieldMode/packBoard'
 import type { ClubEvent, JudgeBoard, JudgeCalificacion } from '@/modules/events/types'
-import type { FieldEventPack, FieldOfflinePack, FieldOutboxItem, FieldScorePayload } from '@/modules/fieldMode/types'
+import type {
+  FieldEventPack,
+  FieldOfflinePack,
+  FieldOutboxItem,
+  FieldPhotoOutboxItem,
+  FieldScorePayload,
+} from '@/modules/fieldMode/types'
 
 export class FieldPackMissingError extends Error {
   constructor(message = 'No hay un paquete de campo descargado.') {
@@ -46,12 +62,14 @@ export const fieldModeService = {
     }
     if (!eventId) {
       await saveFieldPack(userId, stamped)
+      await precacheEvidenceUrls(collectCacheableEvidenceUrls(stamped))
       return stamped
     }
 
     const existing = await getFieldPack(userId)
     if (!existing) {
       await saveFieldPack(userId, stamped)
+      await precacheEvidenceUrls(collectCacheableEvidenceUrls(stamped))
       return stamped
     }
 
@@ -64,6 +82,10 @@ export const fieldModeService = {
       events: [...byId.values()],
     }
     await saveFieldPack(userId, merged)
+    const cached = await this.cachedPack(userId)
+    if (cached) {
+      await precacheEvidenceUrls(collectCacheableEvidenceUrls(cached))
+    }
     return stamped
   },
 
@@ -158,11 +180,11 @@ export const fieldModeService = {
     failed: number
     byEvent: Record<number, number>
   }> {
-    const items = await listOutbox(userId)
+    const [items, photos] = await Promise.all([listOutbox(userId), listPhotos(userId)])
     const byEvent: Record<number, number> = {}
     let pending = 0
     let failed = 0
-    for (const item of items) {
+    for (const item of [...items, ...photos]) {
       if (item.status === 'failed') failed += 1
       if (item.status === 'pending' || item.status === 'syncing' || item.status === 'failed') {
         pending += item.status === 'failed' ? 0 : 1
@@ -170,6 +192,85 @@ export const fieldModeService = {
       }
     }
     return { pending, failed, byEvent }
+  },
+
+  async enqueuePhoto(
+    userId: number,
+    rootEventId: number,
+    actividadId: number,
+    organizacionId: number,
+    file: File,
+  ): Promise<FieldPhotoOutboxItem> {
+    const now = new Date().toISOString()
+    const item: FieldPhotoOutboxItem = {
+      id: photoOutboxKey(userId, actividadId, organizacionId),
+      userId,
+      rootEventId,
+      actividadId,
+      organizacionId,
+      blob: file,
+      fileName: file.name,
+      mimeType: file.type || 'image/jpeg',
+      titulo: file.name.replace(/\.[^.]+$/, '') || null,
+      status: 'pending',
+      error: null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    await putPhotoItem(item)
+    return item
+  },
+
+  async cachedPhotos(
+    userId: number,
+    rootEventId?: number,
+    actividadId?: number,
+    organizacionId?: number,
+  ): Promise<FieldPhotoOutboxItem[]> {
+    return (await listPhotos(userId)).filter((item) => {
+      if (rootEventId != null && item.rootEventId !== rootEventId) return false
+      if (actividadId != null && item.actividadId !== actividadId) return false
+      if (organizacionId != null && item.organizacionId !== organizacionId) return false
+      return item.status !== 'syncing'
+    })
+  },
+
+  async syncPhotos(userId: number, eventId?: number): Promise<{ synced: number; failed: number }> {
+    let synced = 0
+    let failed = 0
+    const items = (await listPhotos(userId)).filter(
+      (item) => eventId == null || item.rootEventId === eventId,
+    )
+    for (const item of items) {
+      if (item.status !== 'pending' && item.status !== 'failed') continue
+      await putPhotoItem({ ...item, status: 'syncing', updatedAt: new Date().toISOString() })
+      try {
+        const file = new File([item.blob], item.fileName, { type: item.mimeType })
+        const saved = await eventsService.storeJudgePhoto(item.actividadId, {
+          organizacion_id: item.organizacionId,
+          archivo: file,
+          titulo: item.titulo,
+        })
+        await persistEventPack(userId, item.rootEventId, (row) =>
+          applyEvidenceToEventPack(row, item.actividadId, item.organizacionId, saved),
+        )
+        await deletePhotoItem(item.id)
+        synced += 1
+      } catch (error) {
+        if (isNetworkError(error)) {
+          await putPhotoItem({ ...item, status: 'pending', updatedAt: new Date().toISOString() })
+          break
+        }
+        failed += 1
+        await putPhotoItem({
+          ...item,
+          status: 'failed',
+          error: getApiErrorMessage(error, 'No se pudo subir la foto'),
+          updatedAt: new Date().toISOString(),
+        })
+      }
+    }
+    return { synced, failed }
   },
 
   async syncOutbox(userId: number, eventId?: number): Promise<{ synced: number; failed: number }> {
@@ -207,6 +308,9 @@ export const fieldModeService = {
           })
         }
       }
+      const photos = await this.syncPhotos(userId, eventId)
+      synced += photos.synced
+      failed += photos.failed
     } finally {
       syncing = false
     }

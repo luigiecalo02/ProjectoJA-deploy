@@ -77,4 +77,22 @@ final class EventJudgeController
 
         return ApiResponse::success($calificacion, 'Calificación guardada', Response::HTTP_CREATED);
     }
+
+    public function storePhoto(Request $request, Event $event): JsonResponse
+    {
+        $archivo = $request->file('archivo');
+        $data = $request->validate([
+            'organizacion_id' => ['required', 'integer', 'exists:organizacion,id'],
+            'titulo' => ['nullable', 'string', 'max:255'],
+            'archivo' => ['required', 'file', 'max:10240'],
+        ]);
+
+        if (! $archivo || ! $archivo->isValid()) {
+            return ApiResponse::error('Debes adjuntar una foto válida.', Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $evidencia = $this->service->storePhoto($request->user(), $event, $data, $archivo);
+
+        return ApiResponse::success($evidencia, 'Foto guardada', Response::HTTP_CREATED);
+    }
 }

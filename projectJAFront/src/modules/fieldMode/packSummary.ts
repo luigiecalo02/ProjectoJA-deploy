@@ -11,6 +11,7 @@ export interface FieldSubeventoSummary {
 export interface FieldEventSummary {
   eventId: number
   eventName: string
+  imageUrl?: string | null
   downloadedAt: string | null
   subeventos: FieldSubeventoSummary[]
   clubes: number
@@ -50,6 +51,7 @@ export function summarizeEventPack(
   return {
     eventId: eventPack.event.id,
     eventName: eventPack.event.name,
+    imageUrl: eventPack.event.image_url || eventPack.event.banner_url || null,
     downloadedAt: eventPack.downloaded_at || packDownloadedAt || null,
     subeventos,
     clubes: seenClubs.size,

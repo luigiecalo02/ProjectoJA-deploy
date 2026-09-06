@@ -553,6 +553,23 @@ export const eventsService = {
     return data.data
   },
 
+  async storeJudgePhoto(
+    actividadId: number,
+    payload: { organizacion_id: number; archivo: File; titulo?: string | null },
+  ): Promise<EventoEvidenciaItem> {
+    const archivo = await prepareUploadFile(payload.archivo)
+    const body = new FormData()
+    body.append('organizacion_id', String(payload.organizacion_id))
+    body.append('archivo', archivo)
+    if (payload.titulo) body.append('titulo', payload.titulo)
+    const { data } = await api.post<ApiEnvelope<EventoEvidenciaItem>>(
+      `/api/v1/events/${actividadId}/judge/evidencias`,
+      body,
+      { timeout: 300000 },
+    )
+    return data.data
+  },
+
   async saveCalificacion(
     subeventoId: number,
     payload: {

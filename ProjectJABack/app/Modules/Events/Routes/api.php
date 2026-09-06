@@ -69,6 +69,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('events/{event}/judge', [EventJudgeController::class, 'show']);
     Route::get('events/{event}/judge/evaluaciones', [EventJudgeController::class, 'evaluaciones']);
     Route::post('events/{event}/calificaciones', [EventJudgeController::class, 'storeScore']);
+    Route::post('events/{event}/judge/evidencias', [EventJudgeController::class, 'storePhoto']);
     Route::get('events/{event}/standings', [EventStandingsController::class, 'show']);
     Route::get('events/{event}/standings-tree', [EventStandingsController::class, 'tree']);
     Route::get('events/{event}', [EventController::class, 'show']);

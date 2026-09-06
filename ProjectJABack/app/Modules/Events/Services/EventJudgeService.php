@@ -13,6 +13,9 @@ use App\Modules\Events\Models\EventoEvidencia;
 use App\Modules\Events\Models\EventoInscripcion;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
+use App\Modules\Shared\Models\StoredFile;
+use App\Modules\Shared\Services\ImageOptimizer;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -26,6 +29,7 @@ final class EventJudgeService
     public function __construct(
         private readonly OrganizationAccessService $orgAccess,
         private readonly EventParticipationService $participation,
+        private readonly ImageOptimizer $imageOptimizer,
     ) {}
 
     public function assertCanEvaluate(User $actor, Event $event): Event
@@ -873,6 +877,75 @@ final class EventJudgeService
         });
 
         return $this->calificacionPayload($calificacion);
+    }
+
+    /**
+     * Foto tomada por el juez (imagen). No acepta video ni audio.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function storePhoto(User $actor, Event $actividad, array $data, UploadedFile $archivo): array
+    {
+        $root = $this->assertCanEvaluate($actor, $actividad);
+
+        if ((int) $this->participation->resolveRoot($actividad)->id !== (int) $root->id) {
+            throw ValidationException::withMessages([
+                'evento' => ['La actividad no pertenece al evento evaluado.'],
+            ]);
+        }
+
+        $this->assertCanScoreActivity($actor, $root, $actividad);
+
+        $orgId = (int) ($data['organizacion_id'] ?? 0);
+        if ($orgId <= 0) {
+            throw ValidationException::withMessages([
+                'organizacion_id' => ['La organización es obligatoria.'],
+            ]);
+        }
+
+        if (! $this->orgAccess->canAccessOrganization($actor, $orgId)) {
+            throw new AccessDeniedHttpException(
+                'Ese club está fuera del alcance de tu organización.'
+            );
+        }
+
+        Organizacion::query()->findOrFail($orgId);
+
+        $mime = strtolower((string) ($archivo->getMimeType() ?: ''));
+        $ext = strtolower((string) pathinfo($archivo->getClientOriginalName(), PATHINFO_EXTENSION));
+        $isImage = str_starts_with($mime, 'image/')
+            || in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'], true);
+        if (! $isImage) {
+            throw ValidationException::withMessages([
+                'archivo' => ['Solo se pueden adjuntar fotos. Video y audio requieren conexión.'],
+            ]);
+        }
+
+        $stored = $this->imageOptimizer->store($archivo, "evidencias/{$actividad->id}", 'juez');
+        $file = StoredFile::query()->create([
+            'name' => $archivo->getClientOriginalName(),
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
+            'uploaded_by' => $actor->id,
+        ]);
+
+        $titulo = isset($data['titulo']) ? trim((string) $data['titulo']) : '';
+        $evidencia = EventoEvidencia::query()->create([
+            'evento_id' => $actividad->id,
+            'organizacion_id' => $orgId,
+            'tipo' => 'imagen',
+            'titulo' => $titulo !== '' ? $titulo : 'Foto del juez',
+            'url' => url('storage/'.$stored->path),
+            'file_id' => $file->id,
+            'subido_por' => $actor->id,
+            'estado' => EventoEvidencia::ESTADO_ENVIADA,
+        ]);
+        $evidencia->setRelation('file', $file);
+
+        return $this->participation->evidenciaPayload($evidencia);
     }
 
     /**

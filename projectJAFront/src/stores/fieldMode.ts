@@ -3,8 +3,9 @@ import { defineStore } from 'pinia'
 import { useOnline } from '@vueuse/core'
 import { fieldModeService } from '@/services/fieldModeService'
 import { useAuthStore } from '@/stores/auth'
+import { prepareUploadFile } from '@/utils/optimizeImage'
 import type { ClubEvent, JudgeBoard, JudgeCalificacion } from '@/modules/events/types'
-import type { FieldEventPack, FieldScorePayload } from '@/modules/fieldMode/types'
+import type { FieldEventPack, FieldPhotoOutboxItem, FieldScorePayload } from '@/modules/fieldMode/types'
 
 export const useFieldModeStore = defineStore('fieldMode', () => {
   const auth = useAuthStore()
@@ -108,6 +109,39 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     return result
   }
 
+  async function enqueuePhoto(
+    rootEventId: number,
+    actividadId: number,
+    organizacionId: number,
+    file: File,
+  ): Promise<FieldPhotoOutboxItem> {
+    const userId = auth.user?.id
+    if (!userId) throw new Error('Sesión no disponible')
+    if (!file.type.startsWith('image/')) {
+      throw new Error('Solo se pueden guardar fotos en el teléfono. Video y audio requieren internet.')
+    }
+    const optimized = await prepareUploadFile(file)
+    const item = await fieldModeService.enqueuePhoto(
+      userId,
+      rootEventId,
+      actividadId,
+      organizacionId,
+      optimized,
+    )
+    await refreshMeta()
+    return item
+  }
+
+  async function cachedPhotos(
+    rootEventId?: number,
+    actividadId?: number,
+    organizacionId?: number,
+  ): Promise<FieldPhotoOutboxItem[]> {
+    const userId = auth.user?.id
+    if (!userId) return []
+    return fieldModeService.cachedPhotos(userId, rootEventId, actividadId, organizacionId)
+  }
+
   async function syncPending(eventId?: number): Promise<{ synced: number; failed: number }> {
     const empty = { synced: 0, failed: 0 }
     const userId = auth.user?.id
@@ -165,6 +199,8 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     cachedEventPack,
     getJudgeBoard,
     saveCalificacion,
+    enqueuePhoto,
+    cachedPhotos,
     syncPending,
   }
 })
