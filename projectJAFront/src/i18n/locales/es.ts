@@ -107,6 +107,7 @@ export default {
     uploadedCount: 'Ya subidas: {count}',
     pendingCount: 'Falta subir: {count}',
     nothingPending: 'Nada pendiente de subir',
+    reloadWarn: 'Si recargas sin internet, iPhone puede dejar la pantalla en blanco. Tus notas no se borran.',
   },
   nav: {
     dashboard: 'Inicio',

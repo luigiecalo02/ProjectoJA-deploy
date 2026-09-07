@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
@@ -76,8 +76,19 @@ async function uploadAll(): Promise<void> {
   })
 }
 
+function warnOfflineReload(event: BeforeUnloadEvent): void {
+  if (fieldMode.online) return
+  event.preventDefault()
+  event.returnValue = t('fieldMode.reloadWarn')
+}
+
 onMounted(() => {
   void fieldMode.init()
+  window.addEventListener('beforeunload', warnOfflineReload)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', warnOfflineReload)
 })
 </script>
 

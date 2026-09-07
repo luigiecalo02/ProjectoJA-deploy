@@ -9,6 +9,7 @@ import { i18n } from '@/i18n'
 import router from '@/router'
 import { useThemeStore } from '@/stores/theme'
 import { useBrandStore } from '@/stores/brand'
+import { hasUsableNetwork } from '@/utils/network'
 import '@/composables/usePwaInstall'
 import App from '@/App.vue'
 import 'primeicons/primeicons.css'
@@ -53,10 +54,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   })
 }
 
-void (async () => {
-  const brand = useBrandStore(pinia)
-  if (navigator.onLine) {
-    await withTimeout(brand.load(), 3000).catch(() => undefined)
-  }
-  app.mount('#app')
-})()
+const brand = useBrandStore(pinia)
+app.mount('#app')
+if (hasUsableNetwork()) {
+  void withTimeout(brand.load(), 2000).catch(() => undefined)
+}

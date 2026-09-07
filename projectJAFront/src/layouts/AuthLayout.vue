@@ -208,14 +208,14 @@ const shellStyle = computed(() => ({
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  font-family: 'Sora', var(--pj-font-display), sans-serif;
+  font-family: var(--pj-font-display);
   font-weight: 800;
   font-size: clamp(1.85rem, 4.5vw, 3rem);
   line-height: 1.05;
 }
 
 .login-hero__title em {
-  font-family: 'Dancing Script', cursive;
+  font-family: var(--pj-font-display);
   font-style: normal;
   font-weight: 700;
   color: var(--pj-gold);

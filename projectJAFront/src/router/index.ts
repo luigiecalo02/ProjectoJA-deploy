@@ -6,6 +6,9 @@ import {
   type RouteRecordRaw,
 } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import FieldLayout from '@/layouts/FieldLayout.vue'
+import FieldDeskPage from '@/pages/field/FieldDeskPage.vue'
+import EventJudgePage from '@/pages/events/EventJudgePage.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -76,19 +79,19 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/campo',
-    component: () => import('@/layouts/FieldLayout.vue'),
+    component: FieldLayout,
     meta: { requiresAuth: true, fieldShell: true },
     children: [
       {
         path: '',
         name: 'campo',
-        component: () => import('@/pages/field/FieldDeskPage.vue'),
+        component: FieldDeskPage,
         meta: { permission: 'events.evaluate', titleKey: 'fieldMode.campoTitle', fieldShell: true },
       },
       {
         path: ':id',
         name: 'campo.judge',
-        component: () => import('@/pages/events/EventJudgePage.vue'),
+        component: EventJudgePage,
         meta: {
           permission: 'events.evaluate',
           titleKey: 'events.judgeTitle',

@@ -183,7 +183,7 @@ onMounted(async () => {
 
 .context-page__header h1 {
   margin: 0;
-  font-family: 'Sora', var(--pj-font-display), sans-serif;
+  font-family: var(--pj-font-display);
   font-size: clamp(1.25rem, 2.4vw, 1.65rem);
   color: var(--pj-navy);
   line-height: 1.3;

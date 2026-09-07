@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { authService } from '@/services/authService'
 import { TOKEN_KEY, isNetworkError, isUnauthorizedError } from '@/services/api'
+import { hasUsableNetwork } from '@/utils/network'
 import { clearAllFieldData, clearFieldDataForUser } from '@/modules/fieldMode/db'
 import type { AuthContextOption, AuthUser, LoginPayload } from '@/modules/auth/types'
 import { clubLoaderKeyFromContext, persistClubLoader } from '@/modules/auth/clubLogin'
@@ -114,13 +115,13 @@ export const useAuthStore = defineStore('auth', () => {
     clearImpersonatorBackup()
   }
 
-  async function fetchMe(): Promise<AuthUser | null> {
+  async function fetchMe(timeout = 15000): Promise<AuthUser | null> {
     if (!token.value) {
       clearSession()
       return null
     }
     try {
-      const me = await authService.me()
+      const me = await authService.me(timeout)
       persistUser(me)
       return me
     } catch (error) {
@@ -145,7 +146,11 @@ export const useAuthStore = defineStore('auth', () => {
       bootstrapped.value = true
       return
     }
-    await fetchMe()
+    if (!hasUsableNetwork()) {
+      bootstrapped.value = true
+      return
+    }
+    await fetchMe(2000)
   }
 
   async function acceptToken(nextToken: string): Promise<void> {

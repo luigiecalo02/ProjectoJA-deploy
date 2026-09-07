@@ -453,7 +453,7 @@ async function completeRegistration(): Promise<void> {
 
 .login-form__header h1 {
   margin: 0;
-  font-family: 'Sora', var(--pj-font-display), sans-serif;
+  font-family: var(--pj-font-display);
   font-size: 1.45rem;
   color: var(--pj-navy);
 }

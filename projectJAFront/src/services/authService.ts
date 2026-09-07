@@ -69,8 +69,8 @@ export const authService = {
     return data.data
   },
 
-  async me(): Promise<AuthUser> {
-    const { data } = await api.get<ApiEnvelope<AuthUser>>('/api/v1/auth/me')
+  async me(timeout = 15000): Promise<AuthUser> {
+    const { data } = await api.get<ApiEnvelope<AuthUser>>('/api/v1/auth/me', { timeout })
     return data.data
   },
 

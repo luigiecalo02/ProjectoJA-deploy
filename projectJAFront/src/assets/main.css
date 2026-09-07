@@ -1,7 +1,7 @@
 :root {
-  /* Plus Jakarta Sans: UI compacta y limpia. Sora: títulos con carácter sin ocupar tanto. */
-  --pj-font-sans: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
-  --pj-font-display: 'Sora', 'Plus Jakarta Sans', sans-serif;
+  /* Fuentes del sistema: no dependen de Google Fonts (iPhone sin red). */
+  --pj-font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --pj-font-display: system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   /* Paleta logos clubes */
   --pj-navy: #0b2f6b;

@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#0A1B3D" />
     <meta name="description" content="ProjectJA — Gestión de organizaciones, clubes y personas" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="ProjectJA" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
@@ -13,15 +14,39 @@
     <link rel="shortcut icon" href="/favicon.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <title>ProjectJA</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Sora:wght@500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #0a1b3d;
+        color: #e8eef8;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      .pj-boot {
+        min-height: 100dvh;
+        display: grid;
+        place-content: center;
+        gap: 0.6rem;
+        padding: 1.5rem;
+        text-align: center;
+      }
+      .pj-boot strong {
+        font-size: 1.15rem;
+      }
+      .pj-boot span {
+        opacity: 0.75;
+        font-size: 0.92rem;
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="pj-boot">
+        <strong>ProjectJA</strong>
+        <span>Cargando con los datos de este teléfono…</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
