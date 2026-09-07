@@ -588,6 +588,40 @@ async function uploadFieldScores(event: ClubEvent): Promise<void> {
   })
 }
 
+async function removeFieldPack(event: ClubEvent): Promise<void> {
+  const pending = fieldMode.pendingForEvent(event.id)
+  const ok = window.confirm(
+    pending
+      ? t('fieldMode.removeFromDevicePending', { name: event.name, count: pending })
+      : t('fieldMode.removeFromDeviceConfirm', { name: event.name }),
+  )
+  if (!ok) return
+  try {
+    await fieldMode.removeEventFromDevice(event.id)
+    if (packSummaryTarget.value?.eventId === event.id) {
+      packSummaryTarget.value = null
+    }
+    if (usingOfflinePack.value) {
+      await applyCachedEvents()
+    } else {
+      await refreshPackSummaries()
+    }
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('fieldMode.removedFromDevice', { name: event.name }),
+      life: 3500,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: getApiErrorMessage(error),
+      life: 4000,
+    })
+  }
+}
+
 async function prepareFieldPack(event: ClubEvent): Promise<void> {
   try {
     const count = await fieldMode.downloadPack(event.id)
@@ -694,6 +728,15 @@ function menuItemsFor(event: ClubEvent): MenuItem[] {
           disabled: !fieldMode.online || fieldMode.syncing,
           command: () => {
             void uploadFieldScores(event)
+          },
+        })
+      }
+      if (packSummaries.value[event.id]) {
+        items.push({
+          label: t('fieldMode.removeFromDevice'),
+          icon: 'pi pi-trash',
+          command: () => {
+            void removeFieldPack(event)
           },
         })
       }

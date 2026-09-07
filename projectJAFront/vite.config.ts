@@ -27,7 +27,7 @@ export default defineConfig({
         background_color: '#0A1B3D',
         display: 'standalone',
         orientation: 'portrait-primary',
-        start_url: '/',
+        start_url: '/campo',
         scope: '/',
         lang: 'es',
         icons: [

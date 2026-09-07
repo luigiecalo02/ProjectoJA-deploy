@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { useOnline } from '@vueuse/core'
 import { fieldModeService } from '@/services/fieldModeService'
 import { useAuthStore } from '@/stores/auth'
+import { requestPersistentFieldStorage } from '@/modules/fieldMode/persistentStorage'
 import { prepareUploadFile } from '@/utils/optimizeImage'
 import type { ClubEvent, JudgeBoard, JudgeCalificacion } from '@/modules/events/types'
 import type { FieldEventPack, FieldPhotoOutboxItem, FieldScorePayload } from '@/modules/fieldMode/types'
@@ -68,6 +69,7 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     try {
       const pack = await fieldModeService.downloadPack(userId, eventId)
       lastDownloadedAt.value = pack.downloaded_at
+      await requestPersistentFieldStorage()
       await refreshMeta()
       return pack.events.length
     } finally {
@@ -93,6 +95,13 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     return pack?.events.find((item) => item.event.id === eventId) ?? null
   }
 
+  async function removeEventFromDevice(eventId: number): Promise<void> {
+    const userId = auth.user?.id
+    if (!userId) throw new Error('Sesión no disponible')
+    await fieldModeService.removeEventFromDevice(userId, eventId)
+    await refreshMeta()
+  }
+
   async function getJudgeBoard(
     eventId: number,
     subeventoId?: number | null,
@@ -107,6 +116,7 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     rootEventId: number,
     actividadId: number,
     payload: FieldScorePayload,
+    preferLocal = false,
   ): Promise<{ calificacion: JudgeCalificacion; queued: boolean }> {
     const userId = auth.user?.id
     if (!userId) throw new Error('Sesión no disponible')
@@ -115,9 +125,12 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
       rootEventId,
       actividadId,
       payload,
-      online.value,
+      online.value && !preferLocal,
     )
     await refreshMeta()
+    if (preferLocal && online.value && result.queued) {
+      void syncPending(rootEventId)
+    }
     return result
   }
 
@@ -178,6 +191,7 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
   async function init(): Promise<void> {
     if (initialized.value) return
     initialized.value = true
+    await requestPersistentFieldStorage()
     await refreshMeta()
     if (online.value && hasPending.value) {
       void syncPending()
@@ -211,6 +225,7 @@ export const useFieldModeStore = defineStore('fieldMode', () => {
     cachedEvents,
     cachedPack,
     cachedEventPack,
+    removeEventFromDevice,
     getJudgeBoard,
     saveCalificacion,
     enqueuePhoto,

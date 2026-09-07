@@ -13,6 +13,7 @@ import {
   photoOutboxKey,
   putOutboxItem,
   putPhotoItem,
+  removeEventFromDevice,
   saveFieldPack,
 } from '@/modules/fieldMode/db'
 import {
@@ -109,6 +110,10 @@ export const fieldModeService = {
   async cachedPack(userId: number): Promise<FieldOfflinePack | null> {
     const record = await getFieldPack(userId)
     return record?.pack ?? null
+  },
+
+  async removeEventFromDevice(userId: number, eventId: number): Promise<void> {
+    await removeEventFromDevice(userId, eventId)
   },
 
   async cachedEvents(userId: number): Promise<ClubEvent[]> {

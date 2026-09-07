@@ -72,6 +72,33 @@ async function replaceEvent(eventId: number, name: string): Promise<void> {
   }
 }
 
+async function removeEvent(eventId: number, name: string): Promise<void> {
+  const pending = fieldMode.pendingForEvent(eventId)
+  const ok = window.confirm(
+    pending
+      ? t('fieldMode.removeFromDevicePending', { name, count: pending })
+      : t('fieldMode.removeFromDeviceConfirm', { name }),
+  )
+  if (!ok) return
+  try {
+    await fieldMode.removeEventFromDevice(eventId)
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('fieldMode.removedFromDevice', { name }),
+      life: 3500,
+    })
+    await loadDesk()
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: error instanceof Error ? error.message : t('common.error'),
+      life: 4000,
+    })
+  }
+}
+
 async function uploadEvent(eventId: number, name: string): Promise<void> {
   if (!fieldMode.online) {
     toast.add({
@@ -153,6 +180,8 @@ onMounted(() => {
               }) }}
             </span>
             <span class="campo-card__status campo-card__status--ok">
+              {{ t('fieldMode.onThisPhone') }}
+              ·
               {{ t('fieldMode.uploadedCount', { count: fieldMode.uploadedForEvent(item.eventId) }) }}
             </span>
             <span
@@ -186,6 +215,15 @@ onMounted(() => {
             :loading="fieldMode.downloadingEventId === item.eventId"
             :title="t('fieldMode.replacePackHint')"
             @click.stop="() => void replaceEvent(item.eventId, item.eventName)"
+          />
+          <Button
+            size="small"
+            outlined
+            severity="danger"
+            icon="pi pi-trash"
+            :label="t('fieldMode.removeFromDevice')"
+            :title="t('fieldMode.removeFromDeviceHint')"
+            @click.stop="() => void removeEvent(item.eventId, item.eventName)"
           />
         </div>
       </li>

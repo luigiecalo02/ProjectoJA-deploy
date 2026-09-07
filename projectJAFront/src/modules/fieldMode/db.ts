@@ -142,6 +142,48 @@ async function deleteUploadsForUser(tx: IDBTransaction, userId: number): Promise
   }
 }
 
+export async function removeEventFromDevice(userId: number, eventId: number): Promise<void> {
+  const record = await getFieldPack(userId)
+  const remaining = (record?.pack.events ?? []).filter((item) => item.event.id !== eventId)
+  const db = await openDb()
+  const tx = db.transaction([PACKS, OUTBOX, PHOTOS, UPLOADS], 'readwrite')
+
+  if (remaining.length === 0) {
+    tx.objectStore(PACKS).delete(userId)
+  } else if (record) {
+    const device = getFieldDevice()
+    tx.objectStore(PACKS).put({
+      ...record,
+      pack: { ...record.pack, events: remaining },
+      deviceId: device.id,
+      deviceLabel: device.label,
+    })
+  }
+
+  const outbox = tx.objectStore(OUTBOX)
+  const outboxItems = await requestToPromise(outbox.index('userId').getAll(userId))
+  for (const item of (outboxItems as FieldOutboxItem[]) ?? []) {
+    if (item.rootEventId === eventId) outbox.delete(item.id)
+  }
+
+  const photos = tx.objectStore(PHOTOS)
+  const photoItems = await requestToPromise(photos.index('userId').getAll(userId))
+  for (const item of (photoItems as FieldPhotoOutboxItem[]) ?? []) {
+    if (item.rootEventId === eventId) photos.delete(item.id)
+  }
+
+  const uploads = tx.objectStore(UPLOADS)
+  const uploadItems = await requestToPromise(uploads.index('userId').getAll(userId))
+  for (const item of (uploadItems as FieldUploadLog[]) ?? []) {
+    if (item.rootEventId === eventId) uploads.delete(item.id)
+  }
+
+  await txDone(tx)
+  if (remaining.length === 0) {
+    await clearEvidenceCache()
+  }
+}
+
 export async function clearFieldDataForUser(userId: number): Promise<void> {
   const db = await openDb()
   const tx = db.transaction([PACKS, OUTBOX, PHOTOS, UPLOADS], 'readwrite')

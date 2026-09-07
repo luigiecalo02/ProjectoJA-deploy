@@ -578,7 +578,7 @@ async function onPhotoPicked(event: Event): Promise<void> {
   }
   attachingPhoto.value = true
   try {
-    if (fieldMode.online) {
+    if (fieldMode.online && !isCampo.value) {
       try {
         await eventsService.storeJudgePhoto(selectedActividadId.value, {
           organizacion_id: selectedOrgId.value,
@@ -711,6 +711,24 @@ async function load(keepClub = false): Promise<void> {
 }
 
 async function loadJudgeBoard() {
+  if (isCampo.value) {
+    try {
+      return await fieldMode.getJudgeBoard(
+        eventId.value,
+        selectedSubeventoId.value,
+        selectedActividadId.value,
+      )
+    } catch (error) {
+      if (error instanceof FieldPackMissingError && fieldMode.online) {
+        return eventsService.judgeBoard(
+          eventId.value,
+          selectedSubeventoId.value,
+          selectedActividadId.value,
+        )
+      }
+      throw error
+    }
+  }
   if (!fieldMode.online) {
     return fieldMode.getJudgeBoard(
       eventId.value,
@@ -911,6 +929,7 @@ async function saveAndMaybeNext(goNext: boolean): Promise<void> {
       eventId.value,
       actividad.value.id,
       scorePayload(),
+      isCampo.value,
     )
     applyLocalBoardScore(result.calificacion)
     toast.add({
@@ -955,6 +974,7 @@ async function saveJudgeObservacion(): Promise<void> {
       eventId.value,
       actividad.value.id,
       scorePayload(),
+      isCampo.value,
     )
     applyLocalBoardScore(result.calificacion)
     toast.add({
