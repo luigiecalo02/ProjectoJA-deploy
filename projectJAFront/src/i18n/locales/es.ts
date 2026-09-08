@@ -1083,6 +1083,8 @@ export default {
     activityRosterFemale: 'Femenino',
     participateActivityTip: 'Revisa las reglas y criterios antes de subir tu evidencia.',
     evidenceLocked: 'El evento está en proceso. Ya no puedes cambiar la evidencia.',
+    evidenceDeadlineLocked:
+      'El plazo venció. La evidencia queda adjuntada y ya no se puede cambiar ni agregar otra.',
     judgeResultPending: 'El juez aún no ha calificado este evento.',
     judgeResultScore: 'Puntaje obtenido',
     judgeResultFromChildren: 'Suma de subeventos calificados',
@@ -1435,6 +1437,11 @@ export default {
         'Si no indicas máximo, la cantidad exigida es el mínimo.',
       subOptJoint: 'En conjunto con otro club',
       subOptEndDate: 'Maneja fecha de finalización',
+      subOptEditAfterEnd: 'Permitir editar después de la fecha final',
+      subOptEditAfterEndHint:
+        'Si está apagado, al vencer el plazo no se podrá cambiar ni adjuntar evidencia. La ya subida se mantiene visible.',
+      subFlagEditAfterEndYes: 'Se puede editar después del plazo',
+      subFlagEditAfterEndNo: 'No se edita después del plazo',
       subOptPenalties: 'Maneja penalizaciones',
       subPenaltyLead:
         'Puntos que se descontarán si no se cumplen requisitos o se comete una falta.',

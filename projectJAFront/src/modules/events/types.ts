@@ -180,6 +180,7 @@ export interface ParticipationNode {
   inscrito?: boolean
   tipos_evidencia: string[]
   maneja_fecha_fin?: boolean
+  permite_editar_despues_fin?: boolean
   maneja_penalizaciones?: boolean
   puntos_penalizacion?: number | null
   reglas_penalizacion?: string | null
@@ -380,6 +381,7 @@ export interface JudgeSubevento {
   es_conjunto?: boolean
   nivel_conjunto?: string | null
   maneja_fecha_fin?: boolean
+  permite_editar_despues_fin?: boolean
   maneja_penalizaciones?: boolean
   puntos_penalizacion?: number | null
   reglas_penalizacion?: string | null
@@ -695,6 +697,7 @@ export interface ClubEvent {
   es_conjunto?: boolean
   nivel_conjunto?: 'club' | 'iglesia' | 'distrito' | 'asociacion' | string | null
   maneja_fecha_fin?: boolean
+  permite_editar_despues_fin?: boolean
   maneja_penalizaciones?: boolean
   puntos_penalizacion?: number | null
   reglas_penalizacion?: string | null
@@ -837,6 +840,7 @@ export interface EventFormPayload {
   es_conjunto?: boolean
   nivel_conjunto?: 'club' | 'iglesia' | 'distrito' | 'asociacion' | string | null
   maneja_fecha_fin?: boolean
+  permite_editar_despues_fin?: boolean
   maneja_penalizaciones?: boolean
   puntos_penalizacion?: number | null
   reglas_penalizacion?: string | null

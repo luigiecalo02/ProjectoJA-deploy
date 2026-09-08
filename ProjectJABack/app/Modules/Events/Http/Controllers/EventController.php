@@ -381,6 +381,7 @@ final class EventController
             'es_conjunto' => (bool) $event->es_conjunto,
             'nivel_conjunto' => $event->nivel_conjunto,
             'maneja_fecha_fin' => (bool) $event->maneja_fecha_fin,
+            'permite_editar_despues_fin' => (bool) $event->permite_editar_despues_fin,
             'maneja_penalizaciones' => (bool) $event->maneja_penalizaciones,
             'puntos_penalizacion' => $event->puntos_penalizacion !== null ? (float) $event->puntos_penalizacion : null,
             'reglas_penalizacion' => $event->reglas_penalizacion,

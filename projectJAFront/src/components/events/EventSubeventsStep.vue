@@ -189,6 +189,7 @@ const opts = reactive({
   controlParticipantes: false,
   esConjunto: false,
   manejaFechaFin: false,
+  permiteEditarDespuesFin: false,
   manejaPenalizaciones: false,
   tieneValor: false,
   requiereEvidencia: false,
@@ -770,6 +771,7 @@ const childOpts = reactive({
   controlParticipantes: false,
   esConjunto: false,
   manejaFechaFin: false,
+  permiteEditarDespuesFin: false,
   manejaPenalizaciones: false,
   tieneValor: false,
   requiereEvidencia: false,
@@ -845,6 +847,7 @@ function resetChildOpts(): void {
   childOpts.controlParticipantes = false
   childOpts.esConjunto = false
   childOpts.manejaFechaFin = false
+  childOpts.permiteEditarDespuesFin = false
   childOpts.manejaPenalizaciones = false
   childOpts.tieneValor = false
   childOpts.requiereEvidencia = false
@@ -888,6 +891,7 @@ function resetChildForm(): void {
   resetChildOpts()
   childOpts.esEnSitio = opts.esEnSitio
   childOpts.manejaFechaFin = opts.manejaFechaFin
+  childOpts.permiteEditarDespuesFin = opts.permiteEditarDespuesFin
   childVisualKind.value = 'icono'
   childFormImageUrl.value = null
   childMateriales.value = []
@@ -967,6 +971,7 @@ function fillChildFromEvent(item: ClubEvent): void {
     item.participantes_max_f != null
   childOpts.esConjunto = !!item.es_conjunto
   childOpts.manejaFechaFin = !!item.maneja_fecha_fin
+  childOpts.permiteEditarDespuesFin = !!item.permite_editar_despues_fin
   childOpts.manejaPenalizaciones = !!item.maneja_penalizaciones
   childOpts.tieneValor = !!item.requiere_pago || item.precio != null
   childOpts.requiereEvidencia = !!item.requiere_evidencia
@@ -1154,6 +1159,7 @@ async function saveChildSubevent(): Promise<void> {
       es_conjunto: childOpts.esConjunto,
       nivel_conjunto: childOpts.esConjunto ? childForm.nivel_conjunto : null,
       maneja_fecha_fin: childOpts.manejaFechaFin || datesDiffer(start, end),
+      permite_editar_despues_fin: childOpts.manejaFechaFin ? childOpts.permiteEditarDespuesFin : false,
       maneja_penalizaciones: childOpts.manejaPenalizaciones,
       puntos_penalizacion: childOpts.manejaPenalizaciones ? childForm.puntos_penalizacion : null,
       reglas_penalizacion: childOpts.manejaPenalizaciones
@@ -1274,6 +1280,7 @@ function resetForm(): void {
   opts.controlParticipantes = false
   opts.esConjunto = false
   opts.manejaFechaFin = false
+  opts.permiteEditarDespuesFin = false
   opts.manejaPenalizaciones = false
   opts.tieneValor = false
   opts.requiereEvidencia = false
@@ -1378,6 +1385,7 @@ function openEdit(item: ClubEvent): void {
     item.participantes_max_f != null
   opts.esConjunto = !!item.es_conjunto
   opts.manejaFechaFin = !!item.maneja_fecha_fin
+  opts.permiteEditarDespuesFin = !!item.permite_editar_despues_fin
   opts.manejaPenalizaciones = !!item.maneja_penalizaciones
   opts.tieneValor = !!item.requiere_pago || item.precio != null
   opts.requiereEvidencia = !!item.requiere_evidencia
@@ -1627,6 +1635,7 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
       es_conjunto: opts.esConjunto,
       nivel_conjunto: opts.esConjunto ? form.nivel_conjunto : null,
       maneja_fecha_fin: opts.manejaFechaFin,
+      permite_editar_despues_fin: opts.manejaFechaFin ? opts.permiteEditarDespuesFin : false,
       maneja_penalizaciones: opts.manejaPenalizaciones,
       puntos_penalizacion: opts.manejaPenalizaciones ? form.puntos_penalizacion : null,
       reglas_penalizacion: opts.manejaPenalizaciones
@@ -2630,6 +2639,17 @@ onBeforeUnmount(() => {
                     selected.ends_at
                       ? formatDateOnly(selected.ends_at)
                       : '—'
+                  }}
+                </strong>
+              </li>
+              <li v-if="selected.maneja_fecha_fin">
+                <i class="pi pi-lock" />
+                <span>{{ t('events.wizard.subOptEditAfterEnd') }}</span>
+                <strong>
+                  {{
+                    selected.permite_editar_despues_fin
+                      ? t('events.wizard.subFlagEditAfterEndYes')
+                      : t('events.wizard.subFlagEditAfterEndNo')
                   }}
                 </strong>
               </li>

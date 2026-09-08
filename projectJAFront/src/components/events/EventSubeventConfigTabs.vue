@@ -29,6 +29,7 @@ export type SubeventOpts = {
   controlParticipantes: boolean
   esConjunto: boolean
   manejaFechaFin: boolean
+  permiteEditarDespuesFin: boolean
   manejaPenalizaciones: boolean
   tieneValor: boolean
   requiereEvidencia: boolean
@@ -450,6 +451,11 @@ const recursosHasConfig = computed(
               @update:model-value="(v) => (form.ends_at = dateOnly(Array.isArray(v) ? v[0] : v))"
             />
           </div>
+          <label class="sub-option__toggle">
+            <ToggleSwitch v-model="opts.permiteEditarDespuesFin" />
+            <span>{{ t('events.wizard.subOptEditAfterEnd') }}</span>
+          </label>
+          <small class="pj-muted">{{ t('events.wizard.subOptEditAfterEndHint') }}</small>
         </div>
       </div>
       <div class="sub-option">

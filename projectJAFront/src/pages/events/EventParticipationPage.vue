@@ -128,6 +128,13 @@ const directorLocked = computed(() =>
   Boolean(data.value?.modificacion_bloqueada || selected.value?.modificacion_bloqueada),
 )
 
+const deadlineLocked = computed(() => {
+  const node = selected.value
+  if (!node?.maneja_fecha_fin || node.permite_editar_despues_fin) return false
+  const end = evidenceDeadlineMs(node.ends_at)
+  return end != null && nowTick.value > end
+})
+
 function toJudgeSubevento(node: ParticipationNode): JudgeSubevento {
   return {
     id: node.id,
@@ -161,6 +168,7 @@ function toJudgeSubevento(node: ParticipationNode): JudgeSubevento {
     es_conjunto: node.es_conjunto,
     nivel_conjunto: node.nivel_conjunto,
     maneja_fecha_fin: node.maneja_fecha_fin,
+    permite_editar_despues_fin: node.permite_editar_despues_fin,
     maneja_penalizaciones: node.maneja_penalizaciones,
     puntos_penalizacion: node.puntos_penalizacion,
     reglas_penalizacion: node.reglas_penalizacion,
@@ -644,7 +652,7 @@ function clearPendingFile(): void {
 }
 
 async function addEvidence(): Promise<void> {
-  if (!selected.value) return
+  if (!selected.value || directorLocked.value) return
 
   if (evidenceForm.value.tipo === 'link' && !evidenceForm.value.url.trim()) {
     toast.add({
@@ -709,6 +717,7 @@ async function addEvidence(): Promise<void> {
 }
 
 async function removeEvidence(item: EventoEvidenciaItem): Promise<void> {
+  if (directorLocked.value) return
   try {
     await eventsService.removeEvidencia(item.id)
     await load(true)
@@ -1098,7 +1107,9 @@ watch(isMobile, (mobile) => {
                   </div>
                 </div>
 
-                <p v-else-if="directorLocked" class="pj-muted">{{ t('events.evidenceLocked') }}</p>
+                <p v-else-if="directorLocked" class="pj-muted">
+                  {{ deadlineLocked ? t('events.evidenceDeadlineLocked') : t('events.evidenceLocked') }}
+                </p>
 
                 <div v-else class="evidence-form">
                   <div class="field">
@@ -1248,6 +1259,7 @@ watch(isMobile, (mobile) => {
                   <li v-for="ev in selected.evidencias.slice(1)" :key="ev.id">
                     <span>{{ ev.titulo || ev.tipo }}</span>
                     <Button
+                      v-if="!directorLocked"
                       type="button"
                       icon="pi pi-trash"
                       text

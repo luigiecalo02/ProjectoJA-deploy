@@ -77,6 +77,7 @@ class StoreEventRequest extends FormRequest
             'es_conjunto' => ['sometimes', 'boolean'],
             'nivel_conjunto' => ['nullable', 'string', 'in:club,iglesia,distrito,asociacion'],
             'maneja_fecha_fin' => ['sometimes', 'boolean'],
+            'permite_editar_despues_fin' => ['sometimes', 'boolean'],
             'maneja_penalizaciones' => ['sometimes', 'boolean'],
             'puntos_penalizacion' => ['nullable', 'numeric', 'min:0'],
             'reglas_penalizacion' => ['nullable', 'string'],

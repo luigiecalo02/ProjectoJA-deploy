@@ -1213,6 +1213,7 @@ final class EventJudgeService
             'es_conjunto' => (bool) $sub->es_conjunto,
             'nivel_conjunto' => $sub->nivel_conjunto,
             'maneja_fecha_fin' => (bool) $sub->maneja_fecha_fin,
+            'permite_editar_despues_fin' => (bool) $sub->permite_editar_despues_fin,
             'maneja_penalizaciones' => (bool) $sub->maneja_penalizaciones,
             'puntos_penalizacion' => $sub->puntos_penalizacion !== null
                 ? (float) $sub->puntos_penalizacion

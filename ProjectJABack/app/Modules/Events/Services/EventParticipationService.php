@@ -558,6 +558,10 @@ final class EventParticipationService
      */
     private function mapNode(Event $event, $calificaciones, $evidencias, bool $isRoot, bool $modificacionBloqueada, $inscritos): array
     {
+        $nodeLocked = $modificacionBloqueada
+            || $event->locksDirectorModifications()
+            || $event->locksDirectorAfterDeadline();
+
         $hijos = ($event->hijos ?? collect())
             ->map(fn (Event $hijo) => $this->mapNode($hijo, $calificaciones, $evidencias, false, $modificacionBloqueada, $inscritos))
             ->values()
@@ -594,6 +598,7 @@ final class EventParticipationService
             'inscrito' => (int) ($inscritos[(int) $event->id] ?? $inscritos[(string) $event->id] ?? 0) > 0,
             'tipos_evidencia' => array_values($event->tipos_evidencia ?? []),
             'maneja_fecha_fin' => (bool) $event->maneja_fecha_fin,
+            'permite_editar_despues_fin' => (bool) $event->permite_editar_despues_fin,
             'maneja_penalizaciones' => (bool) $event->maneja_penalizaciones,
             'puntos_penalizacion' => $event->puntos_penalizacion !== null
                 ? (float) $event->puntos_penalizacion
@@ -658,7 +663,7 @@ final class EventParticipationService
                 : [],
             'calificacion' => $calificacion,
             'evidencias' => $evs->map(fn (EventoEvidencia $e) => $this->evidenciaPayload($e))->values()->all(),
-            'modificacion_bloqueada' => $modificacionBloqueada,
+            'modificacion_bloqueada' => $nodeLocked,
             'is_root' => $isRoot,
             'hijos' => $hijos,
         ];
@@ -878,7 +883,9 @@ final class EventParticipationService
             ->all();
 
         $candidatos = $this->eligibleActivityMembers($root, $actividad, $orgId);
-        $locked = $this->directorModificationsLocked($root) || $actividad->locksDirectorModifications();
+        $locked = $this->directorModificationsLocked($root)
+            || $actividad->locksDirectorModifications()
+            || $actividad->locksDirectorAfterDeadline();
 
         return [
             'actividad' => $this->activityRosterConfig($actividad),
@@ -1091,6 +1098,11 @@ final class EventParticipationService
         if ($this->directorModificationsLocked($root) || $actividad->locksDirectorModifications()) {
             throw ValidationException::withMessages([
                 'evento' => ['El evento está en proceso. Ya no puedes modificar la participación.'],
+            ]);
+        }
+        if ($actividad->locksDirectorAfterDeadline()) {
+            throw ValidationException::withMessages([
+                'evento' => ['El plazo de este subevento venció. Ya no puedes cambiar ni adjuntar evidencia.'],
             ]);
         }
     }

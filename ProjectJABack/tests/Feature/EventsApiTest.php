@@ -691,6 +691,66 @@ class EventsApiTest extends TestCase
         $this->assertGreaterThanOrEqual(2, EventoInscripcionMovimiento::query()->count());
     }
 
+    public function test_subevent_persists_edit_after_end_flag(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $union = $this->createOrg('Unión plazo');
+
+        $created = $this->postJson('/api/v1/events', [
+            'name' => 'Actividad con plazo',
+            'starts_at' => '2026-08-01 00:00:00',
+            'ends_at' => '2026-08-03 00:00:00',
+            'organizacion_id' => $union->id,
+            'maneja_fecha_fin' => true,
+            'permite_editar_despues_fin' => false,
+            'requiere_evidencia' => true,
+            'tipos_evidencia' => ['link'],
+            'estado' => 'publicado',
+        ])->assertCreated()->json('data');
+
+        $this->assertFalse($created['permite_editar_despues_fin']);
+
+        $updated = $this->putJson('/api/v1/events/'.$created['id'], [
+            'permite_editar_despues_fin' => true,
+        ])->assertOk()->json('data');
+
+        $this->assertTrue($updated['permite_editar_despues_fin']);
+    }
+
+    public function test_evidence_is_blocked_after_deadline_unless_edit_allowed(): void
+    {
+        [$admin, $root] = $this->clubEnrollmentContext('Plazo');
+        Sanctum::actingAs($admin);
+
+        $activity = Event::query()->create([
+            'name' => 'Evidencia vencida',
+            'evento_padre_id' => $root->id,
+            'starts_at' => now()->subDays(3),
+            'ends_at' => now()->subDay()->startOfDay(),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_PUBLICADO,
+            'requiere_evidencia' => true,
+            'tipos_evidencia' => ['link'],
+            'maneja_fecha_fin' => true,
+            'permite_editar_despues_fin' => false,
+        ]);
+
+        $this->assertTrue($activity->fresh()->locksDirectorAfterDeadline());
+
+        $this->postJson("/api/v1/events/{$activity->id}/evidencias", [
+            'tipo' => 'link',
+            'url' => 'https://example.com/evidencia',
+        ])->assertStatus(422)->assertJsonValidationErrors(['evento']);
+
+        $activity->update(['permite_editar_despues_fin' => true]);
+
+        $this->postJson("/api/v1/events/{$activity->id}/evidencias", [
+            'tipo' => 'link',
+            'url' => 'https://example.com/evidencia',
+        ])->assertCreated();
+    }
+
     /**
      * @return array{0: User, 1: Event, 2: Persona}
      */

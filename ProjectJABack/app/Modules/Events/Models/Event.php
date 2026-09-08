@@ -88,6 +88,7 @@ class Event extends Model
         'es_conjunto',
         'nivel_conjunto',
         'maneja_fecha_fin',
+        'permite_editar_despues_fin',
         'maneja_penalizaciones',
         'puntos_penalizacion',
         'reglas_penalizacion',
@@ -168,6 +169,7 @@ class Event extends Model
             'equipos_org_max' => 'integer',
             'es_conjunto' => 'boolean',
             'maneja_fecha_fin' => 'boolean',
+            'permite_editar_despues_fin' => 'boolean',
             'maneja_penalizaciones' => 'boolean',
             'puntos_penalizacion' => 'decimal:2',
             'requiere_evidencia' => 'boolean',
@@ -477,6 +479,23 @@ class Event extends Model
             self::ESTADO_CERRADO,
             self::ESTADO_CANCELADO,
         ], true);
+    }
+
+    /**
+     * Cierra edición/adjuntos del director al vencer ends_at, salvo que se permita explícitamente.
+     */
+    public function locksDirectorAfterDeadline(): bool
+    {
+        if ($this->permite_editar_despues_fin || ! $this->maneja_fecha_fin || ! $this->ends_at) {
+            return false;
+        }
+
+        $end = $this->ends_at->copy();
+        if ((int) $end->hour === 0 && (int) $end->minute === 0 && (int) $end->second === 0) {
+            $end->setTime(23, 59, 59);
+        }
+
+        return now()->greaterThan($end);
     }
 
     public function isVisibleTo(User $user): bool
