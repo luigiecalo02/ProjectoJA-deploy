@@ -2163,7 +2163,11 @@ function save(): void {
   font-size: 0.7rem;
 }
 .studio__stats strong {
+  font-family: var(--pj-font-sans);
   font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 .studio__stats .is-ok strong { color: #15803d; }
 .studio__stats .is-busy strong { color: #b91c1c; }

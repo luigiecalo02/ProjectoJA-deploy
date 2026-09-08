@@ -665,7 +665,11 @@ watch(visibleTree, (nodes) => {
 
 .step-section-title h2 {
   margin: 0;
-  font-size: 1.05rem;
+  font-family: var(--pj-font-sans);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .step-lead {
@@ -778,7 +782,11 @@ watch(visibleTree, (nodes) => {
 }
 
 .mode-card strong {
+  font-family: var(--pj-font-sans);
   font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .mode-card span {

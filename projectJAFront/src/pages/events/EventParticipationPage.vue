@@ -1524,7 +1524,11 @@ watch(isMobile, (mobile) => {
 
 .panel__head h2 {
   margin: 0;
+  font-family: var(--pj-font-sans);
   font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .panel__head p {
@@ -1656,7 +1660,11 @@ watch(isMobile, (mobile) => {
 
 .detail-head h2 {
   margin: 0;
+  font-family: var(--pj-font-sans);
   font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .detail-avatar {

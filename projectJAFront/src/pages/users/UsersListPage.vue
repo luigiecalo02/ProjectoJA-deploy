@@ -1235,7 +1235,11 @@ onBeforeUnmount(() => {
 
 .user-card__info h2 {
   margin: 0;
+  font-family: var(--pj-font-sans);
   font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .user-card__info span,

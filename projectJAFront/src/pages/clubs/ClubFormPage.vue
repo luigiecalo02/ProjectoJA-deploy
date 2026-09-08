@@ -706,7 +706,11 @@ onMounted(async () => {
 
 .club-card h2 {
   margin: 0 0 0.85rem;
+  font-family: var(--pj-font-sans);
   font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .card-head {
@@ -720,6 +724,10 @@ onMounted(async () => {
 
 .card-head h2 {
   margin: 0 0 0.15rem;
+  font-family: var(--pj-font-sans);
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .card-head p {

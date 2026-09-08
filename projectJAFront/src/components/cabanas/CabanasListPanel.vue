@@ -596,7 +596,13 @@ onBeforeUnmount(() => {
   gap: .75rem;
 }
 .stat { display: grid; gap: .15rem; }
-.stat strong { font-size: 1.25rem; }
+.stat strong {
+  font-family: var(--pj-font-sans);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
+}
 .stat small { color: var(--pj-text-muted); font-size: .78rem; }
 
 .next-card {

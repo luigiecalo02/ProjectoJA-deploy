@@ -3065,7 +3065,11 @@ onBeforeUnmount(() => {
 
 .step-section-title h2 {
   margin: 0;
-  font-size: 1.05rem;
+  font-family: var(--pj-font-sans);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .step-lead {
@@ -3125,11 +3129,17 @@ onBeforeUnmount(() => {
 }
 
 .sub-stat strong {
-  font-size: 1.15rem;
+  font-family: var(--pj-font-sans);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .sub-stat span {
+  font-family: var(--pj-font-sans);
   font-size: 0.78rem;
+  font-weight: 600;
   color: var(--pj-text-muted);
 }
 
@@ -3337,7 +3347,11 @@ onBeforeUnmount(() => {
 
 .sub-name strong {
   display: block;
+  font-family: var(--pj-font-sans);
   font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .sub-name small {
@@ -3441,7 +3455,11 @@ onBeforeUnmount(() => {
 
 .sub-detail__head h3 {
   margin: 0 0 0.25rem;
-  font-size: 1rem;
+  font-family: var(--pj-font-sans);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .sub-detail__estado {

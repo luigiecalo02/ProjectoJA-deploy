@@ -408,7 +408,11 @@ onMounted(async () => {
 
 .step-section-title h2 {
   margin: 0;
+  font-family: var(--pj-font-sans);
   font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .step-lead {
@@ -478,7 +482,11 @@ onMounted(async () => {
 
 .lotes-table h3 {
   margin: 0 0 0.5rem;
+  font-family: var(--pj-font-sans);
   font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .lotes-grid {

@@ -2465,7 +2465,11 @@ onBeforeUnmount(() => {
 
 .step-section-title h2 {
   margin: 0;
-  font-size: 1.05rem;
+  font-family: var(--pj-font-sans);
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .step-lead {
@@ -2758,8 +2762,12 @@ onBeforeUnmount(() => {
 
 .event-preview-card__body h3 {
   margin: 0;
+  font-family: var(--pj-font-sans);
   font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0;
   line-height: 1.25;
+  color: var(--pj-text);
 }
 
 .event-preview-card__type {
@@ -2813,12 +2821,18 @@ onBeforeUnmount(() => {
 }
 
 .event-preview-card__stats span {
+  font-family: var(--pj-font-sans);
   font-size: 0.68rem;
+  font-weight: 600;
   color: var(--pj-text-muted);
 }
 
 .event-preview-card__stats strong {
+  font-family: var(--pj-font-sans);
   font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .tips-card {
@@ -2841,7 +2855,11 @@ onBeforeUnmount(() => {
 
 .tips-card__head h3 {
   margin: 0;
+  font-family: var(--pj-font-sans);
   font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .tips-card ul {
@@ -2895,7 +2913,11 @@ onBeforeUnmount(() => {
 
 .config-section h3 {
   margin: 0;
+  font-family: var(--pj-font-sans);
   font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .toggle-grid {
@@ -2929,7 +2951,11 @@ onBeforeUnmount(() => {
 
 .review-card h3 {
   margin: 0;
+  font-family: var(--pj-font-sans);
   font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .review-card dl {

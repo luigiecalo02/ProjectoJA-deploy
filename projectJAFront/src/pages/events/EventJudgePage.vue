@@ -2411,7 +2411,11 @@ onBeforeUnmount(() => {
 
 .detail-head h2 {
   margin: 0;
+  font-family: var(--pj-font-sans);
   font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .nav-clubs {
@@ -2437,7 +2441,11 @@ onBeforeUnmount(() => {
 .score-panel h3,
 .evidence-panel h3 {
   margin: 0;
+  font-family: var(--pj-font-sans);
   font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .evidence-actions {

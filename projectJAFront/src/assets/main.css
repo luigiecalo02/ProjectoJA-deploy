@@ -215,11 +215,26 @@ label {
 
 h1,
 h2,
-h3,
+h3 {
+  font-family: var(--pj-font-sans);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.25;
+  color: inherit;
+}
+
 .pj-display {
   font-family: var(--pj-font-display);
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
   line-height: 1.2;
+  color: inherit;
+}
+
+strong,
+b {
+  font-family: var(--pj-font-sans);
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 .pj-page {
@@ -240,8 +255,10 @@ h3,
 
 .pj-page__title {
   margin: 0;
+  font-family: var(--pj-font-display);
   font-size: clamp(1.2rem, 1.6vw, 1.45rem);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--pj-text);
 }
 
