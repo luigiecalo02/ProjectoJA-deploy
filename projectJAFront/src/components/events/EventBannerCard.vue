@@ -249,16 +249,25 @@ const countdownLabel = computed(() => {
   padding: 0.45rem 0.55rem;
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.15rem;
+  background: var(--pj-surface);
 }
 
 .event-banner-card__stats span {
-  font-size: 0.68rem;
+  font-family: var(--pj-font-sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0;
   color: var(--pj-text-muted);
 }
 
 .event-banner-card__stats strong {
-  font-size: 0.9rem;
+  font-family: var(--pj-font-sans);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.25;
+  color: var(--pj-text);
 }
 
 .event-banner-card__countdown {
@@ -266,13 +275,17 @@ const countdownLabel = computed(() => {
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
   border-radius: 10px;
-  padding: 0.45rem 0.55rem;
+  padding: 0.5rem 0.6rem;
   display: grid;
-  gap: 0.2rem;
+  gap: 0.3rem;
+  background: var(--pj-surface);
 }
 
 .event-banner-card__countdown > span {
-  font-size: 0.68rem;
+  font-family: var(--pj-font-sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0;
   color: var(--pj-text-muted);
 }
 
@@ -292,11 +305,19 @@ const countdownLabel = computed(() => {
 }
 
 .event-banner-card__digits b {
-  font-size: 0.95rem;
+  font-family: var(--pj-font-sans);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.15;
+  color: var(--pj-text);
 }
 
 .event-banner-card__digits small {
-  font-size: 0.62rem;
+  font-family: var(--pj-font-sans);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0;
   color: var(--pj-text-muted);
 }
 

@@ -1974,7 +1974,7 @@ final class EventJudgeService
     {
         $ids = [];
         $walk = function (Event $node) use (&$walk, &$ids, $scope): void {
-            if ($this->canScoreInScope($node, $scope)) {
+            if ($this->canScoreInScope($node, $scope) && $node->es_en_sitio) {
                 $ids[] = (int) $node->id;
             }
             foreach ($node->hijos ?? [] as $hijo) {
@@ -2105,6 +2105,9 @@ final class EventJudgeService
         $out = [];
         foreach ($node->hijos ?? [] as $hijo) {
             $nested = $this->mapOfflineListChildren($hijo);
+            if (! $hijo->es_en_sitio && $nested === []) {
+                continue;
+            }
             $out[] = [
                 'id' => (int) $hijo->id,
                 'name' => $hijo->name,

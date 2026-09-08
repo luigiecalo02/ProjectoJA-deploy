@@ -541,7 +541,7 @@ html.dark .p-drawer.mobile-drawer .p-drawer-footer {
 }
 
 .app-sidebar {
-  background: color-mix(in srgb, var(--pj-bg-elevated) 92%, transparent);
+  background: var(--pj-surface);
   border-right: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
   padding: 0.85rem 0.7rem;
   display: flex;
@@ -586,8 +586,10 @@ html.dark .p-drawer.mobile-drawer .p-drawer-footer {
   display: block;
   font-family: var(--pj-font-display);
   font-size: 0.88rem;
+  font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.2;
+  color: var(--pj-text);
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -645,11 +647,15 @@ html.dark .p-drawer.mobile-drawer .p-drawer-footer {
 }
 
 .app-sidebar__legal strong {
+  font-family: var(--pj-font-sans);
   font-size: 0.78rem;
   font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .app-sidebar__legal small {
+  font-family: var(--pj-font-sans);
   color: var(--pj-text-muted);
   font-size: 0.65rem;
   line-height: 1.35;
@@ -668,6 +674,7 @@ html.dark .p-drawer.mobile-drawer .p-drawer-footer {
   width: 100%;
   border: 0;
   background: transparent;
+  font-family: var(--pj-font-sans);
   color: var(--pj-text-muted);
   border-radius: 8px;
   padding: 0.5rem 0.65rem;
@@ -770,10 +777,12 @@ html.dark .p-drawer.mobile-drawer .p-drawer-footer {
 }
 
 .page-chrome__title {
+  font-family: var(--pj-font-display);
   font-size: 2rem;
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.03em;
+  color: var(--pj-text);
 }
 
 .page-chrome__subtitle {
@@ -857,6 +866,7 @@ html.dark .p-drawer.mobile-drawer .p-drawer-footer {
 .user-chip__name {
   font-size: 0.82rem;
   font-weight: 700;
+  color: var(--pj-text);
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;

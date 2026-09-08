@@ -194,7 +194,7 @@ function iconFor(node: JudgeTreeNode): string {
   border: 1px solid color-mix(in srgb, var(--pj-border) 55%, transparent);
   background: #fff;
   cursor: pointer;
-  color: inherit;
+  color: var(--pj-text);
   transition:
     border-color 0.15s ease,
     background 0.15s ease,
@@ -273,17 +273,20 @@ function iconFor(node: JudgeTreeNode): string {
 }
 
 .judge-tree__body strong {
-  font-size: 0.8rem;
-  line-height: 1.25;
+  font-family: var(--pj-font-sans);
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--pj-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: 0.01em;
 }
 
 .judge-tree.is-nested .judge-tree__body strong {
-  font-size: 0.76rem;
-  font-weight: 650;
+  font-size: 0.84rem;
+  font-weight: 700;
   text-transform: none;
 }
 

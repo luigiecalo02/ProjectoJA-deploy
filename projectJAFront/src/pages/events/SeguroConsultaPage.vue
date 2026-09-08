@@ -233,7 +233,10 @@ onBeforeUnmount(() => {
 .search-panel__content label {
   display: block;
   margin-bottom: 0.45rem;
+  font-family: var(--pj-font-sans);
   font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .search-panel__controls {

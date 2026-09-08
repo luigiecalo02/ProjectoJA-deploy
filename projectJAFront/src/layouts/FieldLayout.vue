@@ -18,35 +18,7 @@ const brand = useBrandStore()
 const fieldMode = useFieldModeStore()
 
 const isDesk = computed(() => route.name === 'campo')
-const isEventPage = computed(() => route.name === 'campo.judge')
 const pending = computed(() => fieldMode.pendingCount + fieldMode.failedCount)
-const eventId = computed(() => Number(route.params.id) || 0)
-const campoLink = computed(() => {
-  if (!isEventPage.value || !eventId.value) return ''
-  return `${window.location.origin}/campo/${eventId.value}`
-})
-const eventPending = computed(() => (eventId.value ? fieldMode.pendingForEvent(eventId.value) : 0))
-const eventUploaded = computed(() => (eventId.value ? fieldMode.uploadedForEvent(eventId.value) : 0))
-
-async function copyCampoLink(): Promise<void> {
-  if (!campoLink.value) return
-  try {
-    await navigator.clipboard.writeText(campoLink.value)
-    toast.add({
-      severity: 'success',
-      summary: t('common.success'),
-      detail: t('fieldMode.linkCopied'),
-      life: 3500,
-    })
-  } catch {
-    toast.add({
-      severity: 'error',
-      summary: t('common.error'),
-      detail: t('common.error'),
-      life: 3000,
-    })
-  }
-}
 
 async function uploadAll(): Promise<void> {
   if (!fieldMode.online) {
@@ -137,31 +109,6 @@ onBeforeUnmount(() => {
         />
       </div>
     </header>
-    <aside v-if="campoLink" class="field-link" role="note">
-      <div class="field-link__text">
-        <strong>{{ t('fieldMode.linkSave') }}</strong>
-        <code>{{ campoLink }}</code>
-        <small>{{ t('fieldMode.linkHint') }}</small>
-        <small v-if="fieldMode.deviceLabel">
-          {{ t('fieldMode.savedOnDevice', { device: fieldMode.deviceLabel }) }}
-        </small>
-        <small>
-          {{ t('fieldMode.uploadedCount', { count: eventUploaded }) }}
-          ·
-          {{
-            eventPending
-              ? t('fieldMode.pendingCount', { count: eventPending })
-              : t('fieldMode.nothingPending')
-          }}
-        </small>
-      </div>
-      <Button
-        size="small"
-        icon="pi pi-copy"
-        :label="t('fieldMode.linkCopy')"
-        @click="() => void copyCampoLink()"
-      />
-    </aside>
     <main class="field-main" :style="{ '--pj-pattern': brand.patternCss }">
       <router-view />
     </main>
@@ -230,37 +177,6 @@ onBeforeUnmount(() => {
 
 .field-status--off {
   background: rgba(237, 28, 36, 0.28);
-}
-
-.field-link {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.65rem 1rem;
-  background: #fff7ed;
-  color: #7c2d12;
-  border-bottom: 1px solid #fdba74;
-}
-
-.field-link__text {
-  display: grid;
-  gap: 0.2rem;
-  min-width: 0;
-  flex: 1;
-}
-
-.field-link__text code {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.8rem;
-}
-
-.field-link__text small {
-  opacity: 0.85;
 }
 
 .field-main {

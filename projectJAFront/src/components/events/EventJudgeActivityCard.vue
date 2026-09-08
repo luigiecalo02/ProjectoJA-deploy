@@ -46,6 +46,7 @@ const props = withDefaults(
     canWriteJudgeObs?: boolean
     savingJudgeObs?: boolean
     showParticipantes?: boolean
+    hideMedia?: boolean
   }>(),
   {
     defaultTab: 'info',
@@ -64,6 +65,7 @@ const props = withDefaults(
     canWriteJudgeObs: false,
     savingJudgeObs: false,
     showParticipantes: false,
+    hideMedia: false,
   },
 )
 
@@ -340,7 +342,7 @@ const subeventoRows = computed(() =>
 
 <template>
   <article class="judge-activity">
-    <div v-if="actividad.image_url" class="judge-activity__media">
+    <div v-if="actividad.image_url && !hideMedia" class="judge-activity__media">
       <img :src="actividad.image_url" :alt="actividad.name" />
     </div>
 
@@ -718,6 +720,10 @@ const subeventoRows = computed(() =>
       >
         {{ t('events.obsJudgeNeedScore') }}
       </p>
+
+      <div v-if="observacionesMode === 'judge'" class="obs-attachments">
+        <slot name="observacionesAdjuntos" />
+      </div>
     </div>
 
     <div v-show="detailTab === 'calificacion'" class="judge-activity__body judge-activity__body--score">
@@ -1208,6 +1214,13 @@ const subeventoRows = computed(() =>
 .obs-composer-locked {
   margin: 0.5rem 0 0;
   font-size: 0.84rem;
+}
+
+.obs-attachments {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
 }
 
 .result-director-obs {

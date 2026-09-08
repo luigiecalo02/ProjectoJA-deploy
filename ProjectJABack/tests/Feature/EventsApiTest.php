@@ -391,7 +391,7 @@ class EventsApiTest extends TestCase
         $this->assertFalse($event->isVisibleTo($conqUser));
     }
 
-    public function test_judge_offline_pack_includes_all_calificable_children(): void
+    public function test_judge_offline_pack_includes_only_on_site_calificable_children(): void
     {
         $admin = $this->admin();
         Sanctum::actingAs($admin);
@@ -481,16 +481,14 @@ class EventsApiTest extends TestCase
         $this->assertNotNull($pack);
         $activityIds = array_column($pack['activities'], 'actividad_id');
         $this->assertContains($activity->id, $activityIds);
-        $this->assertContains($remoteChild->id, $activityIds);
-        $this->assertContains($grandchild->id, $activityIds);
+        $this->assertNotContains($remoteChild->id, $activityIds);
+        $this->assertNotContains($grandchild->id, $activityIds);
         $this->assertNotContains($block->id, $activityIds);
         $this->assertNotContains($foreignRoot->id, $activityIds);
         $childIds = array_column($pack['event']['hijos'] ?? [], 'id');
         $this->assertContains($activity->id, $childIds);
-        $this->assertContains($remoteChild->id, $childIds);
-        $this->assertContains($block->id, $childIds);
-        $blockNode = collect($pack['event']['hijos'] ?? [])->firstWhere('id', $block->id);
-        $this->assertContains($grandchild->id, array_column($blockNode['hijos'] ?? [], 'id'));
+        $this->assertNotContains($remoteChild->id, $childIds);
+        $this->assertNotContains($block->id, $childIds);
         $this->assertNotEmpty($pack['board']['arbol'] ?? []);
     }
 

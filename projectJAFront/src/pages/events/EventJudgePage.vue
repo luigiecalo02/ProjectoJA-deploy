@@ -36,6 +36,14 @@ import type {
 import { previewFromEvidenceUrl } from '@/modules/events/evidencePreview'
 
 type ClubFilter = 'todos' | 'pendientes' | 'evaluados'
+type JudgeBrowseMode = 'club-first' | 'event-first'
+
+const BROWSE_MODE_KEY = 'pj.judgeBrowseMode'
+
+function readBrowseMode(): JudgeBrowseMode {
+  if (typeof localStorage === 'undefined') return 'club-first'
+  return localStorage.getItem(BROWSE_MODE_KEY) === 'event-first' ? 'event-first' : 'club-first'
+}
 
 const { t } = useI18n()
 const route = useRoute()
@@ -50,6 +58,8 @@ const selectedSubeventoId = ref<number | null>(null)
 const selectedActividadId = ref<number | null>(null)
 const selectedOrgId = ref<number | null>(null)
 const clubFilter = ref<ClubFilter>('pendientes')
+const browseMode = ref<JudgeBrowseMode>(readBrowseMode())
+const isEventFirst = computed(() => browseMode.value === 'event-first')
 const search = ref('')
 const observaciones = ref('')
 const genericScore = ref<number | null>(null)
@@ -109,6 +119,13 @@ watch(
 
 const subevento = computed<JudgeSubevento | null>(() => board.value?.subevento ?? null)
 const actividad = computed<JudgeSubevento | null>(() => board.value?.actividad ?? board.value?.subevento ?? null)
+const activityCoverUrl = computed(
+  () => resolveAssetUrl(actividad.value?.image_url) ?? actividad.value?.image_url ?? null,
+)
+const clubSwitcherStyle = computed(() => {
+  if (!activityCoverUrl.value) return undefined
+  return { '--switcher-image': toCssImageUrl(activityCoverUrl.value) }
+})
 
 const selectedClub = computed<JudgeClub | JudgeClubResumen | null>(() => {
   if (!board.value || !selectedOrgId.value) return null
@@ -119,11 +136,29 @@ const selectedClub = computed<JudgeClub | JudgeClubResumen | null>(() => {
 
 const clubesCatalog = computed<JudgeClubResumen[]>(() => board.value?.clubes_resumen ?? [])
 
+function clubPendingForActivity(club: JudgeClubResumen, actividadId: number | null): number {
+  if (!actividadId || !board.value?.pendientes) return club.eventos_pendientes ?? 0
+  return Number(board.value.pendientes[String(club.organizacion_id)]?.[String(actividadId)] || 0)
+}
+
+function clubScoredActivity(club: JudgeClubResumen, actividadId: number | null): boolean {
+  if (!actividadId || !board.value?.evaluados) return club.estado === 'evaluado'
+  return board.value.evaluados[String(club.organizacion_id)]?.[String(actividadId)] != null
+}
+
+const selectedBrowseEventId = computed(
+  () => selectedActividadId.value ?? selectedSubeventoId.value,
+)
+
+const hasEventSelection = computed(() => selectedBrowseEventId.value != null)
+
 const filteredClubs = computed(() => {
   const q = search.value.trim().toLowerCase()
+  const actId = isEventFirst.value ? selectedBrowseEventId.value : null
   return clubesCatalog.value.filter((club) => {
-    if (clubFilter.value === 'pendientes' && (club.eventos_pendientes ?? 0) <= 0) return false
-    if (clubFilter.value === 'evaluados' && club.estado !== 'evaluado') return false
+    const pending = clubPendingForActivity(club, actId)
+    if (clubFilter.value === 'pendientes' && pending <= 0) return false
+    if (clubFilter.value === 'evaluados' && !clubScoredActivity(club, actId)) return false
     if (q && !club.nombre.toLowerCase().includes(q)) return false
     return true
   })
@@ -367,11 +402,29 @@ const treeStatusById = computed(() => {
 })
 
 function pendingForEvento(eventoId: number): number {
+  if (isEventFirst.value) {
+    const pendientes = board.value?.pendientes ?? {}
+    let total = 0
+    for (const byEvent of Object.values(pendientes)) {
+      total += Number(byEvent?.[String(eventoId)] || 0)
+    }
+    return total
+  }
   return Number(clubPendientes.value[String(eventoId)] || 0)
 }
 
 function isEvaluado(eventoId: number): boolean {
+  if (isEventFirst.value) {
+    const evaluados = board.value?.evaluados ?? {}
+    return Object.values(evaluados).some((byEvent) => byEvent?.[String(eventoId)] != null)
+  }
   return clubEvaluados.value[String(eventoId)] != null
+}
+
+function toggleBrowseMode(): void {
+  browseMode.value = browseMode.value === 'club-first' ? 'event-first' : 'club-first'
+  localStorage.setItem(BROWSE_MODE_KEY, browseMode.value)
+  treeSheetVisible.value = false
 }
 
 function collectExpandableIds(nodes: JudgeTreeNode[], into: Set<number>): void {
@@ -406,7 +459,7 @@ function findSelectableFor(eventoId: number) {
 }
 
 async function onTreeNodeSelect(node: JudgeTreeNode): Promise<void> {
-  if (!clubHasSelection.value) {
+  if (!isEventFirst.value && !clubHasSelection.value) {
     toast.add({
       severity: 'info',
       summary: t('events.judgePhaseClubFirst'),
@@ -425,18 +478,18 @@ async function onTreeNodeSelect(node: JudgeTreeNode): Promise<void> {
 
   if (isLeafActivity || isSelfCalificable) {
     if (selectedSubeventoId.value === sel.id && selectedActividadId.value === node.id) {
-      openGradingDrawer()
+      if (!isEventFirst.value || clubHasSelection.value) openGradingDrawer()
       return
     }
     selectedSubeventoId.value = sel.id
     selectedActividadId.value = node.id
     await load(true)
-    openGradingDrawer()
+    if (!isEventFirst.value || clubHasSelection.value) openGradingDrawer()
     return
   }
 
   await onSubeventoChange(sel.id)
-  openGradingDrawer()
+  if (!isEventFirst.value || clubHasSelection.value) openGradingDrawer()
 }
 
 function openGradingDrawer(): void {
@@ -493,19 +546,7 @@ const scoreOverflow = computed(() => {
 })
 
 const visibleEvidencias = computed<EventoEvidenciaItem[]>(() => {
-  const remote = selectedActivityClub.value?.evidencias ?? []
-  const local = localPhotos.value.map((item, index) => ({
-    id: -1000 - index,
-    evento_id: item.actividadId,
-    organizacion_id: item.organizacionId,
-    inscripcion_id: 0,
-    tipo: 'imagen',
-    titulo: item.titulo || t('fieldMode.photoLocal'),
-    url: localPhotoUrls.value[item.id] || null,
-    estado: item.status,
-    created_at: item.createdAt,
-  }))
-  return [...remote, ...local]
+  return selectedActivityClub.value?.evidencias ?? []
 })
 
 const selectedEvidence = computed<EventoEvidenciaItem | null>(() => {
@@ -767,6 +808,12 @@ function selectClub(club: JudgeClub | JudgeClubResumen): void {
   const keepDrawer = drawerVisible.value
   selectedOrgId.value = club.organizacion_id
   hydrateForm(activityClubForOrg(club.organizacion_id))
+  if (isEventFirst.value) {
+    if (hasEventSelection.value && actividad.value) {
+      drawerVisible.value = true
+    }
+    return
+  }
   if (isMobile.value) {
     if (keepDrawer && actividad.value) {
       drawerVisible.value = true
@@ -781,7 +828,14 @@ function selectClub(club: JudgeClub | JudgeClubResumen): void {
 }
 
 function clubPendingCount(club: JudgeClubResumen): number {
+  if (isEventFirst.value) {
+    return clubPendingForActivity(club, selectedBrowseEventId.value)
+  }
   return club.eventos_pendientes ?? 0
+}
+
+function clubTurn(index: number): number {
+  return index + 1
 }
 
 function criterionMax(criterioId: number): number {
@@ -1093,32 +1147,51 @@ onBeforeUnmount(() => {
               <strong>{{ actividad.puntaje_maximo ?? '—' }} pts</strong>
             </div>
           </div>
-          <Button
-            v-if="fieldMode.online"
-            type="button"
-            outlined
-            icon="pi pi-list"
-            :label="t('events.judgeMyEvaluations')"
-            @click="
-              router.push({
-                name: 'events.judge.evaluaciones',
-                params: { id: eventId },
-              })
-            "
-          />
+          <div class="judge-top__actions">
+            <Button
+              type="button"
+              outlined
+              :icon="isEventFirst ? 'pi pi-users' : 'pi pi-sitemap'"
+              :label="isEventFirst ? t('events.judgeBrowseClubFirst') : t('events.judgeBrowseEventFirst')"
+              @click="toggleBrowseMode"
+            />
+            <Button
+              v-if="fieldMode.online"
+              type="button"
+              outlined
+              icon="pi pi-list"
+              :label="t('events.judgeMyEvaluations')"
+              @click="
+                router.push({
+                  name: 'events.judge.evaluaciones',
+                  params: { id: eventId },
+                })
+              "
+            />
+          </div>
         </div>
       </div>
 
       <p v-if="!judgeTree.length" class="pj-muted empty">{{ t('events.judgeNoSubevents') }}</p>
 
-      <div v-else class="judge-layout">
-        <aside class="panel panel--list">
+      <div v-else class="judge-layout" :class="{ 'judge-layout--event-first': isEventFirst }">
+        <aside class="panel panel--list" :class="{ 'is-locked': isEventFirst && !hasEventSelection }">
           <div class="list-head">
             <div class="phase-chip">
-              <span class="phase-chip__step">1</span>
+              <span class="phase-chip__step" :class="{ 'is-ready': isEventFirst ? hasEventSelection : true }">
+                {{ isEventFirst ? 2 : 1 }}
+              </span>
               <div>
-                <strong>{{ t('events.judgePhaseClub') }}</strong>
-                <p class="pj-muted">{{ t('events.judgePhaseClubHint') }}</p>
+                <strong>{{ isEventFirst ? t('events.judgePhaseClubsOrder') : t('events.judgePhaseClub') }}</strong>
+                <p class="pj-muted">
+                  {{
+                    isEventFirst
+                      ? hasEventSelection
+                        ? t('events.judgePhaseClubsOrderHint')
+                        : t('events.judgePhaseClubsOrderLocked')
+                      : t('events.judgePhaseClubHint')
+                  }}
+                </p>
               </div>
             </div>
             <EventSearchPanel
@@ -1154,14 +1227,23 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
+          <div v-if="isEventFirst && !hasEventSelection" class="tree-lock">
+            <i class="pi pi-lock" />
+            <p>{{ t('events.judgeSelectEventFirst') }}</p>
+          </div>
+
           <button
-            v-for="club in filteredClubs"
+            v-for="(club, index) in filteredClubs"
+            v-show="!isEventFirst || hasEventSelection"
             :key="club.organizacion_id"
             type="button"
             class="club-item"
             :class="{ active: selectedOrgId === club.organizacion_id }"
             @click="selectClub(club)"
           >
+            <span v-if="isEventFirst" class="club-item__turn" :title="t('events.judgeClubTurn', { n: clubTurn(index) })">
+              {{ clubTurn(index) }}
+            </span>
             <div class="club-item__avatar">
               <img v-if="club.logo_url" :src="club.logo_url" :alt="club.nombre" />
               <i v-else class="pi pi-building" />
@@ -1187,11 +1269,13 @@ onBeforeUnmount(() => {
             </div>
           </button>
 
-          <p v-if="!filteredClubs.length" class="pj-muted empty">{{ t('events.judgeClubsEmpty') }}</p>
+          <p v-if="(!isEventFirst || hasEventSelection) && !filteredClubs.length" class="pj-muted empty">
+            {{ t('events.judgeClubsEmpty') }}
+          </p>
         </aside>
 
         <button
-          v-if="isMobile && clubHasSelection && !treeSheetVisible && !drawerVisible"
+          v-if="isMobile && !isEventFirst && clubHasSelection && !treeSheetVisible && !drawerVisible"
           type="button"
           class="tree-reopen"
           @click="treeSheetVisible = true"
@@ -1201,7 +1285,7 @@ onBeforeUnmount(() => {
         </button>
 
         <div
-          v-if="isMobile && treeSheetVisible"
+          v-if="isMobile && !isEventFirst && treeSheetVisible"
           class="tree-sheet-backdrop"
           @click="treeSheetVisible = false"
         />
@@ -1209,19 +1293,24 @@ onBeforeUnmount(() => {
         <aside
           class="panel panel--tree"
           :class="{
-            'is-locked': !clubHasSelection,
-            'is-sheet': isMobile,
-            'is-sheet-open': isMobile && treeSheetVisible,
+            'is-locked': !isEventFirst && !clubHasSelection,
+            'is-sheet': isMobile && !isEventFirst,
+            'is-sheet-open': isMobile && !isEventFirst && treeSheetVisible,
           }"
         >
-          <div v-if="isMobile" class="tree-sheet__handle" aria-hidden="true" />
+          <div v-if="isMobile && !isEventFirst" class="tree-sheet__handle" aria-hidden="true" />
           <div class="tree-head">
             <div class="phase-chip">
-              <span class="phase-chip__step" :class="{ 'is-ready': clubHasSelection }">2</span>
+              <span class="phase-chip__step" :class="{ 'is-ready': isEventFirst || clubHasSelection }">
+                {{ isEventFirst ? 1 : 2 }}
+              </span>
               <div>
-                <strong>{{ t('events.judgePhaseEvents') }}</strong>
+                <strong>{{ isEventFirst ? t('events.judgePhaseEventFirst') : t('events.judgePhaseEvents') }}</strong>
                 <p class="pj-muted">
-                  <template v-if="clubHasSelection">
+                  <template v-if="isEventFirst">
+                    {{ t('events.judgePhaseEventFirstHint') }}
+                  </template>
+                  <template v-else-if="clubHasSelection">
                     {{ t('events.judgePhaseEventsHintSelected', { club: selectedClub?.nombre || '' }) }}
                     <template v-if="selectedClubPendingTotal > 0">
                       · {{ t('events.judgeClubPendingEvents', { count: selectedClubPendingTotal }) }}
@@ -1234,7 +1323,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <button
-              v-if="isMobile"
+              v-if="isMobile && !isEventFirst"
               type="button"
               class="tree-sheet__close"
               :aria-label="t('events.judgeEventsSheetClose')"
@@ -1244,7 +1333,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div v-if="!clubHasSelection" class="tree-lock">
+          <div v-if="!isEventFirst && !clubHasSelection" class="tree-lock">
             <i class="pi pi-lock" />
             <p>{{ t('events.judgeSelectClubFirst') }}</p>
           </div>
@@ -1295,7 +1384,11 @@ onBeforeUnmount(() => {
         </div>
 
         <template v-else-if="actividad">
-          <section class="club-switcher">
+          <section
+            class="club-switcher"
+            :class="{ 'club-switcher--photo': activityCoverUrl }"
+            :style="clubSwitcherStyle"
+          >
             <div v-if="selectedClub" class="club-switcher__tags">
               <span class="status-badge" :class="clubStatusMeta(selectedClub.estado).css">
                 {{ clubStatusMeta(selectedClub.estado).label }}
@@ -1367,6 +1460,7 @@ onBeforeUnmount(() => {
             :subeventos="activityChildNodes"
             :evidencia-by-id="clubEvidencias"
             :has-club-selected="!!selectedOrgId"
+            :hide-media="true"
             :show-participantes="
               actividad.participantes_min != null ||
               actividad.participantes_max != null ||
@@ -1377,6 +1471,38 @@ onBeforeUnmount(() => {
             @update:judge-observacion="observaciones = $event"
             @save-judge-obs="saveJudgeObservacion"
           >
+            <template #observacionesAdjuntos>
+              <input
+                ref="photoInput"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                class="sr-only"
+                @change="onPhotoPicked"
+              />
+              <p class="obs-photos__label">{{ t('fieldMode.judgePhotos') }}</p>
+              <div class="evidence-actions">
+                <Button
+                  type="button"
+                  size="small"
+                  icon="pi pi-camera"
+                  :label="t('fieldMode.photoAttach')"
+                  :loading="attachingPhoto"
+                  :disabled="!selectedOrgId"
+                  @click="photoInput?.click()"
+                />
+              </div>
+              <p v-if="!localPhotos.length" class="pj-muted">{{ t('fieldMode.judgePhotosEmpty') }}</p>
+              <ul v-else class="obs-photos">
+                <li v-for="item in localPhotos" :key="item.id">
+                  <img
+                    :src="localPhotoUrls[item.id]"
+                    :alt="item.titulo || t('fieldMode.photoLocal')"
+                  />
+                  <small>{{ t('fieldMode.photoLocal') }}</small>
+                </li>
+              </ul>
+            </template>
             <template #participantes>
               <p v-if="!selectedActivityClub?.participantes?.length" class="pj-muted">
                 {{ t('events.activityRosterJudgeEmpty') }}
@@ -1501,25 +1627,6 @@ onBeforeUnmount(() => {
 
                   <section class="evidence-panel">
                     <h3>{{ t('events.clubEvidenceTitle') }}</h3>
-                    <div class="evidence-actions">
-                      <input
-                        ref="photoInput"
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        class="sr-only"
-                        @change="onPhotoPicked"
-                      />
-                      <Button
-                        type="button"
-                        size="small"
-                        icon="pi pi-camera"
-                        :label="t('fieldMode.photoAttach')"
-                        :loading="attachingPhoto"
-                        :disabled="!selectedOrgId"
-                        @click="photoInput?.click()"
-                      />
-                    </div>
                     <p v-if="!visibleEvidencias.length" class="pj-muted">
                       {{ t('events.evidenceEmpty') }}
                     </p>
@@ -1773,6 +1880,13 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+.judge-top__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
 .judge-top__stats {
   display: flex;
   flex-wrap: wrap;
@@ -1850,6 +1964,18 @@ onBeforeUnmount(() => {
   align-items: start;
 }
 
+.judge-layout--event-first {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+}
+
+.judge-layout--event-first .panel--tree {
+  order: 1;
+}
+
+.judge-layout--event-first .panel--list {
+  order: 2;
+}
+
 .panel {
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
@@ -1920,6 +2046,47 @@ onBeforeUnmount(() => {
   position: sticky;
   top: 0;
   z-index: 2;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.club-switcher--photo {
+  border-color: color-mix(in srgb, #0b2f6b 25%, transparent);
+  background:
+    linear-gradient(180deg, rgba(7, 30, 72, 0.38) 0%, rgba(7, 30, 72, 0.78) 100%),
+    var(--switcher-image) center / cover no-repeat;
+  color: #fff;
+}
+
+.club-switcher--photo .club-switcher__score,
+.club-switcher--photo .club-switcher__count,
+.club-switcher--photo .club-switcher__parent,
+.club-switcher--photo .club-switcher__index {
+  color: #fff;
+  font-family: var(--pj-font-sans);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.club-switcher--photo .club-switcher__index {
+  opacity: 1;
+}
+
+.club-switcher--photo :deep(.p-button.p-button-outlined) {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.75);
+  background: rgba(7, 30, 72, 0.35);
+}
+
+.club-switcher--photo :deep(.p-button.p-button-outlined:hover) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  border-color: #fff;
+}
+
+.club-switcher--photo :deep(.p-button.p-button-outlined:disabled) {
+  color: rgba(255, 255, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .club-switcher__tags {
@@ -1983,7 +2150,7 @@ onBeforeUnmount(() => {
   gap: 0.55rem;
   position: sticky;
   top: 0;
-  background: inherit;
+  background: var(--pj-surface);
   z-index: 1;
   padding-bottom: 0.35rem;
 }
@@ -2007,7 +2174,7 @@ onBeforeUnmount(() => {
   gap: 0.55rem;
   position: sticky;
   top: 0;
-  background: inherit;
+  background: var(--pj-surface);
   z-index: 1;
   padding-bottom: 0.35rem;
 }
@@ -2034,6 +2201,18 @@ onBeforeUnmount(() => {
   color: #1d4ed8;
 }
 
+.club-item__turn {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #1d4ed8;
+  background: color-mix(in srgb, #2563eb 14%, transparent);
+}
+
 .club-item {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -2046,6 +2225,10 @@ onBeforeUnmount(() => {
   border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
+}
+
+.club-item:has(.club-item__turn) {
+  grid-template-columns: auto auto 1fr auto;
 }
 
 .club-item:hover,
@@ -2148,16 +2331,23 @@ onBeforeUnmount(() => {
 
 .phase-chip strong {
   display: block;
-  font-size: 0.88rem;
+  font-family: var(--pj-font-sans);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.25;
+  color: var(--pj-text);
 }
 
 .phase-chip .pj-muted {
   margin: 0.1rem 0 0;
   font-size: 0.75rem;
   line-height: 1.3;
+  color: var(--pj-text-muted);
 }
 
-.panel--tree.is-locked {
+.panel--tree.is-locked,
+.panel--list.is-locked {
   opacity: 0.72;
   background: color-mix(in srgb, var(--pj-surface) 88%, var(--pj-bg-muted));
 }
@@ -2254,6 +2444,40 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.obs-photos__label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--pj-text);
+}
+
+.obs-photos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 0.5rem;
+}
+
+.obs-photos li {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.obs-photos img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--pj-border);
+}
+
+.obs-photos small {
+  color: var(--pj-text-muted);
+  font-size: 0.7rem;
 }
 
 .sr-only {
