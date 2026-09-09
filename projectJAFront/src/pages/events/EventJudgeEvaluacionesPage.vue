@@ -37,6 +37,10 @@ const bootstrapped = ref(false)
 const eventId = computed(() => Number(route.params.id))
 const bannerUrl = computed(() => resolveAssetUrl(data.value?.evento.banner_url))
 const logoUrl = computed(() => resolveAssetUrl(data.value?.evento.image_url))
+
+function clubLogoSrc(url?: string | null): string | null {
+  return resolveAssetUrl(url)
+}
 const heroCoverUrl = computed(() => bannerUrl.value || logoUrl.value)
 const showEventLogo = computed(() => Boolean(logoUrl.value && bannerUrl.value))
 const heroTheme = ref<Record<string, string>>({})
@@ -327,8 +331,8 @@ onMounted(() => {
             <Column :header="t('events.judgeEvalColClub')">
               <template #body="{ data: row }">
                 <div class="club-cell">
-                  <span v-if="row.logo_url" class="club-cell__logo">
-                    <img :src="row.logo_url" :alt="row.nombre" />
+                  <span v-if="clubLogoSrc(row.logo_url)" class="club-cell__logo">
+                    <img :src="clubLogoSrc(row.logo_url) || ''" :alt="row.nombre" />
                   </span>
                   <span v-else class="club-cell__fallback"><i class="pi pi-flag" /></span>
                   <div>
@@ -380,8 +384,8 @@ onMounted(() => {
         <aside class="pj-panel eval-detail">
           <template v-if="detalle">
             <header class="detail-head">
-              <span v-if="detalle.logo_url" class="detail-logo">
-                <img :src="detalle.logo_url" :alt="detalle.nombre" />
+              <span v-if="clubLogoSrc(detalle.logo_url)" class="detail-logo">
+                <img :src="clubLogoSrc(detalle.logo_url) || ''" :alt="detalle.nombre" />
               </span>
               <span v-else class="detail-logo is-fallback"><i class="pi pi-flag" /></span>
               <div>

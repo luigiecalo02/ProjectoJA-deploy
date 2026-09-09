@@ -1,8 +1,10 @@
 <?php
 
+use App\Modules\Shared\Http\Controllers\PublicFileController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
+    Route::get('files/{path}', [PublicFileController::class, 'show'])->where('path', '.*');
     require app_path('Modules/Auth/Routes/api.php');
     require app_path('Modules/Users/Routes/api.php');
     require app_path('Modules/Events/Routes/api.php');

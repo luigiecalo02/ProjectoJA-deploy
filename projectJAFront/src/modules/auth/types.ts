@@ -11,6 +11,7 @@ export interface User {
   email: string
   avatar_url: string | null
   is_active: boolean
+  email_verified?: boolean
   is_super?: boolean
   is_admin?: boolean
   roles: Role[]

@@ -10,6 +10,7 @@ import Tag from 'primevue/tag'
 import Dialog from 'primevue/dialog'
 import PageLoader from '@/components/PageLoader.vue'
 import AppSearchField from '@/components/AppSearchField.vue'
+import OrgHierarchyFilters from '@/components/organizaciones/OrgHierarchyFilters.vue'
 import { clubsService } from '@/services/clubsService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
@@ -53,7 +54,13 @@ const deleteDialogVisible = computed({
   },
 })
 
-const filters = reactive({ search: '', page: 1, per_page: 10 })
+const filters = reactive({
+  search: '',
+  page: 1,
+  per_page: 10,
+  organizacion_id: null as number | null,
+  tipo_club: null as Club['tipos'][number] | null,
+})
 
 function tipoLabel(tipo: string): string {
   if (tipo === 'conquistadores') return t('clubs.typeConquistadores')
@@ -69,6 +76,8 @@ async function load(): Promise<void> {
       page: filters.page,
       per_page: filters.per_page,
       search: filters.search || undefined,
+      organizacion_id: filters.organizacion_id,
+      tipo_club: filters.tipo_club,
     })
     clubs.value = result.items
     pagination.value = result.pagination
@@ -112,7 +121,17 @@ watch(
   },
 )
 
-onMounted(() => void load())
+watch(
+  () => [filters.organizacion_id, filters.tipo_club] as const,
+  () => {
+    filters.page = 1
+    void load()
+  },
+)
+
+onMounted(() => {
+  void load()
+})
 </script>
 
 <template>
@@ -130,13 +149,32 @@ onMounted(() => void load())
       />
     </header>
 
-    <div class="pj-panel">
+    <div class="clubs-layout">
+      <aside class="search-panel pj-panel">
+        <div class="search-panel__icon"><i class="pi pi-flag" /></div>
+        <div class="search-panel__content">
+          <label for="clubs-search">{{ t('clubs.searchLabel') }}</label>
+          <div class="search-panel__controls">
+            <AppSearchField
+              v-model="filters.search"
+              input-id="clubs-search"
+              :placeholder="t('clubs.searchPlaceholder')"
+            />
+            <OrgHierarchyFilters
+              v-model:organizacion-id="filters.organizacion_id"
+              v-model:tipo-club="filters.tipo_club"
+            />
+          </div>
+          <small class="search-panel__hint">
+            <i class="pi pi-info-circle" />
+            {{ t('clubs.filterHint') }}
+          </small>
+        </div>
+      </aside>
+
+      <div class="pj-panel clubs-main">
       <PageLoader v-if="loading && !clubs.length" :label="t('common.loading')" />
       <template v-else>
-        <div class="pj-toolbar" style="margin-bottom: 0.75rem">
-          <AppSearchField v-model="filters.search" :placeholder="t('clubs.searchPlaceholder')" />
-        </div>
-
         <DataTable
           :value="clubs"
           data-key="id"
@@ -198,6 +236,7 @@ onMounted(() => void load())
           </Column>
         </DataTable>
       </template>
+      </div>
     </div>
 
     <Dialog v-model:visible="deleteDialogVisible" modal :header="t('common.confirm')" :style="{ width: '28rem' }">
@@ -211,7 +250,66 @@ onMounted(() => void load())
 </template>
 
 <style scoped>
-.search { min-width: min(100%, 18rem); }
+.clubs-layout {
+  display: grid;
+  grid-template-columns: minmax(16.5rem, 20rem) minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+  margin-bottom: 0;
+  padding: 1.15rem;
+  position: sticky;
+  top: 1rem;
+}
+
+.search-panel__icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 12px;
+  color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+  font-size: 1.25rem;
+}
+
+.search-panel__content {
+  width: 100%;
+}
+
+.search-panel__content label {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-family: var(--pj-font-sans);
+  font-weight: 700;
+  color: var(--pj-text);
+}
+
+.search-panel__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.search-panel__hint {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+  color: var(--pj-text-muted);
+}
+
+.clubs-main {
+  min-width: 0;
+}
+
 .logo {
   width: 2.75rem;
   height: 2.75rem;
@@ -219,12 +317,29 @@ onMounted(() => void load())
   border-radius: 8px;
   display: block;
 }
+
 .logo--empty {
   display: grid;
   place-items: center;
   background: color-mix(in srgb, var(--pj-navy) 8%, transparent);
   color: color-mix(in srgb, var(--pj-navy) 45%, transparent);
 }
+
 .actions { display: flex; gap: 0.1rem; }
-.types-wrap { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+@media (max-width: 960px) {
+  .clubs-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .search-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .search-panel__icon {
+    display: none;
+  }
+}
 </style>

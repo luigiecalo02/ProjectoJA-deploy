@@ -44,6 +44,7 @@ export type UbicacionOption = {
 
 export type ClubInscripcionPayload = {
   asociacion_id?: number | null
+  zona_id?: number | null
   distrito_id?: number | null
   iglesia_id?: number | null
   club_id?: number | null

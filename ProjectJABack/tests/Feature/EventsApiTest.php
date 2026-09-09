@@ -153,7 +153,18 @@ class EventsApiTest extends TestCase
             'evento_padre_id' => $parent['id'],
             'organizacion_id' => $union->id,
             'es_en_sitio' => true,
+            'maneja_fecha_fin' => true,
         ])->assertStatus(422);
+
+        $this->postJson('/api/v1/events', [
+            'name' => 'Sin fecha propia',
+            'starts_at' => '2026-07-10 08:00:00',
+            'ends_at' => '2026-07-10 12:00:00',
+            'evento_padre_id' => $parent['id'],
+            'organizacion_id' => $union->id,
+            'es_en_sitio' => true,
+            'maneja_fecha_fin' => false,
+        ])->assertCreated();
 
         $this->postJson('/api/v1/events', [
             'name' => 'Concurso OK',
@@ -211,6 +222,7 @@ class EventsApiTest extends TestCase
             'evento_padre_id' => $parent['id'],
             'organizacion_id' => $union->id,
             'es_en_sitio' => true,
+            'maneja_fecha_fin' => true,
         ])->assertStatus(422);
     }
 
@@ -751,6 +763,76 @@ class EventsApiTest extends TestCase
         ])->assertCreated();
     }
 
+    public function test_director_cannot_change_evidence_after_judge_score_until_unlocked(): void
+    {
+        [$admin, $root] = $this->clubEnrollmentContext('EvidenciaCalif');
+        $orgId = (int) $admin->active_organizacion_id;
+        Sanctum::actingAs($admin);
+
+        $activity = Event::query()->create([
+            'name' => 'Evidencia tras nota',
+            'evento_padre_id' => $root->id,
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDays(2),
+            'created_by' => $admin->id,
+            'is_active' => true,
+            'estado' => Event::ESTADO_PUBLICADO,
+            'es_calificable' => true,
+            'puntaje_maximo' => 50,
+            'requiere_evidencia' => true,
+            'tipos_evidencia' => ['link'],
+        ]);
+
+        $this->postJson("/api/v1/events/{$activity->id}/evidencias", [
+            'tipo' => 'link',
+            'url' => 'https://example.com/antes',
+        ])->assertCreated();
+
+        $this->actAsPlatformJudge($admin);
+        $this->postJson("/api/v1/events/{$activity->id}/calificaciones", [
+            'organizacion_id' => $orgId,
+            'puntaje_obtenido' => 40,
+        ])->assertCreated()->assertJsonPath('data.permite_editar_evidencia', false);
+
+        $this->actAsClubDirector($admin, $orgId);
+        $this->postJson("/api/v1/events/{$activity->id}/evidencias", [
+            'tipo' => 'link',
+            'url' => 'https://example.com/despues',
+        ])->assertStatus(422)->assertJsonValidationErrors(['evento']);
+
+        $this->actAsPlatformJudge($admin);
+        $this->postJson("/api/v1/events/{$activity->id}/calificaciones/evidencia-edicion", [
+            'organizacion_id' => $orgId,
+        ])->assertOk()->assertJsonPath('data.permite_editar_evidencia', true);
+
+        $this->actAsClubDirector($admin, $orgId);
+        $this->postJson("/api/v1/events/{$activity->id}/evidencias", [
+            'tipo' => 'link',
+            'url' => 'https://example.com/despues',
+        ])->assertCreated();
+
+        $this->actAsPlatformJudge($admin);
+        $this->postJson("/api/v1/events/{$activity->id}/calificaciones", [
+            'organizacion_id' => $orgId,
+            'puntaje_obtenido' => 42,
+        ])->assertCreated()->assertJsonPath('data.permite_editar_evidencia', false);
+
+        $this->actAsClubDirector($admin, $orgId);
+        $this->postJson("/api/v1/events/{$activity->id}/evidencias", [
+            'tipo' => 'link',
+            'url' => 'https://example.com/otra',
+        ])->assertStatus(422);
+
+        $this->postJson("/api/v1/events/{$activity->id}/evidencia-edicion")
+            ->assertOk()
+            ->assertJsonPath('data.permite_editar_evidencia', true);
+
+        $this->postJson("/api/v1/events/{$activity->id}/evidencias", [
+            'tipo' => 'link',
+            'url' => 'https://example.com/otra',
+        ])->assertCreated();
+    }
+
     /**
      * @return array{0: User, 1: Event, 2: Persona}
      */
@@ -784,6 +866,20 @@ class EventsApiTest extends TestCase
         $persona = $this->personaInClub($clubOrg->id);
 
         return [$admin->fresh(), $event, $persona];
+    }
+
+    private function actAsPlatformJudge(User $admin): void
+    {
+        $admin->forceFill(['active_organizacion_id' => null])->save();
+        $admin->clearPermissionCache();
+        Sanctum::actingAs($admin->fresh());
+    }
+
+    private function actAsClubDirector(User $admin, int $organizacionId): void
+    {
+        $admin->forceFill(['active_organizacion_id' => $organizacionId])->save();
+        $admin->clearPermissionCache();
+        Sanctum::actingAs($admin->fresh());
     }
 
     private function personaInClub(int $organizacionId): Persona

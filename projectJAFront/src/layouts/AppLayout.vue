@@ -765,8 +765,17 @@ html.dark .p-drawer.mobile-drawer .p-drawer-footer {
 .page-chrome__mark {
   font-size: 2.35rem;
   line-height: 1;
-  color: var(--pj-navy);
+  color: #071e48;
   flex-shrink: 0;
+}
+
+.app-shell--dark .page-chrome__mark,
+.app-shell--dark .page-chrome__title {
+  color: var(--pj-text);
+}
+
+.app-shell--dark .page-chrome__subtitle {
+  color: var(--pj-text-muted);
 }
 
 .page-chrome__titles {
@@ -782,11 +791,11 @@ html.dark .p-drawer.mobile-drawer .p-drawer-footer {
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.03em;
-  color: var(--pj-text);
+  color: #071e48;
 }
 
 .page-chrome__subtitle {
-  color: var(--pj-text-muted);
+  color: #5b6b82;
   font-size: 0.8rem;
   line-height: 1.25;
 }

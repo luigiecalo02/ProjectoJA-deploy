@@ -35,6 +35,8 @@ import type {
   ClubEvent,
   CriterioEvaluacion,
   EventoArchivoMaterial,
+  EventoNivelConjunto,
+  EventoRolConjunto,
   EventoVisibilidad,
   TipoEvento,
 } from '@/modules/events/types'
@@ -102,8 +104,10 @@ const supervisores = ref<Array<{ id: number; name: string; email?: string | null
 const criteriosBank = ref<CriterioEvaluacion[]>([])
 const assignedCriterioIds = ref<number[]>([])
 const criterioPoints = reactive<Record<number, number | null>>({})
+const criterioJudges = reactive<Record<number, number | null>>({})
 const childAssignedCriterioIds = ref<number[]>([])
 const childCriterioPoints = reactive<Record<number, number | null>>({})
+const childCriterioJudges = reactive<Record<number, number | null>>({})
 const search = ref('')
 const selectedId = ref<number | null>(null)
 const rowMenu = ref<{ toggle: (event: Event) => void } | null>(null)
@@ -113,6 +117,9 @@ const materiales = ref<EventoArchivoMaterial[]>([])
 const pendingMaterialFiles = ref<File[]>([])
 const pendingYoutube = ref<Array<{ url: string; titulo?: string }>>([])
 const childDrawerVisible = ref(false)
+const childHostId = ref<number | null>(null)
+const childHostName = ref('')
+const childHostCategoriaId = ref<number | null>(null)
 const childItems = ref<ClubEvent[]>([])
 const loadingChildren = ref(false)
 const drawerVisible = ref(false)
@@ -136,7 +143,6 @@ const uploadingImage = ref(false)
 
 const activeParentId = computed(() => navStack.value.at(-1)?.id ?? props.parentId)
 const activeParentName = computed(() => navStack.value.at(-1)?.name ?? props.parentName)
-const isNested = computed(() => navStack.value.length > 0)
 const contextTipoEventoId = computed(() => navStack.value.at(-1)?.tipo_evento_id ?? null)
 const contextVisibilidad = computed(
   () => navStack.value.at(-1)?.visibilidad ?? props.parentVisibilidad,
@@ -150,24 +156,34 @@ const form = reactive({
   tipo_evento_id: null as number | null,
   puntaje_maximo: null as number | null,
   puntaje_por_participar: false,
+  criterios_compartidos: true,
   starts_at: null as Date | null,
   ends_at: null as Date | null,
   tiempo_estimado_minutos: null as number | null,
   requiere_puesto_entrega: false,
   requiere_tiempo_entrega: false,
+  criterio_tiempo: null as 'menor' | 'mayor' | null,
+  modo_captura_tiempo: null as 'cronometro' | 'digitar' | null,
   resultado_esperado: null as number | null,
+  resultado_esperado_etiqueta: '',
+  mostrar_resultados_participantes: true,
   participantes_min: null as number | null,
   participantes_max: null as number | null,
   permite_inscribir_no_participantes: false,
+  fecha_limite_inscripcion: null as Date | null,
   participantes_genero: 'cualquiera' as 'mixto' | 'M' | 'F' | 'cualquiera',
   participantes_min_m: null as number | null,
   participantes_max_m: null as number | null,
   participantes_min_f: null as number | null,
   participantes_max_f: null as number | null,
   es_conjunto: false,
-  nivel_conjunto: null as 'club' | 'iglesia' | 'distrito' | 'asociacion' | null,
+  nivel_conjunto: null as EventoNivelConjunto | null,
+  rol_conjunto: null as EventoRolConjunto | null,
   puntos_penalizacion: null as number | null,
   reglas_penalizacion: '',
+  puntos_puesto_1: null as number | null,
+  puntos_puesto_2: null as number | null,
+  puntos_puesto_3: null as number | null,
   precio: null as number | null,
   tipos_evidencia: [] as Array<'link' | 'pdf' | 'imagen' | 'audio' | 'video'>,
   estado: 'publicado' as string,
@@ -191,6 +207,7 @@ const opts = reactive({
   manejaFechaFin: false,
   permiteEditarDespuesFin: false,
   manejaPenalizaciones: false,
+  premiaPuestos: false,
   tieneValor: false,
   requiereEvidencia: false,
   esEnSitio: true,
@@ -216,7 +233,16 @@ const nivelConjuntoOptions = computed(() => [
   { label: t('events.wizard.subNivelClub'), value: 'club' },
   { label: t('events.wizard.subNivelIglesia'), value: 'iglesia' },
   { label: t('events.wizard.subNivelDistrito'), value: 'distrito' },
+  { label: t('events.wizard.subNivelZona'), value: 'zona' },
   { label: t('events.wizard.subNivelAsociacion'), value: 'asociacion' },
+])
+
+const rolConjuntoOptions = computed(() => [
+  { label: t('events.wizard.subRolDirector'), value: 'director' },
+  { label: t('events.wizard.subRolSubdirector'), value: 'subdirector' },
+  { label: t('events.wizard.subRolSecretario'), value: 'secretario' },
+  { label: t('events.wizard.subRolTesorero'), value: 'tesorero' },
+  { label: t('events.wizard.subRolPastor'), value: 'pastor' },
 ])
 
 const juezOptions = computed(() =>
@@ -241,6 +267,22 @@ function peopleNames(
   return people.map((p) => p.name).join(', ')
 }
 
+function mixtoExceedsTotalMax(row: {
+  participantes_max?: number | null
+  participantes_min_m?: number | null
+  participantes_max_m?: number | null
+  participantes_min_f?: number | null
+  participantes_max_f?: number | null
+}): boolean {
+  if (row.participantes_max == null) return false
+  const cap = Number(row.participantes_max)
+  const minSum = (row.participantes_min_m ?? 0) + (row.participantes_min_f ?? 0)
+  if (minSum > cap) return true
+  if (row.participantes_max_m != null && row.participantes_max_m > cap) return true
+  if (row.participantes_max_f != null && row.participantes_max_f > cap) return true
+  return false
+}
+
 function quotaRange(min?: number | null, max?: number | null): string {
   if (min == null && max == null) return '—'
   if (max == null) return String(min ?? '—')
@@ -263,7 +305,10 @@ function participantesQuotaLabel(item: {
     return `${quotaRange(item.participantes_min, item.participantes_max)} · ${t('events.wizard.subParticipantsGenderF')}`
   }
   if (item.participantes_genero === 'mixto') {
-    return `${t('events.wizard.subParticipantsGenderMixto')} · M ${quotaRange(item.participantes_min_m, item.participantes_max_m)} / F ${quotaRange(item.participantes_min_f, item.participantes_max_f)}`
+    const gender = `${t('events.wizard.subParticipantsGenderMixto')} · M ${quotaRange(item.participantes_min_m, item.participantes_max_m)} / F ${quotaRange(item.participantes_min_f, item.participantes_max_f)}`
+    return item.participantes_max != null
+      ? `${gender} · ${t('events.wizard.subParticipantsMaxTotal')} ${item.participantes_max}`
+      : gender
   }
   if (item.participantes_genero === 'cualquiera') {
     return `${quotaRange(item.participantes_min, item.participantes_max)} · ${t('events.wizard.subParticipantsGenderCualquiera')}`
@@ -303,7 +348,7 @@ const criteriosSum = computed(() =>
 )
 
 const criteriosSumOk = computed(() => {
-  if (!assignedCriterioIds.value.length) return true
+  if (!assignedCriterioIds.value.length || form.puntaje_por_participar) return true
   if (form.puntaje_maximo == null) return false
   return Math.abs(criteriosSum.value - Number(form.puntaje_maximo)) < 0.01
 })
@@ -311,10 +356,15 @@ const criteriosSumOk = computed(() => {
 function syncCriterioPointsSelection(): void {
   for (const id of assignedCriterioIds.value) {
     if (criterioPoints[id] == null) criterioPoints[id] = null
+    if (criterioJudges[id] == null) criterioJudges[id] = form.juez_ids[0] ?? null
   }
   for (const key of Object.keys(criterioPoints)) {
     const id = Number(key)
     if (!assignedCriterioIds.value.includes(id)) delete criterioPoints[id]
+  }
+  for (const key of Object.keys(criterioJudges)) {
+    const id = Number(key)
+    if (!assignedCriterioIds.value.includes(id)) delete criterioJudges[id]
   }
 }
 
@@ -487,11 +537,6 @@ const rowMenuItems = computed<MenuItem[]>(() => {
       command: () => openCreateChild(item),
     },
     {
-      label: t('events.wizard.subOpenChildren'),
-      icon: 'pi pi-sitemap',
-      command: () => enterChildren(item),
-    },
-    {
       label: t('common.edit'),
       icon: 'pi pi-pencil',
       command: () => openEdit(item),
@@ -576,27 +621,6 @@ function staffIdsFromEvent(
   if (effective?.length) return effective.map((person) => person.id)
   if (people?.length) return people.map((person) => person.id)
   return []
-}
-
-function toNavNode(item: ClubEvent): NavNode {
-  return {
-    id: item.id,
-    name: item.name,
-    starts_at: item.starts_at,
-    ends_at: item.ends_at,
-    es_en_sitio: item.es_en_sitio ?? true,
-    maneja_fecha_fin: !!item.maneja_fecha_fin,
-    organizacion_id: item.organizacion_id ?? props.parentOrganizacionId,
-    puntaje_maximo: item.puntaje_maximo ?? null,
-    tipo_evento_id: item.tipo_evento_id ?? null,
-    visibilidad: item.visibilidad,
-    juez_ids: staffIdsFromEvent(item.juez_ids, item.jueces, item.jueces_efectivos),
-    supervisor_ids: staffIdsFromEvent(
-      item.supervisor_ids,
-      item.supervisores,
-      item.supervisores_efectivos,
-    ),
-  }
 }
 
 function contextStartsAt(): Date | null {
@@ -737,23 +761,33 @@ const childForm = reactive({
   tipo_evento_id: null as number | null,
   puntaje_maximo: null as number | null,
   puntaje_por_participar: false,
+  criterios_compartidos: true,
   starts_at: null as Date | null,
   ends_at: null as Date | null,
   requiere_puesto_entrega: false,
   requiere_tiempo_entrega: false,
+  criterio_tiempo: null as 'menor' | 'mayor' | null,
+  modo_captura_tiempo: null as 'cronometro' | 'digitar' | null,
   resultado_esperado: null as number | null,
+  resultado_esperado_etiqueta: '',
+  mostrar_resultados_participantes: true,
   participantes_min: null as number | null,
   participantes_max: null as number | null,
   permite_inscribir_no_participantes: false,
+  fecha_limite_inscripcion: null as Date | null,
   participantes_genero: 'cualquiera' as 'mixto' | 'M' | 'F' | 'cualquiera',
   participantes_min_m: null as number | null,
   participantes_max_m: null as number | null,
   participantes_min_f: null as number | null,
   participantes_max_f: null as number | null,
   es_conjunto: false,
-  nivel_conjunto: null as 'club' | 'iglesia' | 'distrito' | 'asociacion' | null,
+  nivel_conjunto: null as EventoNivelConjunto | null,
+  rol_conjunto: null as EventoRolConjunto | null,
   puntos_penalizacion: null as number | null,
   reglas_penalizacion: '',
+  puntos_puesto_1: null as number | null,
+  puntos_puesto_2: null as number | null,
+  puntos_puesto_3: null as number | null,
   precio: null as number | null,
   tipos_evidencia: [] as Array<'link' | 'pdf' | 'imagen' | 'audio' | 'video'>,
   estado: 'publicado' as string,
@@ -773,6 +807,7 @@ const childOpts = reactive({
   manejaFechaFin: false,
   permiteEditarDespuesFin: false,
   manejaPenalizaciones: false,
+  premiaPuestos: false,
   tieneValor: false,
   requiereEvidencia: false,
   esEnSitio: true,
@@ -798,7 +833,7 @@ const childCriteriosSum = computed(() =>
 )
 
 const childCriteriosSumOk = computed(() => {
-  if (!childAssignedCriterioIds.value.length) return true
+  if (!childAssignedCriterioIds.value.length || childForm.puntaje_por_participar) return true
   if (childForm.puntaje_maximo == null) return false
   return Math.abs(childCriteriosSum.value - Number(childForm.puntaje_maximo)) < 0.01
 })
@@ -849,6 +884,7 @@ function resetChildOpts(): void {
   childOpts.manejaFechaFin = false
   childOpts.permiteEditarDespuesFin = false
   childOpts.manejaPenalizaciones = false
+  childOpts.premiaPuestos = false
   childOpts.tieneValor = false
   childOpts.requiereEvidencia = false
   childOpts.tieneSubeventos = false
@@ -861,14 +897,20 @@ function resetChildForm(): void {
   childForm.tipo_evento_id = form.tipo_evento_id
   childForm.puntaje_maximo = 100
   childForm.puntaje_por_participar = false
+  childForm.criterios_compartidos = true
   childForm.starts_at = dateOnly(form.starts_at) || dateOnly(contextStartsAt())
   childForm.ends_at = dateOnly(form.ends_at) || dateOnly(contextEndsAt())
   childForm.requiere_puesto_entrega = false
   childForm.requiere_tiempo_entrega = false
+  childForm.criterio_tiempo = null
+  childForm.modo_captura_tiempo = null
   childForm.resultado_esperado = null
+  childForm.resultado_esperado_etiqueta = ''
+  childForm.mostrar_resultados_participantes = true
   childForm.participantes_min = 1
   childForm.participantes_max = null
   childForm.permite_inscribir_no_participantes = false
+  childForm.fecha_limite_inscripcion = null
   childForm.participantes_genero = 'cualquiera'
   childForm.participantes_min_m = null
   childForm.participantes_max_m = null
@@ -876,8 +918,12 @@ function resetChildForm(): void {
   childForm.participantes_max_f = null
   childForm.es_conjunto = false
   childForm.nivel_conjunto = null
+  childForm.rol_conjunto = null
   childForm.puntos_penalizacion = 5
   childForm.reglas_penalizacion = ''
+  childForm.puntos_puesto_1 = 10
+  childForm.puntos_puesto_2 = 7
+  childForm.puntos_puesto_3 = 5
   childForm.precio = null
   childForm.tipos_evidencia = ['link', 'pdf', 'imagen', 'audio', 'video']
   childForm.estado = 'publicado'
@@ -888,6 +934,7 @@ function resetChildForm(): void {
   childForm.icono_tamano = form.icono_tamano || ICON_SIZE_DEFAULT
   childAssignedCriterioIds.value = []
   for (const key of Object.keys(childCriterioPoints)) delete childCriterioPoints[Number(key)]
+  for (const key of Object.keys(childCriterioJudges)) delete childCriterioJudges[Number(key)]
   resetChildOpts()
   childOpts.esEnSitio = opts.esEnSitio
   childOpts.manejaFechaFin = opts.manejaFechaFin
@@ -909,14 +956,30 @@ function fillChildFromEvent(item: ClubEvent): void {
   childForm.tipo_evento_id = item.tipo_evento_id ?? form.tipo_evento_id
   childForm.puntaje_maximo = item.puntaje_maximo ?? null
   childForm.puntaje_por_participar = !!item.puntaje_por_participar
+  childForm.criterios_compartidos = item.criterios_compartidos !== false
   childForm.starts_at = dateOnly(item.starts_at) || dateOnly(form.starts_at)
   childForm.ends_at = dateOnly(item.ends_at) || dateOnly(form.ends_at)
   childForm.requiere_puesto_entrega = !!item.requiere_puesto_entrega
   childForm.requiere_tiempo_entrega = !!item.requiere_tiempo_entrega || item.tiempo_estimado_minutos != null
+  childForm.criterio_tiempo =
+    item.criterio_tiempo === 'mayor' || item.criterio_tiempo === 'menor'
+      ? item.criterio_tiempo
+      : childForm.requiere_tiempo_entrega
+        ? 'menor'
+        : null
+  childForm.modo_captura_tiempo =
+    item.modo_captura_tiempo === 'cronometro' || item.modo_captura_tiempo === 'digitar'
+      ? item.modo_captura_tiempo
+      : childForm.requiere_tiempo_entrega
+        ? 'digitar'
+        : null
   childForm.resultado_esperado = item.resultado_esperado ?? null
+  childForm.resultado_esperado_etiqueta = item.resultado_esperado_etiqueta ?? ''
+  childForm.mostrar_resultados_participantes = item.mostrar_resultados_participantes !== false
   childForm.participantes_min = item.participantes_min ?? null
   childForm.participantes_max = item.participantes_max ?? null
   childForm.permite_inscribir_no_participantes = !!item.permite_inscribir_no_participantes
+  childForm.fecha_limite_inscripcion = dateOnly(item.fecha_limite_inscripcion)
   childForm.participantes_genero =
     item.participantes_genero === 'M' ||
     item.participantes_genero === 'F' ||
@@ -929,10 +992,13 @@ function fillChildFromEvent(item: ClubEvent): void {
   childForm.participantes_min_f = item.participantes_min_f ?? null
   childForm.participantes_max_f = item.participantes_max_f ?? null
   childForm.es_conjunto = !!item.es_conjunto
-  childForm.nivel_conjunto =
-    (item.nivel_conjunto as 'club' | 'iglesia' | 'distrito' | 'asociacion' | null) ?? null
+  childForm.nivel_conjunto = asNivelConjunto(item.nivel_conjunto)
+  childForm.rol_conjunto = asRolConjunto(item.rol_conjunto)
   childForm.puntos_penalizacion = item.puntos_penalizacion ?? null
   childForm.reglas_penalizacion = item.reglas_penalizacion || ''
+  childForm.puntos_puesto_1 = item.puntos_puesto_1 ?? null
+  childForm.puntos_puesto_2 = item.puntos_puesto_2 ?? null
+  childForm.puntos_puesto_3 = item.puntos_puesto_3 ?? null
   childForm.precio = item.precio ?? null
   childForm.tipos_evidencia = (item.tipos_evidencia || []).filter(
     (tipo): tipo is 'link' | 'pdf' | 'imagen' | 'audio' | 'video' =>
@@ -950,8 +1016,10 @@ function fillChildFromEvent(item: ClubEvent): void {
   childForm.icono_tamano = clampIconSize(item.icono_tamano ?? form.icono_tamano)
   childAssignedCriterioIds.value = (item.criterios || []).map((c) => c.id)
   for (const key of Object.keys(childCriterioPoints)) delete childCriterioPoints[Number(key)]
+  for (const key of Object.keys(childCriterioJudges)) delete childCriterioJudges[Number(key)]
   for (const criterio of item.criterios || []) {
     childCriterioPoints[criterio.id] = criterio.puntos
+    childCriterioJudges[criterio.id] = criterio.juez_id ?? null
   }
   childOpts.puntajeDesdeHijos = false
   childOpts.tieneSubeventos = false
@@ -960,7 +1028,8 @@ function fillChildFromEvent(item: ClubEvent): void {
     !!item.requiere_puesto_entrega ||
     !!item.requiere_tiempo_entrega ||
     item.resultado_esperado != null ||
-    item.tiempo_estimado_minutos != null
+    item.tiempo_estimado_minutos != null ||
+    item.mostrar_resultados_participantes === false
   childOpts.controlParticipantes =
     item.participantes_min != null ||
     item.participantes_max != null ||
@@ -968,11 +1037,14 @@ function fillChildFromEvent(item: ClubEvent): void {
     item.participantes_min_m != null ||
     item.participantes_max_m != null ||
     item.participantes_min_f != null ||
-    item.participantes_max_f != null
+    item.participantes_max_f != null ||
+    !!item.permite_inscribir_no_participantes ||
+    !!item.fecha_limite_inscripcion
   childOpts.esConjunto = !!item.es_conjunto
   childOpts.manejaFechaFin = !!item.maneja_fecha_fin
   childOpts.permiteEditarDespuesFin = !!item.permite_editar_despues_fin
   childOpts.manejaPenalizaciones = !!item.maneja_penalizaciones
+  childOpts.premiaPuestos = !!item.premia_puestos
   childOpts.tieneValor = !!item.requiere_pago || item.precio != null
   childOpts.requiereEvidencia = !!item.requiere_evidencia
   childOpts.esEnSitio = item.es_en_sitio ?? true
@@ -987,6 +1059,9 @@ function fillChildFromEvent(item: ClubEvent): void {
 
 function openCreateNested(): void {
   opts.tieneSubeventos = true
+  childHostId.value = editingId.value
+  childHostName.value = form.name
+  childHostCategoriaId.value = form.categoria_subevento_id
   resetChildForm()
   childDrawerVisible.value = true
 }
@@ -1029,6 +1104,10 @@ async function saveChildSubevent(): Promise<void> {
     childError.value = t('events.wizard.subJointLevelRequired')
     return
   }
+  if (childOpts.esConjunto && !childForm.rol_conjunto) {
+    childError.value = t('events.wizard.subJointRoleRequired')
+    return
+  }
   if (childOpts.requiereEvidencia && !childForm.tipos_evidencia.length) {
     childError.value = t('events.wizard.subEvidenceTypesRequired')
     return
@@ -1058,12 +1137,16 @@ async function saveChildSubevent(): Promise<void> {
       childError.value = t('events.wizard.subParticipantsRangeInvalid')
       return
     }
+    if (mixto && mixtoExceedsTotalMax(childForm)) {
+      childError.value = t('events.wizard.subParticipantsTotalOverMax')
+      return
+    }
   }
   childSaving.value = true
   childError.value = ''
   try {
     opts.tieneSubeventos = true
-    const parentId = editingId.value || (await saveSubevent(true))
+    const parentId = childHostId.value || editingId.value || (await saveSubevent(true))
     if (!parentId) {
       childError.value = errorMessage.value || t('events.wizard.subNameRequired')
       return
@@ -1073,6 +1156,7 @@ async function saveChildSubevent(): Promise<void> {
     const parentStart = dateOnly(form.starts_at) || dateOnly(contextStartsAt())
     const parentEnd = dateOnly(form.ends_at) || dateOnly(contextEndsAt())
     if (
+      childOpts.manejaFechaFin &&
       childOpts.esEnSitio &&
       parentStart &&
       parentEnd &&
@@ -1087,20 +1171,36 @@ async function saveChildSubevent(): Promise<void> {
       reglas: normalizeRichText(childForm.reglas),
       evento_padre_id: parentId,
       organizacion_id: contextOrganizacionId(),
-      categoria_subevento_id: form.categoria_subevento_id,
+      categoria_subevento_id: childHostCategoriaId.value ?? form.categoria_subevento_id,
       tipo_evento_id: childForm.tipo_evento_id ?? form.tipo_evento_id,
       puntaje_maximo: childOpts.manejaPuntaje ? childForm.puntaje_maximo : null,
       puntaje_desde_hijos: false,
       puntaje_por_participar: childOpts.manejaPuntaje && childForm.puntaje_por_participar,
+      criterios_compartidos: childForm.criterios_compartidos !== false,
       tiempo_estimado_minutos: null,
       requiere_puesto_entrega: childOpts.configCalificacion && childForm.requiere_puesto_entrega,
       requiere_tiempo_entrega: childOpts.configCalificacion && childForm.requiere_tiempo_entrega,
+      criterio_tiempo:
+        childOpts.configCalificacion && childForm.requiere_tiempo_entrega
+          ? childForm.criterio_tiempo || 'menor'
+          : null,
+      modo_captura_tiempo:
+        childOpts.configCalificacion && childForm.requiere_tiempo_entrega
+          ? childForm.modo_captura_tiempo || 'digitar'
+          : null,
       resultado_esperado:
         childOpts.configCalificacion &&
         childForm.resultado_esperado != null &&
         childForm.resultado_esperado > 0
           ? childForm.resultado_esperado
           : null,
+      resultado_esperado_etiqueta:
+        childOpts.configCalificacion &&
+        childForm.resultado_esperado != null &&
+        childForm.resultado_esperado > 0
+          ? childForm.resultado_esperado_etiqueta.trim() || null
+          : null,
+      mostrar_resultados_participantes: childForm.mostrar_resultados_participantes !== false,
       participantes_min:
         childOpts.controlParticipantes &&
         childForm.permite_inscribir_no_participantes &&
@@ -1112,20 +1212,16 @@ async function saveChildSubevent(): Promise<void> {
             ? (childForm.participantes_min_m ?? 0) + (childForm.participantes_min_f ?? 0) || null
             : null,
       participantes_max:
-        childOpts.controlParticipantes &&
-        childForm.permite_inscribir_no_participantes &&
-        childForm.participantes_genero !== 'mixto'
+        childOpts.controlParticipantes && childForm.permite_inscribir_no_participantes
           ? childForm.participantes_max
-          : childOpts.controlParticipantes &&
-              childForm.permite_inscribir_no_participantes &&
-              childForm.participantes_genero === 'mixto' &&
-              childForm.participantes_max_m != null &&
-              childForm.participantes_max_f != null
-            ? childForm.participantes_max_m + childForm.participantes_max_f
-            : null,
+          : null,
       permite_inscribir_no_participantes: childOpts.controlParticipantes
         ? childForm.permite_inscribir_no_participantes
         : false,
+      fecha_limite_inscripcion:
+        childOpts.controlParticipantes && childForm.fecha_limite_inscripcion
+          ? toApiDate(childForm.fecha_limite_inscripcion)
+          : null,
       participantes_genero:
         childOpts.controlParticipantes && childForm.permite_inscribir_no_participantes
           ? childForm.participantes_genero
@@ -1158,6 +1254,7 @@ async function saveChildSubevent(): Promise<void> {
       equipos_org_max: null,
       es_conjunto: childOpts.esConjunto,
       nivel_conjunto: childOpts.esConjunto ? childForm.nivel_conjunto : null,
+      rol_conjunto: childOpts.esConjunto ? childForm.rol_conjunto : null,
       maneja_fecha_fin: childOpts.manejaFechaFin || datesDiffer(start, end),
       permite_editar_despues_fin: childOpts.manejaFechaFin ? childOpts.permiteEditarDespuesFin : false,
       maneja_penalizaciones: childOpts.manejaPenalizaciones,
@@ -1165,20 +1262,24 @@ async function saveChildSubevent(): Promise<void> {
       reglas_penalizacion: childOpts.manejaPenalizaciones
         ? childForm.reglas_penalizacion.trim() || null
         : null,
+      premia_puestos: childOpts.premiaPuestos,
+      puntos_puesto_1: childOpts.premiaPuestos ? childForm.puntos_puesto_1 : null,
+      puntos_puesto_2: childOpts.premiaPuestos ? childForm.puntos_puesto_2 : null,
+      puntos_puesto_3: childOpts.premiaPuestos ? childForm.puntos_puesto_3 : null,
       requiere_pago: childOpts.tieneValor,
       precio: childOpts.tieneValor ? childForm.precio : null,
       requiere_evidencia: childOpts.requiereEvidencia,
       tipos_evidencia: childOpts.requiereEvidencia ? [...childForm.tipos_evidencia] : null,
       juez_ids: [...childForm.juez_ids],
       supervisor_ids: [...childForm.supervisor_ids],
-      criterios:
-        childOpts.manejaPuntaje && !childForm.puntaje_por_participar
-          ? childAssignedCriterioIds.value.map((id, index) => ({
-              id,
-              puntos: Number(childCriterioPoints[id] || 0),
-              orden: index,
-            }))
-          : [],
+      criterios: childOpts.manejaPuntaje
+        ? childAssignedCriterioIds.value.map((id, index) => ({
+            id,
+            puntos: Number(childCriterioPoints[id] || 0),
+            orden: index,
+            juez_id: childForm.criterios_compartidos ? null : childCriterioJudges[id] ?? null,
+          }))
+        : [],
       estado: childForm.estado,
       visibilidad: contextVisibilidad.value,
       is_active: childForm.estado === 'publicado',
@@ -1215,8 +1316,16 @@ async function saveChildSubevent(): Promise<void> {
     if (savedId) await flushChildMaterials(savedId)
     await offerJuezConflicts(savedChild)
     childDrawerVisible.value = false
+    if (parentId) {
+      const next = new Set(expandedChildren.value)
+      next.add(parentId)
+      expandedChildren.value = next
+    }
     await loadChildItems(parentId)
     await load()
+    childHostId.value = null
+    childHostName.value = ''
+    childHostCategoriaId.value = null
     emit('changed')
     toast.add({
       severity: 'success',
@@ -1253,13 +1362,19 @@ function resetForm(): void {
   form.categoria_subevento_id = categoriasDisponibles.value[0]?.id ?? null
   form.puntaje_maximo = 100
   form.puntaje_por_participar = false
+  form.criterios_compartidos = true
   form.tiempo_estimado_minutos = null
   form.requiere_puesto_entrega = false
   form.requiere_tiempo_entrega = false
+  form.criterio_tiempo = null
+  form.modo_captura_tiempo = null
   form.resultado_esperado = null
+  form.resultado_esperado_etiqueta = ''
+  form.mostrar_resultados_participantes = true
   form.participantes_min = 1
   form.participantes_max = null
   form.permite_inscribir_no_participantes = false
+  form.fecha_limite_inscripcion = null
   form.participantes_genero = 'cualquiera'
   form.participantes_min_m = null
   form.participantes_max_m = null
@@ -1267,13 +1382,18 @@ function resetForm(): void {
   form.participantes_max_f = null
   form.es_conjunto = false
   form.nivel_conjunto = null
+  form.rol_conjunto = null
   form.puntos_penalizacion = 5
   form.reglas_penalizacion = ''
+  form.puntos_puesto_1 = 10
+  form.puntos_puesto_2 = 7
+  form.puntos_puesto_3 = 5
   form.precio = null
   form.tipos_evidencia = ['link', 'pdf', 'imagen', 'audio', 'video']
   form.estado = 'publicado'
   assignedCriterioIds.value = []
   for (const key of Object.keys(criterioPoints)) delete criterioPoints[Number(key)]
+  for (const key of Object.keys(criterioJudges)) delete criterioJudges[Number(key)]
   opts.manejaPuntaje = false
   opts.puntajeDesdeHijos = false
   opts.configCalificacion = false
@@ -1282,6 +1402,7 @@ function resetForm(): void {
   opts.manejaFechaFin = false
   opts.permiteEditarDespuesFin = false
   opts.manejaPenalizaciones = false
+  opts.premiaPuestos = false
   opts.tieneValor = false
   opts.requiereEvidencia = false
   opts.tieneSubeventos = false
@@ -1307,8 +1428,20 @@ function openCreate(): void {
 }
 
 function openCreateChild(item: ClubEvent): void {
-  enterChildren(item)
-  openCreate()
+  childHostId.value = item.id
+  childHostName.value = item.name
+  childHostCategoriaId.value = item.categoria_subevento_id ?? null
+  resetChildForm()
+  childForm.starts_at = dateOnly(item.starts_at) || dateOnly(contextStartsAt())
+  childForm.ends_at = dateOnly(item.ends_at) || dateOnly(contextEndsAt())
+  childForm.tipo_evento_id = item.tipo_evento_id ?? childForm.tipo_evento_id
+  childForm.reglas = item.reglas || childForm.reglas
+  childForm.juez_ids = [...(item.juez_ids ?? item.jueces?.map((j) => j.id) ?? childForm.juez_ids)]
+  childForm.supervisor_ids = [
+    ...(item.supervisor_ids ?? item.supervisores?.map((s) => s.id) ?? childForm.supervisor_ids),
+  ]
+  childOpts.esEnSitio = item.es_en_sitio ?? true
+  childDrawerVisible.value = true
 }
 
 function openEdit(item: ClubEvent): void {
@@ -1321,15 +1454,31 @@ function openEdit(item: ClubEvent): void {
   form.tipo_evento_id = item.tipo_evento_id ?? null
   form.puntaje_maximo = item.puntaje_maximo ?? null
   form.puntaje_por_participar = !!item.puntaje_por_participar
+  form.criterios_compartidos = item.criterios_compartidos !== false
   form.starts_at = dateOnly(item.starts_at)
   form.ends_at = dateOnly(item.ends_at)
   form.tiempo_estimado_minutos = item.tiempo_estimado_minutos ?? null
   form.requiere_puesto_entrega = !!item.requiere_puesto_entrega
   form.requiere_tiempo_entrega = !!item.requiere_tiempo_entrega || item.tiempo_estimado_minutos != null
+  form.criterio_tiempo =
+    item.criterio_tiempo === 'mayor' || item.criterio_tiempo === 'menor'
+      ? item.criterio_tiempo
+      : form.requiere_tiempo_entrega
+        ? 'menor'
+        : null
+  form.modo_captura_tiempo =
+    item.modo_captura_tiempo === 'cronometro' || item.modo_captura_tiempo === 'digitar'
+      ? item.modo_captura_tiempo
+      : form.requiere_tiempo_entrega
+        ? 'digitar'
+        : null
   form.resultado_esperado = item.resultado_esperado ?? null
+  form.resultado_esperado_etiqueta = item.resultado_esperado_etiqueta ?? ''
+  form.mostrar_resultados_participantes = item.mostrar_resultados_participantes !== false
   form.participantes_min = item.participantes_min ?? null
   form.participantes_max = item.participantes_max ?? null
   form.permite_inscribir_no_participantes = !!item.permite_inscribir_no_participantes
+  form.fecha_limite_inscripcion = dateOnly(item.fecha_limite_inscripcion)
   form.participantes_genero =
     item.participantes_genero === 'M' ||
     item.participantes_genero === 'F' ||
@@ -1342,10 +1491,13 @@ function openEdit(item: ClubEvent): void {
   form.participantes_min_f = item.participantes_min_f ?? null
   form.participantes_max_f = item.participantes_max_f ?? null
   form.es_conjunto = !!item.es_conjunto
-  form.nivel_conjunto =
-    (item.nivel_conjunto as 'club' | 'iglesia' | 'distrito' | 'asociacion' | null) ?? null
+  form.nivel_conjunto = asNivelConjunto(item.nivel_conjunto)
+  form.rol_conjunto = asRolConjunto(item.rol_conjunto)
   form.puntos_penalizacion = item.puntos_penalizacion ?? null
   form.reglas_penalizacion = item.reglas_penalizacion || ''
+  form.puntos_puesto_1 = item.puntos_puesto_1 ?? null
+  form.puntos_puesto_2 = item.puntos_puesto_2 ?? null
+  form.puntos_puesto_3 = item.puntos_puesto_3 ?? null
   form.precio = item.precio ?? null
   form.tipos_evidencia = (item.tipos_evidencia || []).filter(
     (tipo): tipo is 'link' | 'pdf' | 'imagen' | 'audio' | 'video' =>
@@ -1363,8 +1515,10 @@ function openEdit(item: ClubEvent): void {
   ]
   assignedCriterioIds.value = (item.criterios || []).map((c) => c.id)
   for (const key of Object.keys(criterioPoints)) delete criterioPoints[Number(key)]
+  for (const key of Object.keys(criterioJudges)) delete criterioJudges[Number(key)]
   for (const c of item.criterios || []) {
     criterioPoints[c.id] = c.puntos
+    criterioJudges[c.id] = c.juez_id ?? null
   }
   opts.puntajeDesdeHijos = !!item.puntaje_desde_hijos
   opts.manejaPuntaje =
@@ -1374,7 +1528,8 @@ function openEdit(item: ClubEvent): void {
     !!item.requiere_puesto_entrega ||
     !!item.requiere_tiempo_entrega ||
     item.resultado_esperado != null ||
-    item.tiempo_estimado_minutos != null
+    item.tiempo_estimado_minutos != null ||
+    item.mostrar_resultados_participantes === false
   opts.controlParticipantes =
     item.participantes_min != null ||
     item.participantes_max != null ||
@@ -1382,11 +1537,14 @@ function openEdit(item: ClubEvent): void {
     item.participantes_min_m != null ||
     item.participantes_max_m != null ||
     item.participantes_min_f != null ||
-    item.participantes_max_f != null
+    item.participantes_max_f != null ||
+    !!item.permite_inscribir_no_participantes ||
+    !!item.fecha_limite_inscripcion
   opts.esConjunto = !!item.es_conjunto
   opts.manejaFechaFin = !!item.maneja_fecha_fin
   opts.permiteEditarDespuesFin = !!item.permite_editar_despues_fin
   opts.manejaPenalizaciones = !!item.maneja_penalizaciones
+  opts.premiaPuestos = !!item.premia_puestos
   opts.tieneValor = !!item.requiere_pago || item.precio != null
   opts.requiereEvidencia = !!item.requiere_evidencia
   opts.esEnSitio = item.es_en_sitio ?? true
@@ -1429,30 +1587,43 @@ async function refreshChildrenScoreSum(parentId: number | null): Promise<void> {
   }
 }
 
+function asNivelConjunto(value: unknown): EventoNivelConjunto | null {
+  return value === 'club' ||
+    value === 'iglesia' ||
+    value === 'distrito' ||
+    value === 'zona' ||
+    value === 'asociacion'
+    ? value
+    : null
+}
+
+function asRolConjunto(value: unknown): EventoRolConjunto | null {
+  return value === 'director' ||
+    value === 'subdirector' ||
+    value === 'secretario' ||
+    value === 'tesorero' ||
+    value === 'pastor'
+    ? value
+    : null
+}
+
 function nivelConjuntoLabel(nivel: string | null | undefined): string {
   if (!nivel) return '—'
   return nivelConjuntoOptions.value.find((o) => o.value === nivel)?.label || nivel
 }
 
-
-function enterChildren(item: ClubEvent): void {
-  navStack.value = [...navStack.value, toNavNode(item)]
-  selectedId.value = null
-  search.value = ''
-  detailTab.value = 'info'
-  void load()
+function rolConjuntoLabel(rol: string | null | undefined): string {
+  if (!rol) return '—'
+  return rolConjuntoOptions.value.find((o) => o.value === rol)?.label || rol
 }
 
-function goBreadcrumb(index: number): void {
-  if (index < 0) {
-    navStack.value = []
-  } else {
-    navStack.value = navStack.value.slice(0, index + 1)
-  }
-  selectedId.value = null
-  search.value = ''
-  void load()
+function conjuntoSummary(nivel: string | null | undefined, rol: string | null | undefined): string {
+  const nivelLabel = nivelConjuntoLabel(nivel)
+  const rolLabel = rolConjuntoLabel(rol)
+  if (!rol) return nivelLabel
+  return `${nivelLabel} · ${rolLabel}`
 }
+
 
 async function load(): Promise<void> {
   if (!activeParentId.value) {
@@ -1492,6 +1663,10 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
     errorMessage.value = t('events.wizard.subJointLevelRequired')
     return null
   }
+  if (opts.esConjunto && !form.rol_conjunto) {
+    errorMessage.value = t('events.wizard.subJointRoleRequired')
+    return null
+  }
   if (opts.requiereEvidencia && !form.tipos_evidencia.length) {
     errorMessage.value = t('events.wizard.subEvidenceTypesRequired')
     return null
@@ -1521,6 +1696,10 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
       errorMessage.value = t('events.wizard.subParticipantsRangeInvalid')
       return null
     }
+    if (mixto && mixtoExceedsTotalMax(form)) {
+      errorMessage.value = t('events.wizard.subParticipantsTotalOverMax')
+      return null
+    }
   }
   saving.value = true
   errorMessage.value = ''
@@ -1545,7 +1724,10 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
       endDate = ensureEndAfterStart(startDate, endDate)
     }
 
-    if (opts.esEnSitio && !datesFitParent(startDate, endDate)) {
+    const managesOwnDates = Boolean(
+      opts.manejaFechaFin || selectedCategoria.value?.maneja_fecha_inicio,
+    )
+    if (managesOwnDates && opts.esEnSitio && !datesFitParent(startDate, endDate)) {
       errorMessage.value = t('events.subDatesOutOfRange')
       return null
     }
@@ -1570,13 +1752,27 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
       puntaje_desde_hijos: opts.puntajeDesdeHijos,
       puntaje_por_participar:
         opts.manejaPuntaje && !opts.puntajeDesdeHijos && form.puntaje_por_participar,
+      criterios_compartidos: form.criterios_compartidos !== false,
       tiempo_estimado_minutos: null,
       requiere_puesto_entrega: opts.configCalificacion && form.requiere_puesto_entrega,
       requiere_tiempo_entrega: opts.configCalificacion && form.requiere_tiempo_entrega,
+      criterio_tiempo:
+        opts.configCalificacion && form.requiere_tiempo_entrega
+          ? form.criterio_tiempo || 'menor'
+          : null,
+      modo_captura_tiempo:
+        opts.configCalificacion && form.requiere_tiempo_entrega
+          ? form.modo_captura_tiempo || 'digitar'
+          : null,
       resultado_esperado:
         opts.configCalificacion && form.resultado_esperado != null && form.resultado_esperado > 0
           ? form.resultado_esperado
           : null,
+      resultado_esperado_etiqueta:
+        opts.configCalificacion && form.resultado_esperado != null && form.resultado_esperado > 0
+          ? form.resultado_esperado_etiqueta.trim() || null
+          : null,
+      mostrar_resultados_participantes: form.mostrar_resultados_participantes !== false,
       participantes_min:
         opts.controlParticipantes &&
         form.permite_inscribir_no_participantes &&
@@ -1588,20 +1784,16 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
             ? (form.participantes_min_m ?? 0) + (form.participantes_min_f ?? 0) || null
             : null,
       participantes_max:
-        opts.controlParticipantes &&
-        form.permite_inscribir_no_participantes &&
-        form.participantes_genero !== 'mixto'
+        opts.controlParticipantes && form.permite_inscribir_no_participantes
           ? form.participantes_max
-          : opts.controlParticipantes &&
-              form.permite_inscribir_no_participantes &&
-              form.participantes_genero === 'mixto' &&
-              form.participantes_max_m != null &&
-              form.participantes_max_f != null
-            ? form.participantes_max_m + form.participantes_max_f
-            : null,
+          : null,
       permite_inscribir_no_participantes: opts.controlParticipantes
         ? form.permite_inscribir_no_participantes
         : false,
+      fecha_limite_inscripcion:
+        opts.controlParticipantes && form.fecha_limite_inscripcion
+          ? toApiDate(form.fecha_limite_inscripcion)
+          : null,
       participantes_genero:
         opts.controlParticipantes && form.permite_inscribir_no_participantes
           ? form.participantes_genero
@@ -1634,6 +1826,7 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
       equipos_org_max: null,
       es_conjunto: opts.esConjunto,
       nivel_conjunto: opts.esConjunto ? form.nivel_conjunto : null,
+      rol_conjunto: opts.esConjunto ? form.rol_conjunto : null,
       maneja_fecha_fin: opts.manejaFechaFin,
       permite_editar_despues_fin: opts.manejaFechaFin ? opts.permiteEditarDespuesFin : false,
       maneja_penalizaciones: opts.manejaPenalizaciones,
@@ -1641,6 +1834,10 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
       reglas_penalizacion: opts.manejaPenalizaciones
         ? form.reglas_penalizacion.trim() || null
         : null,
+      premia_puestos: opts.premiaPuestos,
+      puntos_puesto_1: opts.premiaPuestos ? form.puntos_puesto_1 : null,
+      puntos_puesto_2: opts.premiaPuestos ? form.puntos_puesto_2 : null,
+      puntos_puesto_3: opts.premiaPuestos ? form.puntos_puesto_3 : null,
       requiere_pago: opts.tieneValor,
       precio: opts.tieneValor ? form.precio : null,
       requiere_evidencia: opts.requiereEvidencia,
@@ -1648,11 +1845,12 @@ async function saveSubevent(keepDrawerOpen = false): Promise<number | null> {
       juez_ids: [...form.juez_ids],
       supervisor_ids: [...form.supervisor_ids],
       criterios:
-        opts.manejaPuntaje && !opts.puntajeDesdeHijos && !form.puntaje_por_participar
+        opts.manejaPuntaje && !opts.puntajeDesdeHijos
           ? assignedCriterioIds.value.map((id, index) => ({
               id,
               puntos: Number(criterioPoints[id] || 0),
               orden: index,
+              juez_id: form.criterios_compartidos ? null : criterioJudges[id] ?? null,
             }))
           : [],
       estado: form.estado,
@@ -2031,7 +2229,10 @@ watch(
     if (!on) {
       form.requiere_puesto_entrega = false
       form.requiere_tiempo_entrega = false
+      form.criterio_tiempo = null
+      form.modo_captura_tiempo = null
       form.resultado_esperado = null
+      form.resultado_esperado_etiqueta = ''
     }
   },
 )
@@ -2052,6 +2253,7 @@ watch(
   () => opts.controlParticipantes,
   (on) => {
     if (on) ensureParticipantQuotaDefaults()
+    else form.fecha_limite_inscripcion = null
   },
 )
 
@@ -2088,7 +2290,10 @@ watch(
     if (!on) {
       childForm.requiere_puesto_entrega = false
       childForm.requiere_tiempo_entrega = false
+      childForm.criterio_tiempo = null
+      childForm.modo_captura_tiempo = null
       childForm.resultado_esperado = null
+      childForm.resultado_esperado_etiqueta = ''
     }
   },
 )
@@ -2109,6 +2314,7 @@ watch(
   () => childOpts.controlParticipantes,
   (on) => {
     if (on) ensureChildParticipantQuotaDefaults()
+    else childForm.fecha_limite_inscripcion = null
   },
 )
 
@@ -2137,7 +2343,24 @@ watch(
   (on) => {
     form.es_conjunto = on
     if (on && !form.nivel_conjunto) form.nivel_conjunto = 'club'
-    if (!on) form.nivel_conjunto = null
+    if (on && !form.rol_conjunto) form.rol_conjunto = 'director'
+    if (!on) {
+      form.nivel_conjunto = null
+      form.rol_conjunto = null
+    }
+  },
+)
+
+watch(
+  () => childOpts.esConjunto,
+  (on) => {
+    childForm.es_conjunto = on
+    if (on && !childForm.nivel_conjunto) childForm.nivel_conjunto = 'club'
+    if (on && !childForm.rol_conjunto) childForm.rol_conjunto = 'director'
+    if (!on) {
+      childForm.nivel_conjunto = null
+      childForm.rol_conjunto = null
+    }
   },
 )
 
@@ -2155,6 +2378,26 @@ watch(
   () => opts.manejaPenalizaciones,
   (on) => {
     if (on && form.puntos_penalizacion == null) form.puntos_penalizacion = 5
+  },
+)
+
+watch(
+  () => opts.premiaPuestos,
+  (on) => {
+    if (!on) return
+    if (form.puntos_puesto_1 == null) form.puntos_puesto_1 = 10
+    if (form.puntos_puesto_2 == null) form.puntos_puesto_2 = 7
+    if (form.puntos_puesto_3 == null) form.puntos_puesto_3 = 5
+  },
+)
+
+watch(
+  () => childOpts.premiaPuestos,
+  (on) => {
+    if (!on) return
+    if (childForm.puntos_puesto_1 == null) childForm.puntos_puesto_1 = 10
+    if (childForm.puntos_puesto_2 == null) childForm.puntos_puesto_2 = 7
+    if (childForm.puntos_puesto_3 == null) childForm.puntos_puesto_3 = 5
   },
 )
 
@@ -2250,26 +2493,11 @@ onBeforeUnmount(() => {
     </Message>
 
     <template v-else>
-      <nav v-if="isNested || parentName" class="sub-breadcrumb" aria-label="Breadcrumb">
-        <button type="button" class="sub-breadcrumb__item" :class="{ 'is-current': !isNested }" @click="goBreadcrumb(-1)">
-          {{ parentName || t('events.wizard.stepSubevents') }}
-        </button>
-        <template v-for="(node, index) in navStack" :key="node.id">
-          <i class="pi pi-chevron-right sub-breadcrumb__sep" />
-          <button
-            type="button"
-            class="sub-breadcrumb__item"
-            :class="{ 'is-current': index === navStack.length - 1 }"
-            @click="goBreadcrumb(index)"
-          >
-            {{ node.name }}
-          </button>
-        </template>
+      <nav v-if="parentName" class="sub-breadcrumb" aria-label="Breadcrumb">
+        <span class="sub-breadcrumb__item is-current">
+          {{ parentName }}
+        </span>
       </nav>
-
-      <Message v-if="isNested" severity="info" :closable="false">
-        {{ t('events.wizard.subNestedLead', { name: activeParentName }) }}
-      </Message>
 
       <Message v-if="errorMessage" severity="error" :closable="true" @close="errorMessage = ''">
         {{ errorMessage }}
@@ -2425,16 +2653,6 @@ onBeforeUnmount(() => {
                       <Button
                         type="button"
                         class="sub-action--desktop"
-                        icon="pi pi-sitemap"
-                        text
-                        rounded
-                        size="small"
-                        v-tooltip.top="t('events.wizard.subOpenChildren')"
-                        @click="enterChildren(item)"
-                      />
-                      <Button
-                        type="button"
-                        class="sub-action--desktop"
                         icon="pi pi-pencil"
                         text
                         rounded
@@ -2492,7 +2710,6 @@ onBeforeUnmount(() => {
                         @edit="openEdit"
                         @remove="removeSubevent"
                         @duplicate="duplicateSubevent"
-                        @enter="enterChildren"
                         @add-child="openCreateChild"
                         @drag-start="onDragStartItem"
                         @drag-over="onDragOverItem"
@@ -2582,7 +2799,13 @@ onBeforeUnmount(() => {
               </li>
               <li v-if="selected.puntaje_maximo != null || selected.es_calificable || selected.puntaje_desde_hijos">
                 <i class="pi pi-star" />
-                <span>{{ t('events.wizard.subColScore') }}</span>
+                <span>
+                  {{
+                    selected.puntaje_por_participar
+                      ? t('events.wizard.subOptScoreByParticipation')
+                      : t('events.wizard.subColScore')
+                  }}
+                </span>
                 <strong>
                   {{ Number(selected.puntaje_maximo || 0) }} pts
                   <template v-if="selected.puntaje_desde_hijos">
@@ -2608,12 +2831,33 @@ onBeforeUnmount(() => {
               <li v-if="selected.requiere_tiempo_entrega">
                 <i class="pi pi-clock" />
                 <span>{{ t('events.wizard.subTiempoEntrega') }}</span>
-                <strong>{{ t('common.yes') }}</strong>
+                <strong>
+                  {{
+                    [
+                      selected.criterio_tiempo === 'mayor'
+                        ? t('events.wizard.subTiempoMayor')
+                        : t('events.wizard.subTiempoMenor'),
+                      selected.modo_captura_tiempo === 'cronometro'
+                        ? t('events.wizard.subTiempoCronometro')
+                        : t('events.wizard.subTiempoDigitar'),
+                    ].join(' · ')
+                  }}
+                </strong>
               </li>
               <li v-if="selected.resultado_esperado != null">
                 <i class="pi pi-check-square" />
                 <span>{{ t('events.wizard.subResultadoEsperado') }}</span>
-                <strong>{{ selected.resultado_esperado }}</strong>
+                <strong>
+                  {{ selected.resultado_esperado }}
+                  <template v-if="selected.resultado_esperado_etiqueta">
+                    {{ selected.resultado_esperado_etiqueta }}
+                  </template>
+                </strong>
+              </li>
+              <li v-if="selected.mostrar_resultados_participantes === false">
+                <i class="pi pi-eye-slash" />
+                <span>{{ t('events.wizard.subMostrarResultados') }}</span>
+                <strong>{{ t('common.no') }}</strong>
               </li>
               <li
                 v-if="
@@ -2626,10 +2870,15 @@ onBeforeUnmount(() => {
                 <span>{{ t('events.wizard.subParticipants') }}</span>
                 <strong>{{ participantesQuotaLabel(selected) }}</strong>
               </li>
+              <li v-if="selected.fecha_limite_inscripcion">
+                <i class="pi pi-calendar" />
+                <span>{{ t('events.wizard.enrollmentDeadline') }}</span>
+                <strong>{{ formatDateOnly(selected.fecha_limite_inscripcion) }}</strong>
+              </li>
               <li v-if="selected.es_conjunto">
                 <i class="pi pi-share-alt" />
                 <span>{{ t('events.wizard.subOptJoint') }}</span>
-                <strong>{{ nivelConjuntoLabel(selected.nivel_conjunto) }}</strong>
+                <strong>{{ conjuntoSummary(selected.nivel_conjunto, selected.rol_conjunto) }}</strong>
               </li>
               <li v-if="selected.maneja_fecha_fin">
                 <i class="pi pi-calendar-times" />
@@ -2661,6 +2910,19 @@ onBeforeUnmount(() => {
                   <template v-if="selected.reglas_penalizacion">
                     · {{ selected.reglas_penalizacion }}
                   </template>
+                </strong>
+              </li>
+              <li v-if="selected.premia_puestos">
+                <i class="pi pi-trophy" />
+                <span>{{ t('events.wizard.subOptPlacement') }}</span>
+                <strong>
+                  {{
+                    t('events.wizard.subPlacementSummary', {
+                      first: Number(selected.puntos_puesto_1 || 0),
+                      second: Number(selected.puntos_puesto_2 || 0),
+                      third: Number(selected.puntos_puesto_3 || 0),
+                    })
+                  }}
                 </strong>
               </li>
               <li v-if="selected.requiere_pago || selected.precio != null">
@@ -2726,13 +2988,6 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="sub-detail__actions">
-            <Button
-              type="button"
-              :label="t('events.wizard.subOpenChildren')"
-              icon="pi pi-sitemap"
-              outlined
-              @click="enterChildren(selected)"
-            />
             <Button
               type="button"
               :label="t('events.wizard.subAddChild')"
@@ -2856,11 +3111,13 @@ onBeforeUnmount(() => {
           :opts="opts"
           :assigned-criterio-ids="assignedCriterioIds"
           :criterio-points="criterioPoints"
+          :criterio-judges="criterioJudges"
           :criterio-options="criterioOptions"
           :juez-options="juezOptions"
           :supervisor-options="supervisorOptions"
           :participantes-genero-options="participantesGeneroOptions"
           :nivel-conjunto-options="nivelConjuntoOptions"
+          :rol-conjunto-options="rolConjuntoOptions"
           :materiales="materiales"
           :event-id="editingId"
           :children-score-sum="childrenScoreSum"
@@ -2924,7 +3181,7 @@ onBeforeUnmount(() => {
     <AppStackDrawer
       v-model:visible="childDrawerVisible"
       :title="childEditingId ? t('events.wizard.subEdit') : t('events.wizard.subChildrenAdd')"
-      :subtitle="form.name || activeParentName"
+      :subtitle="childHostName || form.name || activeParentName"
       :level="2"
     >
       <div class="sub-form">
@@ -3023,11 +3280,13 @@ onBeforeUnmount(() => {
           :opts="childOpts"
           :assigned-criterio-ids="childAssignedCriterioIds"
           :criterio-points="childCriterioPoints"
+          :criterio-judges="childCriterioJudges"
           :criterio-options="criterioOptions"
           :juez-options="juezOptions"
           :supervisor-options="supervisorOptions"
           :participantes-genero-options="participantesGeneroOptions"
           :nivel-conjunto-options="nivelConjuntoOptions"
+          :rol-conjunto-options="rolConjuntoOptions"
           :materiales="childMateriales"
           :event-id="childEditingId"
           hide-children
@@ -3071,6 +3330,34 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+  color: var(--pj-text);
+  font-family: var(--pj-font-sans);
+  letter-spacing: 0;
+}
+
+.sub-step :deep(h1),
+.sub-step :deep(h2),
+.sub-step :deep(h3),
+.sub-step :deep(h4),
+.sub-step :deep(strong),
+.sub-step :deep(b),
+.sub-step :deep(td),
+.sub-step :deep(.col-score),
+.sub-step :deep(.sub-tree__body strong),
+.sub-step :deep(.sub-tree__score) {
+  font-family: var(--pj-font-sans);
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
+}
+
+.sub-step :deep(p),
+.sub-step :deep(li),
+.sub-step :deep(small),
+.sub-step :deep(.meta-list span) {
+  font-family: var(--pj-font-sans);
+  letter-spacing: 0;
+  color: inherit;
 }
 
 .step-section-title {
@@ -3207,6 +3494,13 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid color-mix(in srgb, var(--pj-border) 65%, transparent);
   text-align: left;
   vertical-align: middle;
+  color: var(--pj-text);
+  font-family: var(--pj-font-sans);
+}
+
+.sub-table td.col-score {
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .sub-table th {
@@ -3450,6 +3744,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  color: var(--pj-text);
+  font-family: var(--pj-font-sans);
 }
 
 .sub-detail__media {
@@ -3524,13 +3820,17 @@ onBeforeUnmount(() => {
 
 .sub-detail__body h4 {
   margin: 0 0 0.35rem;
+  font-family: var(--pj-font-sans);
   font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .sub-detail__body p {
   margin: 0 0 0.75rem;
   font-size: 0.88rem;
-  color: color-mix(in srgb, var(--pj-text) 85%, transparent);
+  color: var(--pj-text);
 }
 
 .meta-list {
@@ -3548,6 +3848,13 @@ onBeforeUnmount(() => {
   gap: 0.45rem;
   align-items: center;
   font-size: 0.84rem;
+  color: var(--pj-text);
+}
+
+.meta-list span,
+.meta-list strong {
+  font-family: var(--pj-font-sans);
+  color: var(--pj-text);
 }
 
 .meta-list i {

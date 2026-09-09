@@ -39,6 +39,7 @@ final class EventCalificacionAggregator
                 'puntaje_obtenido' => round((float) $cal->puntaje_obtenido, 2),
                 'observaciones' => $cal->observaciones,
                 'updated_at' => $cal->updated_at?->toIso8601String(),
+                ...$this->extrasPayload($cal),
             ];
         }
 
@@ -53,10 +54,89 @@ final class EventCalificacionAggregator
             'es_agregado' => false,
             'es_promedio' => true,
             'jueces_count' => $judgeRows->count(),
+            'permite_editar_evidencia' => $judgeRows->contains(
+                fn (EventoCalificacion $c) => (bool) $c->permite_editar_evidencia
+            ),
             'aportes' => $aportes,
             'observaciones_director' => null,
             'observaciones_director_updated_at' => null,
             'detalles' => $this->averageDetalles($judgeRows),
+            ...$this->extrasPayload($latest),
+        ];
+    }
+
+    /**
+     * Suma los criterios de varios jueces cuando cada uno califica un subconjunto.
+     *
+     * @param  Collection<int, EventoCalificacion>  $rows
+     * @return array<string, mixed>|null
+     */
+    public function composedPayload(Collection $rows, float $participationBonus = 0.0): ?array
+    {
+        $judgeRows = $rows
+            ->filter(fn (EventoCalificacion $c) => $c->calificado_por !== null)
+            ->sortBy('id')
+            ->values();
+
+        if ($judgeRows->isEmpty()) {
+            $legacy = $rows->sortByDesc('id')->first();
+
+            return $legacy ? $this->singlePayload($legacy, false) : null;
+        }
+
+        if ($judgeRows->count() === 1 && $participationBonus <= 0) {
+            return $this->singlePayload($judgeRows->first(), false);
+        }
+
+        $detalles = [];
+        $aportes = [];
+        $latest = null;
+        foreach ($judgeRows as $index => $cal) {
+            $rowsDetalles = $cal->relationLoaded('detalles') ? $cal->detalles : $cal->detalles()->get();
+            $parte = 0.0;
+            foreach ($rowsDetalles as $d) {
+                $cid = (int) $d->criterio_evaluacion_id;
+                $puntos = (float) $d->puntos;
+                $detalles[$cid] = $puntos;
+                $parte += $puntos;
+            }
+            $aportes[] = [
+                'etiqueta' => 'Juez '.($index + 1),
+                'puntaje_obtenido' => round($parte, 2),
+                'observaciones' => $cal->observaciones,
+                'updated_at' => $cal->updated_at?->toIso8601String(),
+                ...$this->extrasPayload($cal),
+            ];
+            if ($latest === null || ($cal->updated_at && $latest->updated_at && $cal->updated_at->gt($latest->updated_at))) {
+                $latest = $cal;
+            }
+        }
+
+        $detalleList = [];
+        foreach ($detalles as $cid => $puntos) {
+            $detalleList[] = [
+                'criterio_evaluacion_id' => (int) $cid,
+                'puntos' => round((float) $puntos, 2),
+            ];
+        }
+
+        return [
+            'id' => null,
+            'puntaje_obtenido' => round(array_sum($detalles) + $participationBonus, 2),
+            'observaciones' => null,
+            'calificado_por' => null,
+            'updated_at' => $latest?->updated_at?->toIso8601String(),
+            'es_agregado' => true,
+            'es_promedio' => false,
+            'jueces_count' => $judgeRows->count(),
+            'permite_editar_evidencia' => $judgeRows->contains(
+                fn (EventoCalificacion $c) => (bool) $c->permite_editar_evidencia
+            ),
+            'aportes' => $aportes,
+            'observaciones_director' => null,
+            'observaciones_director_updated_at' => null,
+            'detalles' => $detalleList,
+            ...$this->extrasPayload($latest),
         ];
     }
 
@@ -72,6 +152,7 @@ final class EventCalificacionAggregator
                 'puntaje_obtenido' => round((float) $cal->puntaje_obtenido, 2),
                 'observaciones' => $cal->observaciones,
                 'updated_at' => $cal->updated_at?->toIso8601String(),
+                ...$this->extrasPayload($cal),
             ];
         }
 
@@ -84,6 +165,8 @@ final class EventCalificacionAggregator
             'es_agregado' => false,
             'es_promedio' => false,
             'jueces_count' => $cal->calificado_por !== null ? 1 : 0,
+            'permite_editar_evidencia' => $cal->calificado_por !== null
+                && (bool) $cal->permite_editar_evidencia,
             'aportes' => $aportes,
             'observaciones_director' => null,
             'observaciones_director_updated_at' => null,
@@ -92,6 +175,27 @@ final class EventCalificacionAggregator
                     'criterio_evaluacion_id' => (int) $d->criterio_evaluacion_id,
                     'puntos' => (float) $d->puntos,
                 ])->values()->all(),
+            ...$this->extrasPayload($cal),
+        ];
+    }
+
+    /**
+     * @return array{puesto_entrega: string|null, tiempo_entrega: string|null, resultado_obtenido: int|null}
+     */
+    private function extrasPayload(?EventoCalificacion $cal): array
+    {
+        if (! $cal) {
+            return [
+                'puesto_entrega' => null,
+                'tiempo_entrega' => null,
+                'resultado_obtenido' => null,
+            ];
+        }
+
+        return [
+            'puesto_entrega' => $cal->puesto_entrega,
+            'tiempo_entrega' => $cal->tiempo_entrega,
+            'resultado_obtenido' => $cal->resultado_obtenido !== null ? (int) $cal->resultado_obtenido : null,
         ];
     }
 

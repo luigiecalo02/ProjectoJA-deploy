@@ -9,13 +9,17 @@ use App\Modules\Clubs\Models\Club;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Clubs\Services\ClubService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
+use App\Modules\Shared\Services\PublicFileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 final class ClubController
 {
-    public function __construct(private readonly ClubService $clubService) {}
+    public function __construct(
+        private readonly ClubService $clubService,
+        private readonly PublicFileService $publicFiles,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -23,7 +27,7 @@ final class ClubController
 
         $paginator = $this->clubService->list(
             $request->user(),
-            $request->only(['q', 'is_active']),
+            $request->only(['q', 'is_active', 'organizacion_id', 'tipo_club']),
             (int) $request->integer('per_page', 15),
         );
         $paginator->getCollection()->transform(fn (Club $club) => $this->payload($club));
@@ -197,13 +201,14 @@ final class ClubController
             'nombre' => $club->nombre,
             'nombre_corto' => $club->nombre_corto,
             'lema' => $club->lema,
-            'logo' => $club->logo,
-            'logo_url' => $club->logo,
+            'logo' => $this->publicFileUrl($club->logo),
+            'logo_url' => $this->publicFileUrl($club->logo),
             'fecha_fundacion' => optional($club->fecha_fundacion)?->format('Y-m-d'),
             'descripcion' => $club->descripcion,
             'color_principal' => $club->color_principal,
             'color_secundario' => $club->color_secundario,
             'sitio_web' => $club->sitio_web,
+            'zona' => $detailed ? $this->zonaLabelForClub($club) : null,
             'distrito' => $club->distrito,
             'ciudad' => $club->ciudad,
             'tipos' => array_values($club->tipos ?? []),
@@ -244,5 +249,22 @@ final class ClubController
         }
 
         return $data;
+    }
+
+    private function zonaLabelForClub(Club $club): ?string
+    {
+        $iglesiaId = $club->relationLoaded('organizacion')
+            ? $club->organizacion?->organizacion_padre_id
+            : null;
+        if (! $iglesiaId) {
+            return null;
+        }
+
+        return $this->clubService->locationLabelsFromIglesia((int) $iglesiaId)['zona'];
+    }
+
+    private function publicFileUrl(?string $value): ?string
+    {
+        return $this->publicFiles->url($value);
     }
 }

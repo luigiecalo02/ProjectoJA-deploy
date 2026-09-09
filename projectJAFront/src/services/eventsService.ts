@@ -570,6 +570,26 @@ export const eventsService = {
     return data.data
   },
 
+  async unlockJudgeEvidenceEdit(
+    actividadId: number,
+    organizacionId: number,
+  ): Promise<{ permite_editar_evidencia: boolean }> {
+    const { data } = await api.post<ApiEnvelope<{ permite_editar_evidencia: boolean }>>(
+      `/api/v1/events/${actividadId}/calificaciones/evidencia-edicion`,
+      { organizacion_id: organizacionId },
+    )
+    return data.data
+  },
+
+  async unlockDirectorEvidenceEdit(
+    actividadId: number,
+  ): Promise<{ permite_editar_evidencia: boolean }> {
+    const { data } = await api.post<ApiEnvelope<{ permite_editar_evidencia: boolean }>>(
+      `/api/v1/events/${actividadId}/evidencia-edicion`,
+    )
+    return data.data
+  },
+
   async saveCalificacion(
     subeventoId: number,
     payload: {

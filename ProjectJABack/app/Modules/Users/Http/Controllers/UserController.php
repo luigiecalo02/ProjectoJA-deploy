@@ -149,6 +149,7 @@ final class UserController
             'email' => $user->email,
             'avatar_url' => $this->publicAvatarUrl($user->avatar_url),
             'is_active' => $user->is_active,
+            'email_verified' => (bool) $user->email_verified_at,
             'is_super' => $user->isSuperAdmin(),
             'is_admin' => (bool) $user->is_admin,
             'provider' => $user->provider,

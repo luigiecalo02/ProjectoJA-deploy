@@ -99,11 +99,19 @@ final class OrganizacionService
      */
     public function tipos(): array
     {
-        return TipoOrganizacion::query()
+        $tipos = TipoOrganizacion::query()
             ->where('estado', true)
-            ->orderBy('id')
+            ->whereNotIn('id', Organizacion::tiposRetiradosHijoClub())
+            ->where(function ($query) {
+                $query->whereNull('tipo_organizacion_padre_id')
+                    ->orWhere('tipo_organizacion_padre_id', '!=', Organizacion::TIPO_CLUB);
+            })
             ->get()
             ->all();
+
+        usort($tipos, fn (TipoOrganizacion $a, TipoOrganizacion $b) => Organizacion::rangoJerarquia((int) $a->id) <=> Organizacion::rangoJerarquia((int) $b->id));
+
+        return $tipos;
     }
 
     /**
@@ -182,7 +190,32 @@ final class OrganizacionService
         }
         unset($node);
 
+        $this->sortTreeNodes($roots);
+
         return $roots;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $nodes
+     */
+    private function sortTreeNodes(array &$nodes): void
+    {
+        usort($nodes, function (array $a, array $b): int {
+            $rank = Organizacion::rangoJerarquia((int) $a['tipo_organizacion_id'])
+                <=> Organizacion::rangoJerarquia((int) $b['tipo_organizacion_id']);
+            if ($rank !== 0) {
+                return $rank;
+            }
+
+            return strcasecmp((string) $a['nombre'], (string) $b['nombre']);
+        });
+
+        foreach ($nodes as &$node) {
+            if (! empty($node['children']) && is_array($node['children'])) {
+                $this->sortTreeNodes($node['children']);
+            }
+        }
+        unset($node);
     }
 
     /**
@@ -305,7 +338,12 @@ final class OrganizacionService
             if ($tipoHijo->tipo_organizacion_padre_id === null) {
                 return [];
             }
-            $query->where('tipo_organizacion_id', $tipoHijo->tipo_organizacion_padre_id);
+            $parentTipoIds = [(int) $tipoHijo->tipo_organizacion_padre_id];
+            if ($tipoHijoId === Organizacion::TIPO_DISTRITO) {
+                $parentTipoIds[] = Organizacion::TIPO_ASOCIACION;
+                $parentTipoIds[] = Organizacion::TIPO_ZONA;
+            }
+            $query->whereIn('tipo_organizacion_id', array_values(array_unique($parentTipoIds)));
         }
 
         return $query->get([
@@ -327,6 +365,7 @@ final class OrganizacionService
     {
         $padreId = isset($data['organizacion_padre_id']) ? (int) $data['organizacion_padre_id'] : null;
         $tipoId = (int) $data['tipo_organizacion_id'];
+        $this->assertTipoEsDeCatalogo($tipoId);
         $this->assertValidParent($padreId);
         $this->assertParentMatchesTipo($tipoId, $padreId);
 
@@ -488,6 +527,7 @@ final class OrganizacionService
         return match ($tipoId) {
             Organizacion::TIPO_UNION => $this->resolveUnionLocation($data),
             Organizacion::TIPO_ASOCIACION => $this->resolveAsociacionLocation($data, $padre),
+            Organizacion::TIPO_ZONA => $this->resolveZonaLocation($data, $padre),
             Organizacion::TIPO_DISTRITO => $this->resolveDistritoLocation($data, $padre),
             Organizacion::TIPO_IGLESIA => $this->resolveIglesiaLocation($data, $padre),
             Organizacion::TIPO_CLUB,
@@ -572,12 +612,80 @@ final class OrganizacionService
      * @param  array<string, mixed>  $data
      * @return array{pais_id: int|null, departamento_id: int|null, ciudad_id: int|null, direccion: string|null}
      */
+    private function resolveZonaLocation(array $data, ?Organizacion $padre): array
+    {
+        if (! $padre?->pais_id) {
+            throw ValidationException::withMessages([
+                'organizacion_padre_id' => ['La Zona debe pertenecer a una Asociación con país definido.'],
+            ]);
+        }
+
+        $permitidos = $padre->coberturaDepartamentoIds();
+        if ($permitidos === []) {
+            throw ValidationException::withMessages([
+                'organizacion_padre_id' => ['La Asociación padre no tiene departamentos asignados.'],
+            ]);
+        }
+
+        $ids = $this->normalizeDepartamentoIds($data, (int) $padre->pais_id);
+        if ($ids === []) {
+            throw ValidationException::withMessages([
+                'departamento_ids' => ['La Zona debe indicar al menos un departamento.'],
+            ]);
+        }
+
+        foreach ($ids as $id) {
+            if (! in_array($id, $permitidos, true)) {
+                throw ValidationException::withMessages([
+                    'departamento_ids' => ['Los departamentos de la zona deben pertenecer a la asociación.'],
+                ]);
+            }
+        }
+
+        $ciudadIds = $this->normalizeCiudadIds($data, $ids);
+        if ($ciudadIds === []) {
+            throw ValidationException::withMessages([
+                'ciudad_ids' => ['La Zona debe indicar al menos un municipio.'],
+            ]);
+        }
+
+        return [
+            'pais_id' => (int) $padre->pais_id,
+            'departamento_id' => $ids[0],
+            'ciudad_id' => $ciudadIds[0],
+            'direccion' => null,
+            'departamento_ids' => $ids,
+            'ciudad_ids' => $ciudadIds,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{pais_id: int|null, departamento_id: int|null, ciudad_id: int|null, direccion: string|null}
+     */
     private function resolveDistritoLocation(array $data, ?Organizacion $padre): array
     {
         if (! $padre?->pais_id) {
             throw ValidationException::withMessages([
-                'organizacion_padre_id' => ['El Distrito debe pertenecer a una Asociación con país definido.'],
+                'organizacion_padre_id' => ['El Distrito debe pertenecer a una Zona (o Asociación) con país definido.'],
             ]);
+        }
+
+        if ((int) $padre->tipo_organizacion_id === Organizacion::TIPO_ZONA) {
+            $deptoIds = $padre->coberturaDepartamentoIds();
+            $ciudadIds = $padre->coberturaCiudadIds();
+            if ($deptoIds === [] || $ciudadIds === []) {
+                throw ValidationException::withMessages([
+                    'organizacion_padre_id' => ['La Zona padre debe tener departamentos y municipios asignados.'],
+                ]);
+            }
+
+            return [
+                'pais_id' => (int) $padre->pais_id,
+                'departamento_id' => $deptoIds[0],
+                'ciudad_id' => $ciudadIds[0],
+                'direccion' => null,
+            ];
         }
 
         $permitidos = $padre->coberturaDepartamentoIds();
@@ -795,6 +903,7 @@ final class OrganizacionService
         return match ($tipoId) {
             Organizacion::TIPO_UNION => 'UNI',
             Organizacion::TIPO_ASOCIACION => 'ASO',
+            Organizacion::TIPO_ZONA => 'ZON',
             Organizacion::TIPO_DISTRITO => 'DIS',
             Organizacion::TIPO_IGLESIA => 'IGL',
             Organizacion::TIPO_CLUB => 'CLB',
@@ -813,7 +922,11 @@ final class OrganizacionService
     private function syncDepartamentosCobertura(Organizacion $organizacion, array $data, ?int $paisId): void
     {
         $tipoId = (int) $organizacion->tipo_organizacion_id;
-        if (! in_array($tipoId, [Organizacion::TIPO_ASOCIACION, Organizacion::TIPO_DISTRITO], true)) {
+        $cubreDepartamentos = in_array($tipoId, [
+            Organizacion::TIPO_ASOCIACION,
+            Organizacion::TIPO_ZONA,
+        ], true) || ($tipoId === Organizacion::TIPO_DISTRITO && $this->padreEsAsociacion($organizacion));
+        if (! $cubreDepartamentos) {
             $organizacion->departamentos()->sync([]);
 
             return;
@@ -828,9 +941,11 @@ final class OrganizacionService
         $ids = $this->normalizeDepartamentoIds($data, $paisId);
         if ($ids === []) {
             throw ValidationException::withMessages([
-                'departamento_ids' => [$tipoId === Organizacion::TIPO_DISTRITO
-                    ? 'El Distrito debe indicar al menos un departamento.'
-                    : 'La Asociación debe indicar al menos un departamento.'],
+                'departamento_ids' => [$tipoId === Organizacion::TIPO_ASOCIACION
+                    ? 'La Asociación debe indicar al menos un departamento.'
+                    : ($tipoId === Organizacion::TIPO_ZONA
+                        ? 'La Zona debe indicar al menos un departamento.'
+                        : 'El Distrito debe indicar al menos un departamento.')],
             ]);
         }
 
@@ -883,7 +998,10 @@ final class OrganizacionService
      */
     private function syncCiudadesCobertura(Organizacion $organizacion, array $data): void
     {
-        if ((int) $organizacion->tipo_organizacion_id !== Organizacion::TIPO_DISTRITO) {
+        $tipoId = (int) $organizacion->tipo_organizacion_id;
+        $cubreCiudades = $tipoId === Organizacion::TIPO_ZONA
+            || ($tipoId === Organizacion::TIPO_DISTRITO && $this->padreEsAsociacion($organizacion));
+        if (! $cubreCiudades) {
             $organizacion->ciudades()->sync([]);
 
             return;
@@ -893,7 +1011,9 @@ final class OrganizacionService
         $ids = $this->normalizeCiudadIds($data, $departamentoIds);
         if ($ids === []) {
             throw ValidationException::withMessages([
-                'ciudad_ids' => ['El Distrito debe indicar al menos una ciudad.'],
+                'ciudad_ids' => [$tipoId === Organizacion::TIPO_ZONA
+                    ? 'La Zona debe indicar al menos un municipio.'
+                    : 'El Distrito debe indicar al menos una ciudad.'],
             ]);
         }
 
@@ -920,7 +1040,7 @@ final class OrganizacionService
             }
             if ($departamentoIds !== [] && ! in_array((int) $ciudad->departamento_id, $departamentoIds, true)) {
                 throw ValidationException::withMessages([
-                    'ciudad_ids' => ['Las ciudades del distrito deben pertenecer a sus departamentos.'],
+                    'ciudad_ids' => ['Los municipios deben pertenecer a los departamentos seleccionados.'],
                 ]);
             }
             $ids[] = (int) $ciudad->id;
@@ -951,6 +1071,34 @@ final class OrganizacionService
         if ($currentId !== null && in_array($padreId, $this->descendantIds($currentId), true)) {
             throw ValidationException::withMessages([
                 'organizacion_padre_id' => ['No puedes asignar como padre a una organización hija (ciclo).'],
+            ]);
+        }
+    }
+
+    private function padreEsAsociacion(Organizacion $organizacion): bool
+    {
+        $padreId = $organizacion->organizacion_padre_id ? (int) $organizacion->organizacion_padre_id : 0;
+        if ($padreId <= 0) {
+            return false;
+        }
+
+        $tipoPadre = (int) (Organizacion::query()->where('id', $padreId)->value('tipo_organizacion_id') ?? 0);
+
+        return $tipoPadre === Organizacion::TIPO_ASOCIACION;
+    }
+
+    private function assertTipoEsDeCatalogo(int $tipoId): void
+    {
+        if (in_array($tipoId, Organizacion::tiposRetiradosHijoClub(), true)) {
+            throw ValidationException::withMessages([
+                'tipo_organizacion_id' => ['Aventureros, Conquistadores y Guías Mayores ya no son tipos de organización. Usa Club.'],
+            ]);
+        }
+
+        $tipo = TipoOrganizacion::query()->find($tipoId);
+        if (! $tipo || ! $tipo->estado || (int) $tipo->tipo_organizacion_padre_id === Organizacion::TIPO_CLUB) {
+            throw ValidationException::withMessages([
+                'tipo_organizacion_id' => ['Tipo de organización no válido.'],
             ]);
         }
     }
@@ -987,7 +1135,13 @@ final class OrganizacionService
             ]);
         }
 
-        if ((int) $padre->tipo_organizacion_id !== (int) $tipo->tipo_organizacion_padre_id) {
+        $padreTipoId = (int) $padre->tipo_organizacion_id;
+        $esperados = [(int) $tipo->tipo_organizacion_padre_id];
+        if ($tipoHijoId === Organizacion::TIPO_DISTRITO) {
+            $esperados[] = Organizacion::TIPO_ZONA;
+            $esperados[] = Organizacion::TIPO_ASOCIACION;
+        }
+        if (! in_array($padreTipoId, array_values(array_unique($esperados)), true)) {
             $tipoPadreNombre = TipoOrganizacion::query()
                 ->where('id', $tipo->tipo_organizacion_padre_id)
                 ->value('nombre') ?? 'padre esperado';

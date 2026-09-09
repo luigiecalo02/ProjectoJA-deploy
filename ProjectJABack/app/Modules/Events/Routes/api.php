@@ -63,12 +63,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('events/{event}/actividad-participantes', [EventParticipationController::class, 'activityRoster']);
     Route::put('events/{event}/actividad-participantes', [EventParticipationController::class, 'syncActivityRoster']);
     Route::post('events/{event}/evidencias', [EventParticipationController::class, 'storeEvidencia']);
+    Route::post('events/{event}/evidencia-edicion', [EventParticipationController::class, 'unlockEvidenciaEdicion']);
     Route::delete('events/evidencias/{eventoEvidencia}', [EventParticipationController::class, 'destroyEvidencia']);
     Route::post('events/{event}/observacion-director', [EventParticipationController::class, 'storeDirectorObservacion']);
     Route::get('events/judge/offline-pack', [EventJudgeController::class, 'offlinePack']);
     Route::get('events/{event}/judge', [EventJudgeController::class, 'show']);
     Route::get('events/{event}/judge/evaluaciones', [EventJudgeController::class, 'evaluaciones']);
     Route::post('events/{event}/calificaciones', [EventJudgeController::class, 'storeScore']);
+    Route::post('events/{event}/calificaciones/evidencia-edicion', [EventJudgeController::class, 'unlockEvidence']);
     Route::post('events/{event}/judge/evidencias', [EventJudgeController::class, 'storePhoto']);
     Route::get('events/{event}/standings', [EventStandingsController::class, 'show']);
     Route::get('events/{event}/standings-tree', [EventStandingsController::class, 'tree']);

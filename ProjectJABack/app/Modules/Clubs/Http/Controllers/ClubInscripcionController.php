@@ -39,6 +39,7 @@ final class ClubInscripcionController
         $allowed = [
             Organizacion::TIPO_UNION,
             Organizacion::TIPO_ASOCIACION,
+            Organizacion::TIPO_ZONA,
             Organizacion::TIPO_DISTRITO,
             Organizacion::TIPO_IGLESIA,
         ];

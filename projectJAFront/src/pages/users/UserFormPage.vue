@@ -121,6 +121,7 @@ const form = reactive({
   password_confirmation: '',
   changePassword: false,
   is_active: true,
+  email_verified: false,
   club_ids: [] as number[],
   avatar_url: null as string | null,
   persona_id: null as number | null,
@@ -303,6 +304,7 @@ async function loadUser(): Promise<void> {
     form.name = user.name
     form.email = user.email
     form.is_active = user.is_active
+    form.email_verified = Boolean(user.email_verified)
     form.avatar_url = user.avatar_url
     form.club_ids = [...(user.club_ids || [])]
     linkedPersona.value = (user.persona as Persona | null | undefined) ?? null
@@ -447,6 +449,7 @@ async function submit(): Promise<void> {
       name: form.name.trim(),
       email: form.email.trim().toLowerCase(),
       is_active: form.is_active,
+      email_verified: form.email_verified,
       club_ids: hasPastorRole.value ? [...form.club_ids] : [],
       ...(form.avatar_url ? { avatar_url: form.avatar_url } : {}),
       ...(shouldValidatePassword.value && form.password
@@ -605,6 +608,15 @@ onMounted(async () => {
                 <ToggleSwitch v-model="form.is_active" />
                 <span>{{ form.is_active ? t('common.active') : t('common.inactive') }}</span>
               </div>
+            </div>
+
+            <div class="pj-field">
+              <label>{{ t('users.emailVerified') }}</label>
+              <div class="status-row">
+                <ToggleSwitch v-model="form.email_verified" />
+                <span>{{ form.email_verified ? t('users.emailVerifiedOn') : t('users.emailVerifiedOff') }}</span>
+              </div>
+              <small class="pj-muted">{{ t('users.emailVerifiedHint') }}</small>
             </div>
 
             <div v-if="isEdit" class="pj-field">

@@ -37,6 +37,12 @@ class Event extends Model
 
     public const VISIBILIDAD_ORGANIZACION = 'organizacion';
 
+    /** @var list<string> */
+    public const NIVELES_CONJUNTO = ['club', 'iglesia', 'distrito', 'zona', 'asociacion'];
+
+    /** @var list<string> */
+    public const ROLES_CONJUNTO = ['director', 'subdirector', 'secretario', 'tesorero', 'pastor'];
+
     protected $fillable = [
         'evento_padre_id',
         'orden',
@@ -71,10 +77,15 @@ class Event extends Model
         'puntaje_maximo',
         'puntaje_desde_hijos',
         'puntaje_por_participar',
+        'criterios_compartidos',
         'tiempo_estimado_minutos',
         'requiere_puesto_entrega',
         'requiere_tiempo_entrega',
+        'criterio_tiempo',
+        'modo_captura_tiempo',
         'resultado_esperado',
+        'resultado_esperado_etiqueta',
+        'mostrar_resultados_participantes',
         'participantes_min',
         'participantes_max',
         'permite_inscribir_no_participantes',
@@ -87,11 +98,16 @@ class Event extends Model
         'equipos_org_max',
         'es_conjunto',
         'nivel_conjunto',
+        'rol_conjunto',
         'maneja_fecha_fin',
         'permite_editar_despues_fin',
         'maneja_penalizaciones',
         'puntos_penalizacion',
         'reglas_penalizacion',
+        'premia_puestos',
+        'puntos_puesto_1',
+        'puntos_puesto_2',
+        'puntos_puesto_3',
         'requiere_evidencia',
         'tipos_evidencia',
         'requiere_pago',
@@ -142,6 +158,7 @@ class Event extends Model
             'tiene_subeventos' => 'boolean',
             'puntaje_desde_hijos' => 'boolean',
             'puntaje_por_participar' => 'boolean',
+            'criterios_compartidos' => 'boolean',
             'requiere_pago' => 'boolean',
             'requiere_seguro' => 'boolean',
             'cupo_ilimitado' => 'boolean',
@@ -157,6 +174,7 @@ class Event extends Model
             'tiempo_estimado_minutos' => 'integer',
             'requiere_puesto_entrega' => 'boolean',
             'requiere_tiempo_entrega' => 'boolean',
+            'mostrar_resultados_participantes' => 'boolean',
             'resultado_esperado' => 'integer',
             'participantes_min' => 'integer',
             'participantes_max' => 'integer',
@@ -172,6 +190,10 @@ class Event extends Model
             'permite_editar_despues_fin' => 'boolean',
             'maneja_penalizaciones' => 'boolean',
             'puntos_penalizacion' => 'decimal:2',
+            'premia_puestos' => 'boolean',
+            'puntos_puesto_1' => 'decimal:2',
+            'puntos_puesto_2' => 'decimal:2',
+            'puntos_puesto_3' => 'decimal:2',
             'requiere_evidencia' => 'boolean',
             'tipos_evidencia' => 'array',
             'categoria_ids' => 'array',
@@ -248,6 +270,20 @@ class Event extends Model
     {
         return $this->fecha_limite_inscripcion !== null
             && ($fecha ?? now())->greaterThan($this->fecha_limite_inscripcion);
+    }
+
+    public function locksRosterAfterEnrollmentDeadline(): bool
+    {
+        if ($this->fecha_limite_inscripcion === null) {
+            return false;
+        }
+
+        $limite = $this->fecha_limite_inscripcion->copy();
+        if ((int) $limite->hour === 0 && (int) $limite->minute === 0 && (int) $limite->second === 0) {
+            $limite->setTime(23, 59, 59);
+        }
+
+        return now()->greaterThan($limite);
     }
 
     public function tipoSeguro(): BelongsTo
@@ -457,7 +493,7 @@ class Event extends Model
             'evento_criterio',
             'evento_id',
             'criterio_evaluacion_id'
-        )->withPivot(['id', 'puntos', 'orden'])
+        )->withPivot(['id', 'puntos', 'orden', 'juez_id'])
             ->withTimestamps()
             ->orderByPivot('orden');
     }
@@ -465,6 +501,11 @@ class Event extends Model
     public function eventoCriterios(): HasMany
     {
         return $this->hasMany(EventoCriterio::class, 'evento_id')->orderBy('orden');
+    }
+
+    public function usesSharedCriteria(): bool
+    {
+        return $this->criterios_compartidos !== false;
     }
 
     public function isLive(): bool
@@ -496,6 +537,49 @@ class Event extends Model
         }
 
         return now()->greaterThan($end);
+    }
+
+    public function timeRankingMode(): ?string
+    {
+        if (! $this->requiere_tiempo_entrega) {
+            return null;
+        }
+
+        return in_array($this->criterio_tiempo, ['menor', 'mayor'], true)
+            ? $this->criterio_tiempo
+            : null;
+    }
+
+    public function timeCaptureMode(): string
+    {
+        if (! $this->requiere_tiempo_entrega) {
+            return 'digitar';
+        }
+
+        return $this->modo_captura_tiempo === 'cronometro' ? 'cronometro' : 'digitar';
+    }
+
+    public function awardsPlacementBonuses(): bool
+    {
+        return (bool) $this->premia_puestos
+            && (
+                (float) ($this->puntos_puesto_1 ?? 0) > 0
+                || (float) ($this->puntos_puesto_2 ?? 0) > 0
+                || (float) ($this->puntos_puesto_3 ?? 0) > 0
+            );
+    }
+
+    public function placementBonusMax(): float
+    {
+        if (! $this->premia_puestos) {
+            return 0.0;
+        }
+
+        return max(
+            (float) ($this->puntos_puesto_1 ?? 0),
+            (float) ($this->puntos_puesto_2 ?? 0),
+            (float) ($this->puntos_puesto_3 ?? 0),
+        );
     }
 
     public function isVisibleTo(User $user): bool
@@ -554,6 +638,28 @@ class Event extends Model
         }
 
         return [];
+    }
+
+    public static function mixtoQuotasExceedTotalMax(
+        mixed $totalMax,
+        mixed $minM,
+        mixed $maxM,
+        mixed $minF,
+        mixed $maxF,
+    ): bool {
+        if ($totalMax === null || $totalMax === '') {
+            return false;
+        }
+
+        $cap = (int) $totalMax;
+        if (((int) ($minM ?? 0) + (int) ($minF ?? 0)) > $cap) {
+            return true;
+        }
+        if ($maxM !== null && $maxM !== '' && (int) $maxM > $cap) {
+            return true;
+        }
+
+        return $maxF !== null && $maxF !== '' && (int) $maxF > $cap;
     }
 
     /**

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
@@ -22,7 +22,7 @@ import PageLoader from '@/components/PageLoader.vue'
 import ClubBoardPanel from '@/components/clubs/ClubBoardPanel.vue'
 import ClubMembersPanel from '@/components/clubs/ClubMembersPanel.vue'
 import { clubsService } from '@/services/clubsService'
-import { getApiErrorMessage } from '@/services/api'
+import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
 import { useAuthStore } from '@/stores/auth'
@@ -86,15 +86,18 @@ const iglesiaOptions = ref<
     nombre: string
     codigo?: string | null
     tipo_nombre?: string | null
+    zona?: string | null
     distrito?: string | null
     ciudad?: string | null
   }>
 >([])
+const clubZona = ref<string | null>(null)
 const clubPersonas = ref<ClubPersona[]>([])
 const directors = ref<ClubDirector[]>([])
 const createdAt = ref<string | null>(null)
 const pendingLogo = ref<File | null>(null)
 const pendingPreview = ref<string | null>(null)
+const uploadingLogo = ref(false)
 const fundacionDate = ref<Date | null>(null)
 /** Tab activo en edición: directiva | integrantes */
 const activeTab = ref<'board' | 'members'>('board')
@@ -117,6 +120,10 @@ const iglesiaLocked = computed(() => iglesiaOptions.value.length === 1)
 
 const selectedIglesia = computed(
   () => iglesiaOptions.value.find((o) => o.id === form.organizacion_id) ?? null,
+)
+
+const locationZona = computed(
+  () => selectedIglesia.value?.zona || clubZona.value || '—',
 )
 
 const locationDistrito = computed(
@@ -147,7 +154,7 @@ const form = reactive({
   logo_url: null as string | null,
 })
 
-const imagePreview = computed(() => pendingPreview.value || form.logo_url)
+const imagePreview = computed(() => pendingPreview.value || resolveFileUrl(form.logo_url))
 
 const primaryDirector = computed(() => {
   return directors.value.find((d) => d.ministry === 'director') || directors.value[0] || null
@@ -174,6 +181,7 @@ function applyClub(club: Club): void {
   form.lema = club.lema || ''
   form.distrito = club.distrito || ''
   form.ciudad = club.ciudad || ''
+  clubZona.value = club.zona || null
   form.descripcion = club.descripcion || ''
   form.color_principal = club.color_principal || '#1e3a5f'
   form.color_secundario = club.color_secundario || '#c4a35a'
@@ -181,7 +189,9 @@ function applyClub(club: Club): void {
   form.tipo = (club.tipos?.[0] as ClubMinistry) || null
   form.is_active = club.is_active
   form.persona_ids = [...(club.persona_ids || [])]
-  form.logo_url = club.logo || club.logo_url
+  if (!pendingLogo.value) {
+    form.logo_url = resolveFileUrl(club.logo || club.logo_url)
+  }
   fundacionDate.value = club.fecha_fundacion ? new Date(`${club.fecha_fundacion}T00:00:00`) : null
   clubPersonas.value = [...(club.personas || [])]
   directors.value = [...(club.directors || [])]
@@ -234,6 +244,7 @@ function ensureCurrentIglesiaInOptions(club: Club): void {
     {
       id,
       nombre: club.organizacion?.padre?.nombre || `Iglesia #${id}`,
+      zona: club.zona,
       distrito: club.distrito,
       ciudad: club.ciudad,
     },
@@ -241,11 +252,58 @@ function ensureCurrentIglesiaInOptions(club: Club): void {
   ]
 }
 
-function onLogoSelect(file: File): void {
+function persistSessionClubLogo(url: string | null): void {
+  if (!auth.user?.contexto?.is_club || auth.contexto?.club_id !== clubId.value) return
+  auth.persistUser({
+    ...auth.user,
+    contexto: { ...auth.user.contexto, club_logo_url: url },
+  })
+}
+
+function clearPendingLogo(): void {
+  pendingLogo.value = null
+  if (pendingPreview.value) {
+    URL.revokeObjectURL(pendingPreview.value)
+    pendingPreview.value = null
+  }
+}
+
+async function persistLogo(id: number, file: File): Promise<string | null> {
+  const updated = await clubsService.uploadLogo(id, file)
+  const url = resolveFileUrl(updated.logo || updated.logo_url)
+  form.logo_url = url
+  pendingLogo.value = null
+  persistSessionClubLogo(url)
+  return url
+}
+
+async function onLogoSelect(file: File): Promise<void> {
   if (!file) return
   pendingLogo.value = file
   if (pendingPreview.value) URL.revokeObjectURL(pendingPreview.value)
   pendingPreview.value = URL.createObjectURL(file)
+
+  if (!isEdit.value || !clubId.value) return
+
+  uploadingLogo.value = true
+  try {
+    await persistLogo(clubId.value, file)
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('clubs.logoSuccess'),
+      life: 2500,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: getApiErrorMessage(error),
+      life: 4000,
+    })
+  } finally {
+    uploadingLogo.value = false
+  }
 }
 
 async function refreshClub(): Promise<void> {
@@ -297,13 +355,7 @@ async function submit(): Promise<void> {
     }
 
     if (pendingLogo.value) {
-      const updated = await clubsService.uploadLogo(id, pendingLogo.value)
-      form.logo_url = updated.logo || updated.logo_url
-      pendingLogo.value = null
-      if (pendingPreview.value) {
-        URL.revokeObjectURL(pendingPreview.value)
-        pendingPreview.value = null
-      }
+      await persistLogo(id, pendingLogo.value)
     }
 
     toast.add({
@@ -352,6 +404,10 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+onUnmounted(() => {
+  clearPendingLogo()
+})
 </script>
 
 <template>
@@ -382,6 +438,7 @@ onMounted(async () => {
               compact
               dense
               :src="imagePreview"
+              :busy="uploadingLogo || saving"
               :title="t('clubs.logo')"
               :subtitle="t('media.clubProfileSubtitle')"
               @select="onLogoSelect"
@@ -434,7 +491,11 @@ onMounted(async () => {
               <label for="lema">{{ t('clubs.lema') }}</label>
               <InputText id="lema" v-model="form.lema" class="w-full" />
             </div>
-            <div class="grid-2">
+            <div class="grid-3">
+              <div class="field">
+                <label>{{ t('clubs.zone') }}</label>
+                <p class="info-label">{{ locationZona }}</p>
+              </div>
               <div class="field">
                 <label>{{ t('clubs.district') }}</label>
                 <p class="info-label">{{ locationDistrito }}</p>
@@ -522,6 +583,7 @@ onMounted(async () => {
                   compact
                   dense
                   :src="imagePreview"
+                  :busy="uploadingLogo || saving"
                   :title="t('clubs.logo')"
                   :subtitle="t('media.clubProfileSubtitle')"
                   @select="onLogoSelect"
@@ -555,6 +617,10 @@ onMounted(async () => {
                   <InputText id="nombre" v-model="form.nombre" class="w-full" required />
                 </div>
                 <div class="hero-form__row">
+                  <div class="field">
+                    <label>{{ t('clubs.zone') }}</label>
+                    <p class="info-label">{{ locationZona }}</p>
+                  </div>
                   <div class="field">
                     <label>{{ t('clubs.district') }}</label>
                     <p class="info-label">{{ locationDistrito }}</p>
@@ -779,7 +845,7 @@ onMounted(async () => {
 
 .hero-form__row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.45rem;
 }
 
@@ -910,6 +976,12 @@ onMounted(async () => {
   gap: 0.75rem;
 }
 
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
 .w-full {
   width: 100%;
 }
@@ -980,6 +1052,8 @@ onMounted(async () => {
 
 @media (max-width: 640px) {
   .grid-2,
+  .grid-3,
+  .hero-form__row,
   .create-grid {
     grid-template-columns: 1fr;
   }

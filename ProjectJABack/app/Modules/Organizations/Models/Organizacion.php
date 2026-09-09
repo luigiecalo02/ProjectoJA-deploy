@@ -27,12 +27,53 @@ class Organizacion extends Model
 
     public const TIPO_CLUB = 5;
 
-    /** Tipos hijo de Club (IDs reales se resuelven por catálogo; constantes de apoyo). */
+    /** IDs históricos (ya no son tipos de catálogo; se conservan para audiencia de eventos). */
     public const TIPO_AVENTUREROS = 6;
 
     public const TIPO_CONQUISTADORES = 7;
 
     public const TIPO_GUIAS_MAYORES = 8;
+
+    public const TIPO_ZONA = 9;
+
+    /**
+     * Tipos que dejaron de ser organizaciones (ahora son ministerio del Club).
+     *
+     * @return list<int>
+     */
+    public static function tiposRetiradosHijoClub(): array
+    {
+        return [
+            self::TIPO_AVENTUREROS,
+            self::TIPO_CONQUISTADORES,
+            self::TIPO_GUIAS_MAYORES,
+        ];
+    }
+
+    /**
+     * Unión → Asociación → Zona → Distrito → Iglesia → Club
+     *
+     * @return list<int>
+     */
+    public static function ordenJerarquia(): array
+    {
+        return [
+            self::TIPO_UNION,
+            self::TIPO_ASOCIACION,
+            self::TIPO_ZONA,
+            self::TIPO_DISTRITO,
+            self::TIPO_IGLESIA,
+            self::TIPO_CLUB,
+            ...self::tiposRetiradosHijoClub(),
+        ];
+    }
+
+    public static function rangoJerarquia(int $tipoId): int
+    {
+        $pos = array_search($tipoId, self::ordenJerarquia(), true);
+
+        return $pos === false ? 99 : $pos;
+    }
 
     public const APROBACION_PENDIENTE = 'pendiente';
 
@@ -88,6 +129,12 @@ class Organizacion extends Model
         if ($ids === [] && $this->departamento_id) {
             $ids = [(int) $this->departamento_id];
         }
+        if ($ids === [] && $this->organizacion_padre_id) {
+            $padre = $this->padre ?? self::query()->find($this->organizacion_padre_id);
+            if ($padre) {
+                return $padre->coberturaDepartamentoIds();
+            }
+        }
 
         return array_values(array_unique($ids));
     }
@@ -101,6 +148,12 @@ class Organizacion extends Model
         $ids = $this->ciudades->pluck('id')->map(fn ($id) => (int) $id)->all();
         if ($ids === [] && $this->ciudad_id) {
             $ids = [(int) $this->ciudad_id];
+        }
+        if ($ids === [] && $this->organizacion_padre_id) {
+            $padre = $this->padre ?? self::query()->find($this->organizacion_padre_id);
+            if ($padre) {
+                return $padre->coberturaCiudadIds();
+            }
         }
 
         return array_values(array_unique($ids));

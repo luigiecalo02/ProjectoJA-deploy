@@ -12,6 +12,7 @@ const props = withDefaults(
     statusById: Record<number, JudgeNodeStatus>
     pendingLabel: string
     scoredLabel: string
+    enrolledLabel?: string
   }>(),
   {
     depth: 0,
@@ -108,6 +109,12 @@ function iconFor(node: JudgeTreeNode): string {
           {{ scoredLabel }}
         </span>
         <span
+          v-else-if="statusById[node.id] === 'inscrito'"
+          class="judge-tree__status is-scored"
+        >
+          {{ enrolledLabel || scoredLabel }}
+        </span>
+        <span
           v-else-if="statusById[node.id] === 'pendiente'"
           class="judge-tree__status is-pending"
         >
@@ -136,6 +143,7 @@ function iconFor(node: JudgeTreeNode): string {
           :status-by-id="statusById"
           :pending-label="pendingLabel"
           :scored-label="scoredLabel"
+          :enrolled-label="enrolledLabel"
           @toggle="emit('toggle', $event)"
           @select="emit('select', $event)"
         />

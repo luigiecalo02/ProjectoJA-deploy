@@ -91,6 +91,7 @@ const {
 const auth = useAuthStore()
 
 const loading = ref(false)
+const stepLoading = ref(false)
 const saving = ref(false)
 const uploading = ref(false)
 const errorMessage = ref('')
@@ -515,10 +516,16 @@ function applyAudienceFromEvent(event: {
 }
 
 function toggleAudience(key: ClubAudienceKey): void {
-  if (key === 'libre' || clubAudience.value.includes(key)) {
+  if (key === 'libre') {
     clubAudience.value = ['libre']
+  } else if (clubAudience.value.includes(key)) {
+    const next = clubAudience.value.filter((item) => item !== key && item !== 'libre')
+    clubAudience.value = next.length ? next : ['libre']
   } else {
-    clubAudience.value = [key]
+    clubAudience.value = [
+      ...clubAudience.value.filter((item) => item !== 'libre'),
+      key,
+    ]
   }
   syncTipoIdsFromAudience()
   if (persistedId.value) {
@@ -556,6 +563,7 @@ function applyHomeOrganization(): void {
 
 function flattenOrgs(nodes: OrganizacionTreeNode[], depth = 0): Array<{ id: number; label: string }> {
   const rows: Array<{ id: number; label: string }> = []
+  if (!Array.isArray(nodes)) return rows
   for (const node of nodes) {
     const prefix = depth > 0 ? `${'— '.repeat(depth)}` : ''
     rows.push({
@@ -948,44 +956,134 @@ watch(
   },
 )
 
-async function loadCatalogs(): Promise<void> {
-  const [tree, tipos, clubsPage, tiposSeguro, productos, cuentas, lugaresPage, categorias, criterios, jueces, supervisores] =
-    await Promise.all([
+type CatalogKey = 'lugares' | 'orgs' | 'pago' | 'scoring' | 'servicios'
+
+const catalogReady = reactive<Record<CatalogKey, boolean>>({
+  lugares: false,
+  orgs: false,
+  pago: false,
+  scoring: false,
+  servicios: false,
+})
+const catalogInflight = new Map<CatalogKey, Promise<void>>()
+
+function ensureCatalog(key: CatalogKey, loader: () => Promise<void>): Promise<void> {
+  if (catalogReady[key]) return Promise.resolve()
+  const pending = catalogInflight.get(key)
+  if (pending) return pending
+  const run = loader()
+    .then(() => {
+      catalogReady[key] = true
+    })
+    .finally(() => {
+      catalogInflight.delete(key)
+    })
+  catalogInflight.set(key, run)
+  return run
+}
+
+async function loadLugares(): Promise<void> {
+  const page = await lugaresService.list({ per_page: 200, estado: 'activo' })
+  lugares.value = page.items
+}
+
+async function loadOrgs(): Promise<void> {
+  const [tree, tipos, clubsPage] = await Promise.all([
     organizacionesService.tree(),
     organizacionesService.tipos(),
     clubsService.list({ per_page: 500, is_active: true }),
-    eventsService.tiposSeguro(),
-    eventsService.productosServicios(),
-    cuentasBancariasService.list({ activas: true }).catch(() => [] as CuentaBancaria[]),
-    lugaresService.list({ per_page: 200, estado: 'activo' }).catch(() => ({ items: [] as Lugar[], pagination: null })),
-    eventsService.categoriasSubevento().catch(() => [] as CategoriaSubevento[]),
-    eventsService.criteriosEvaluacion().catch(() => [] as CriterioEvaluacion[]),
-    eventsService.jueces().catch(() => [] as Array<{ id: number; name: string; email?: string | null }>),
-    eventsService.supervisores().catch(() => [] as Array<{ id: number; name: string; email?: string | null }>),
   ])
   orgTree.value = tree
   orgOptions.value = flattenOrgs(tree)
   tipoOptions.value = tipos
   clubsCatalog.value = clubsPage.items
+  if (form.tipo_organizacion_ids.length) {
+    clubAudience.value = audienceFromTipoIds(form.tipo_organizacion_ids)
+  }
+  applyHomeOrganization()
+}
+
+async function loadPago(): Promise<void> {
+  const [tiposSeguro, cuentas] = await Promise.all([
+    eventsService.tiposSeguro(),
+    cuentasBancariasService.list({ activas: true }),
+  ])
   tiposSeguroOptions.value = tiposSeguro
-  productosCatalog.value = productos
-  cuentasBancarias.value = cuentas
-  lugares.value = lugaresPage.items
+  const extra = form.cuenta_bancaria_id
+    ? cuentasBancarias.value.filter((item) => item.id === form.cuenta_bancaria_id && !cuentas.some((c) => c.id === item.id))
+    : []
+  cuentasBancarias.value = [...extra, ...cuentas]
+}
+
+async function loadScoring(): Promise<void> {
+  const [categorias, criterios, jueces, supervisores] = await Promise.all([
+    eventsService.categoriasSubevento(),
+    eventsService.criteriosEvaluacion(),
+    eventsService.jueces(),
+    eventsService.supervisores(),
+  ])
   categoriasCatalog.value = categorias
   criteriosCatalog.value = criterios
   juecesCatalog.value = jueces
   supervisoresCatalog.value = supervisores
-  applyHomeOrganization()
+}
+
+async function loadProductos(): Promise<void> {
+  productosCatalog.value = await eventsService.productosServicios()
+}
+
+async function ensureConfigTabData(tab: typeof configTab.value): Promise<void> {
+  if (tab === 'inscripcion' || tab === 'descuentos') {
+    await ensureCatalog('pago', loadPago)
+    return
+  }
+  if (tab === 'calificaciones') {
+    await ensureCatalog('scoring', loadScoring)
+    return
+  }
+  if (tab === 'servicios') {
+    await Promise.all([ensureCatalog('servicios', loadProductos), loadServiceOffers()])
+  }
+}
+
+async function ensureStepData(step: WizardStep): Promise<void> {
+  const needsWork =
+    (step === 'basica' && !catalogReady.lugares) ||
+    (step === 'organizaciones' && !catalogReady.orgs) ||
+    (step === 'configuracion' &&
+      ((configTab.value === 'calificaciones' && !catalogReady.scoring) ||
+        (configTab.value === 'servicios' && !catalogReady.servicios) ||
+        ((configTab.value === 'inscripcion' || configTab.value === 'descuentos') && !catalogReady.pago))) ||
+    (step === 'subeventos' && !catalogReady.scoring)
+
+  if (!needsWork) return
+
+  stepLoading.value = true
+  try {
+    if (step === 'basica') await ensureCatalog('lugares', loadLugares)
+    else if (step === 'organizaciones') await ensureCatalog('orgs', loadOrgs)
+    else if (step === 'configuracion') await ensureConfigTabData(configTab.value)
+    else if (step === 'subeventos') await ensureCatalog('scoring', loadScoring)
+  } catch (error) {
+    errorMessage.value = getApiErrorMessage(error)
+  } finally {
+    stepLoading.value = false
+  }
 }
 
 watch(categoriasVersion, () => {
-  void Promise.all([
-    eventsService.categoriasSubevento().catch(() => [] as CategoriaSubevento[]),
-    eventsService.criteriosEvaluacion().catch(() => [] as CriterioEvaluacion[]),
-  ]).then(([categorias, criterios]) => {
-    categoriasCatalog.value = categorias
-    criteriosCatalog.value = criterios
-  })
+  catalogReady.scoring = false
+  if (currentStep.value === 'configuracion' || currentStep.value === 'subeventos') {
+    void ensureStepData(currentStep.value)
+  }
+})
+
+watch(currentStep, (step) => {
+  void ensureStepData(step)
+})
+
+watch(configTab, () => {
+  if (currentStep.value === 'configuracion') void ensureStepData('configuracion')
 })
 
 async function loadServiceOffers(): Promise<void> {
@@ -1133,9 +1231,8 @@ async function loadEvent(): Promise<void> {
 onMounted(async () => {
   loading.value = true
   try {
-    await loadCatalogs()
     await loadEvent()
-    await loadServiceOffers()
+    await ensureStepData('basica')
   } catch (error) {
     errorMessage.value = getApiErrorMessage(error)
   } finally {
@@ -1201,9 +1298,10 @@ onBeforeUnmount(() => {
     <PageLoader v-if="loading" :label="t('common.loading')" />
 
     <div v-else class="wizard__body pj-panel">
-      <Message v-if="errorMessage" severity="error" :closable="false" class="wizard__error">
+      <Message v-if="errorMessage" severity="error" :closable="true" class="wizard__error" @close="errorMessage = ''">
         {{ errorMessage }}
       </Message>
+      <p v-if="stepLoading" class="wizard__step-loading pj-muted">{{ t('common.loading') }}</p>
 
       <div class="wizard__main" :class="{ 'preview-open': previewVisible }">
         <div class="wizard__steps">
@@ -2219,6 +2317,21 @@ onBeforeUnmount(() => {
 <style scoped>
 .wizard {
   gap: 1rem;
+  color: var(--pj-text);
+  font-family: var(--pj-font-sans);
+  letter-spacing: 0;
+}
+
+.wizard :deep(h1),
+.wizard :deep(h2),
+.wizard :deep(h3),
+.wizard :deep(h4),
+.wizard :deep(strong),
+.wizard :deep(b) {
+  font-family: var(--pj-font-sans);
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
 }
 
 .wizard__header {
@@ -2310,6 +2423,11 @@ onBeforeUnmount(() => {
 
 .wizard__error {
   width: 100%;
+}
+
+.wizard__step-loading {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
 }
 
 .wizard-stepper {

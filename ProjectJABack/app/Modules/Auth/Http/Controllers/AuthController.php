@@ -8,6 +8,7 @@ use App\Modules\Auth\Services\AuthService;
 use App\Modules\Auth\Services\SessionContextService;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
+use App\Modules\Shared\Services\PublicFileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,6 +21,7 @@ final class AuthController
         private readonly AuthService $authService,
         private readonly OrganizationAccessService $orgAccess,
         private readonly SessionContextService $sessionContext,
+        private readonly PublicFileService $publicFiles,
     ) {}
 
     public function login(LoginRequest $request): JsonResponse
@@ -96,7 +98,11 @@ final class AuthController
 
     public function impersonate(Request $request, User $user): JsonResponse
     {
-        abort_unless($request->user()->can('impersonate', $user), Response::HTTP_FORBIDDEN);
+        abort_unless(
+            $request->user()->can('impersonate', $user),
+            Response::HTTP_FORBIDDEN,
+            'No puedes entrar como este usuario.',
+        );
 
         $result = $this->authService->impersonate($request->user(), $user);
         $target = $this->sessionContext->ensureContext($result['user']);
@@ -182,19 +188,6 @@ final class AuthController
 
     private function publicFileUrl(?string $value): ?string
     {
-        if (! is_string($value) || $value === '') {
-            return null;
-        }
-
-        if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
-            return $value;
-        }
-
-        $path = ltrim($value, '/');
-        if (str_starts_with($path, 'storage/')) {
-            return url($path);
-        }
-
-        return url('storage/'.$path);
+        return $this->publicFiles->url($value);
     }
 }

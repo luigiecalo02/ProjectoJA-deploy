@@ -237,6 +237,7 @@ final class EventInscripcionService
             ]);
 
             $this->participation->applyInscripcionScore($root, $ctx['organizacion_id']);
+            $this->participation->inheritConjuntoSelections($root, $ctx['organizacion_id'], $actor->id);
 
             $actualizada = $inscripcion->fresh([
                 'personas.persona',

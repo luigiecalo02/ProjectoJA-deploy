@@ -25,7 +25,10 @@ import {
   TIPO_DISTRITO,
   TIPO_IGLESIA,
   TIPO_UNION,
+  TIPO_ZONA,
   TIPOS_HEREDAN_UBICACION_COMPLETA,
+  esTipoOrganizacionDeCatalogo,
+  ordenarTiposCatalogo,
 } from '@/modules/organizaciones/types'
 
 export type OrgDrawerMode = 'create' | 'edit'
@@ -110,11 +113,22 @@ const selectedParent = computed(() =>
   parentOptions.value.find((o) => o.id === form.organizacion_padre_id) ?? null,
 )
 
+const parentIsAsociacion = computed(
+  () => selectedParent.value?.tipo_organizacion_id === TIPO_ASOCIACION,
+)
+const parentIsZona = computed(() => selectedParent.value?.tipo_organizacion_id === TIPO_ZONA)
 const showPaisField = computed(() => form.tipo_organizacion_id === TIPO_UNION)
 const showDepartamentosMultiField = computed(
-  () => form.tipo_organizacion_id === TIPO_ASOCIACION || form.tipo_organizacion_id === TIPO_DISTRITO,
+  () =>
+    form.tipo_organizacion_id === TIPO_ASOCIACION ||
+    form.tipo_organizacion_id === TIPO_ZONA ||
+    (form.tipo_organizacion_id === TIPO_DISTRITO && parentIsAsociacion.value),
 )
-const showCiudadesMultiField = computed(() => form.tipo_organizacion_id === TIPO_DISTRITO)
+const showCiudadesMultiField = computed(
+  () =>
+    form.tipo_organizacion_id === TIPO_ZONA ||
+    (form.tipo_organizacion_id === TIPO_DISTRITO && parentIsAsociacion.value),
+)
 const showIglesiaUbicacionField = computed(() => form.tipo_organizacion_id === TIPO_IGLESIA)
 const showDireccionField = computed(() => form.tipo_organizacion_id === TIPO_IGLESIA)
 
@@ -127,6 +141,7 @@ function isHijoDeClub(tipoId: number | null): boolean {
 const showInheritedLocation = computed(() => {
   const tipoId = form.tipo_organizacion_id
   if (!tipoId) return false
+  if (tipoId === TIPO_DISTRITO && parentIsZona.value) return true
   return (
     TIPOS_HEREDAN_UBICACION_COMPLETA.includes(tipoId as (typeof TIPOS_HEREDAN_UBICACION_COMPLETA)[number]) ||
     isHijoDeClub(tipoId)
@@ -278,11 +293,14 @@ async function refreshParentOptions(): Promise<void> {
 async function onParentChange(parentId: number | null): Promise<void> {
   form.organizacion_padre_id = parentId
   const padre = parentOptions.value.find((o) => o.id === parentId) ?? null
-  if (form.tipo_organizacion_id === TIPO_ASOCIACION && padre?.pais_id) {
+  if (
+    (form.tipo_organizacion_id === TIPO_ASOCIACION || form.tipo_organizacion_id === TIPO_ZONA) &&
+    padre?.pais_id
+  ) {
     form.departamento_ids = []
     await loadDepartamentos(padre.pais_id)
   }
-  if (form.tipo_organizacion_id === TIPO_DISTRITO) {
+  if (form.tipo_organizacion_id === TIPO_ZONA || form.tipo_organizacion_id === TIPO_DISTRITO) {
     form.departamento_ids = []
     form.ciudad_ids = []
     form.departamento_id = null
@@ -306,7 +324,7 @@ async function openCreate(): Promise<void> {
       organizacionesService.tipos(),
       organizacionesService.paises(),
     ])
-    tipos.value = tiposData
+    tipos.value = ordenarTiposCatalogo(tiposData.filter(esTipoOrganizacionDeCatalogo))
     paises.value = paisesData
 
     if (props.lockParentAndTipo && props.parentId) {
@@ -341,7 +359,7 @@ async function openEdit(): Promise<void> {
       organizacionesService.paises(),
       organizacionesService.get(props.orgId),
     ])
-    tipos.value = tiposData
+    tipos.value = ordenarTiposCatalogo(tiposData.filter(esTipoOrganizacionDeCatalogo))
     paises.value = paisesData
     form.organizacion_padre_id = org.organizacion_padre_id
     form.tipo_organizacion_id = org.tipo_organizacion_id
@@ -365,7 +383,7 @@ async function openEdit(): Promise<void> {
     await Promise.all([
       refreshParentOptions(),
       org.pais_id ? loadDepartamentos(org.pais_id) : Promise.resolve(),
-      org.tipo_organizacion_id === TIPO_DISTRITO
+      org.tipo_organizacion_id === TIPO_ZONA || org.tipo_organizacion_id === TIPO_DISTRITO
         ? loadCiudadesByDepartamentos(form.departamento_ids)
         : org.departamento_id
           ? loadCiudades(org.departamento_id)
@@ -391,7 +409,12 @@ watch(
 watch(
   () => [...form.departamento_ids],
   async (ids) => {
-    if (form.tipo_organizacion_id !== TIPO_DISTRITO || loading.value) return
+    if (
+      (form.tipo_organizacion_id !== TIPO_ZONA && form.tipo_organizacion_id !== TIPO_DISTRITO) ||
+      loading.value
+    ) {
+      return
+    }
     await loadCiudadesByDepartamentos(ids)
     const valid = new Set(ciudades.value.map((item) => item.id))
     form.ciudad_ids = form.ciudad_ids.filter((id) => valid.has(id))
@@ -571,7 +594,7 @@ async function save(): Promise<void> {
           <label>{{ t('organizaciones.departamentos') }}</label>
           <MultiSelect
             v-model="form.departamento_ids"
-            :options="form.tipo_organizacion_id === TIPO_DISTRITO && parentDepartamentos.length ? parentDepartamentos : (departamentos.length ? departamentos : parentDepartamentos)"
+            :options="(form.tipo_organizacion_id === TIPO_ZONA || form.tipo_organizacion_id === TIPO_DISTRITO) && parentDepartamentos.length ? parentDepartamentos : (departamentos.length ? departamentos : parentDepartamentos)"
             option-label="label"
             option-value="id"
             display="chip"

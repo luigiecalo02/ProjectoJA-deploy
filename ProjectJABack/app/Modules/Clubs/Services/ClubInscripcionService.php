@@ -33,12 +33,25 @@ final class ClubInscripcionService
             ->orderBy('nombre');
 
         if ($padreId) {
-            $query->where('organizacion_padre_id', $padreId);
+            if ($tipoId === Organizacion::TIPO_DISTRITO) {
+                $zonaIds = Organizacion::query()
+                    ->where('organizacion_padre_id', $padreId)
+                    ->where('tipo_organizacion_id', Organizacion::TIPO_ZONA)
+                    ->pluck('id');
+                $query->where(function ($q) use ($padreId, $zonaIds) {
+                    $q->where('organizacion_padre_id', $padreId);
+                    if ($zonaIds->isNotEmpty()) {
+                        $q->orWhereIn('organizacion_padre_id', $zonaIds);
+                    }
+                });
+            } else {
+                $query->where('organizacion_padre_id', $padreId);
+            }
         }
 
-        if (in_array($tipoId, [Organizacion::TIPO_ASOCIACION, Organizacion::TIPO_DISTRITO], true)) {
+        if (in_array($tipoId, [Organizacion::TIPO_ASOCIACION, Organizacion::TIPO_ZONA, Organizacion::TIPO_DISTRITO], true)) {
             $relations = ['departamentos:id,nombre,pais_id'];
-            if ($tipoId === Organizacion::TIPO_DISTRITO) {
+            if (in_array($tipoId, [Organizacion::TIPO_ZONA, Organizacion::TIPO_DISTRITO], true)) {
                 $relations[] = 'ciudades:id,nombre,departamento_id';
             }
             $query->with($relations);
@@ -428,11 +441,10 @@ final class ClubInscripcionService
             $distrito = Organizacion::query()
                 ->where('id', (int) $data['distrito_id'])
                 ->where('tipo_organizacion_id', Organizacion::TIPO_DISTRITO)
-                ->where('organizacion_padre_id', $asociacionId)
                 ->where('estado', true)
                 ->where('estado_aprobacion', Organizacion::APROBACION_APROBADA)
                 ->first();
-            if (! $distrito) {
+            if (! $distrito || ! $this->distritoPerteneceAAsociacion($distrito, $asociacionId)) {
                 throw ValidationException::withMessages([
                     'distrito_id' => ['El distrito seleccionado no pertenece a la asociación indicada.'],
                 ]);
@@ -448,9 +460,12 @@ final class ClubInscripcionService
             ]);
         }
 
+        $zonaId = $this->resolveZonaId($data, $asociacionId);
+        $padreId = $zonaId > 0 ? $zonaId : $asociacionId;
+
         $distrito = $this->organizacionService->create([
             'tipo_organizacion_id' => Organizacion::TIPO_DISTRITO,
-            'organizacion_padre_id' => $asociacionId,
+            'organizacion_padre_id' => $padreId,
             'nombre' => trim((string) $solicitud['nombre']),
             'departamento_ids' => $solicitud['departamento_ids'] ?? [],
             'ciudad_ids' => $solicitud['ciudad_ids'] ?? [],
@@ -459,6 +474,49 @@ final class ClubInscripcionService
         ]);
 
         return (int) $distrito->id;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function resolveZonaId(array $data, int $asociacionId): int
+    {
+        $zonaId = isset($data['zona_id']) ? (int) $data['zona_id'] : 0;
+        if ($zonaId <= 0) {
+            return 0;
+        }
+
+        $zona = Organizacion::query()
+            ->where('id', $zonaId)
+            ->where('tipo_organizacion_id', Organizacion::TIPO_ZONA)
+            ->where('organizacion_padre_id', $asociacionId)
+            ->where('estado', true)
+            ->where('estado_aprobacion', Organizacion::APROBACION_APROBADA)
+            ->first();
+        if (! $zona) {
+            throw ValidationException::withMessages([
+                'zona_id' => ['La zona seleccionada no pertenece a la asociación indicada.'],
+            ]);
+        }
+
+        return (int) $zona->id;
+    }
+
+    private function distritoPerteneceAAsociacion(Organizacion $distrito, int $asociacionId): bool
+    {
+        $padreId = $distrito->organizacion_padre_id ? (int) $distrito->organizacion_padre_id : 0;
+        if ($padreId === $asociacionId) {
+            return true;
+        }
+        if ($padreId <= 0) {
+            return false;
+        }
+
+        $padre = Organizacion::query()->find($padreId);
+
+        return $padre
+            && (int) $padre->tipo_organizacion_id === Organizacion::TIPO_ZONA
+            && (int) $padre->organizacion_padre_id === $asociacionId;
     }
 
     private function defaultUnionId(): int

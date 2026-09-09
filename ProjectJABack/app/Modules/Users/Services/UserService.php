@@ -65,8 +65,15 @@ final class UserService
             );
 
             $data['is_active'] = $data['is_active'] ?? true;
+            $emailVerified = array_key_exists('email_verified', $data)
+                ? filter_var($data['email_verified'], FILTER_VALIDATE_BOOLEAN)
+                : null;
+            unset($data['email_verified']);
 
             $user = User::query()->create($data);
+            if ($emailVerified !== null) {
+                $this->applyEmailVerified($user, $emailVerified);
+            }
             $this->applyPlatformFlags($user, is_array($roleIds) ? $roleIds : []);
 
             $this->syncClubsForUser($user->fresh(), $clubIds, is_array($roleIds) ? $roleIds : null);
@@ -86,6 +93,28 @@ final class UserService
         $this->sendWelcomeVerification($user);
 
         return $user->fresh(['clubs', 'persona.organizaciones.organizacion', 'persona.organizaciones.rolesAsignados.rol']) ?? $user;
+    }
+
+    private function applyEmailVerified(User $user, bool $verified): void
+    {
+        if ($verified) {
+            if ($user->email_verified_at) {
+                return;
+            }
+            $user->forceFill([
+                'email_verified_at' => now(),
+                'email_verification_code_hash' => null,
+                'email_verification_expires_at' => null,
+            ])->save();
+
+            return;
+        }
+
+        $user->forceFill([
+            'email_verified_at' => null,
+            'email_verification_code_hash' => null,
+            'email_verification_expires_at' => null,
+        ])->save();
     }
 
     private function sendWelcomeVerification(User $user): void
@@ -130,7 +159,15 @@ final class UserService
                 unset($data['password']);
             }
 
+            $emailVerified = array_key_exists('email_verified', $data)
+                ? filter_var($data['email_verified'], FILTER_VALIDATE_BOOLEAN)
+                : null;
+            unset($data['email_verified']);
+
             $user->update($data);
+            if ($emailVerified !== null) {
+                $this->applyEmailVerified($user, $emailVerified);
+            }
 
             if (is_array($roleIds)) {
                 $this->applyPlatformFlags($user, $roleIds);

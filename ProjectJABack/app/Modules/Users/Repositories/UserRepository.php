@@ -3,6 +3,7 @@
 namespace App\Modules\Users\Repositories;
 
 use App\Models\User;
+use App\Modules\Clubs\Models\Club;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\TipoOrganizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
@@ -94,16 +95,24 @@ final class UserRepository
      */
     private function organizationIdsForMinistry(string $key): array
     {
+        $ids = [];
         $tipoIds = $this->tipoIdsFromMinistry($key);
-        if ($tipoIds === []) {
-            return [];
+        if ($tipoIds !== []) {
+            $ids = Organizacion::query()
+                ->whereIn('tipo_organizacion_id', $tipoIds)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
         }
 
-        return Organizacion::query()
-            ->whereIn('tipo_organizacion_id', $tipoIds)
-            ->pluck('id')
+        $clubOrgIds = Club::query()
+            ->whereJsonContains('tipos', $key)
+            ->pluck('organizacion_id')
             ->map(fn ($id) => (int) $id)
+            ->filter(fn (int $id) => $id > 0)
             ->all();
+
+        return array_values(array_unique(array_merge($ids, $clubOrgIds)));
     }
 
     /**

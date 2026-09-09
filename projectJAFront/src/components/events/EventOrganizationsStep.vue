@@ -16,6 +16,7 @@ import {
   TIPO_DISTRITO,
   TIPO_IGLESIA,
   TIPO_UNION,
+  TIPO_ZONA,
   TIPOS_HIJO_CLUB,
 } from '@/modules/organizaciones/types'
 import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
@@ -256,9 +257,10 @@ const highestLevelLabel = computed(() => {
   const rankOf = (tipoId: number) => {
     if (tipoId === TIPO_UNION) return 1
     if (tipoId === TIPO_ASOCIACION) return 2
-    if (tipoId === TIPO_DISTRITO) return 3
-    if (tipoId === TIPO_IGLESIA) return 4
-    if (tipoId === TIPO_CLUB || (TIPOS_HIJO_CLUB as readonly number[]).includes(tipoId)) return 5
+    if (tipoId === TIPO_ZONA) return 3
+    if (tipoId === TIPO_DISTRITO) return 4
+    if (tipoId === TIPO_IGLESIA) return 5
+    if (tipoId === TIPO_CLUB || (TIPOS_HIJO_CLUB as readonly number[]).includes(tipoId)) return 6
     return 99
   }
   const walk = (nodes: OrganizacionTreeNode[]) => {
@@ -419,6 +421,7 @@ function iconForTipo(tipoId: number): string {
   if (tipoId === TIPO_CLUB || (TIPOS_HIJO_CLUB as readonly number[]).includes(tipoId)) {
     return 'pi pi-flag'
   }
+  if (tipoId === TIPO_ZONA) return 'pi pi-th-large'
   if (tipoId === TIPO_DISTRITO) return 'pi pi-map'
   return 'pi pi-building'
 }
@@ -475,9 +478,12 @@ watch(visibleTree, (nodes) => {
             show-clear
             :placeholder="t('events.organizadorPlaceholder')"
             class="w-full"
+            :empty-message="t('events.wizard.orgsEmpty')"
             @update:model-value="setOrganizer"
           />
-          <small class="pj-muted">{{ t('events.wizard.orgsOrganizerHint') }}</small>
+          <small class="pj-muted">{{
+            orgOptions.length ? t('events.wizard.orgsOrganizerHint') : t('events.wizard.orgsEmptyHint')
+          }}</small>
         </div>
 
         <div class="field">

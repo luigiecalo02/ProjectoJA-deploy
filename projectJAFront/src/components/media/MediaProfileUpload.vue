@@ -116,7 +116,7 @@ async function onInput(event: Event): Promise<void> {
   border: 3px dashed #93c5fd;
   border-radius: 50%;
   background: #eff6ff;
-  overflow: visible;
+  overflow: hidden;
   padding: 0;
   cursor: pointer;
 }
@@ -124,6 +124,7 @@ async function onInput(event: Event): Promise<void> {
 .profile__preview:disabled { cursor: not-allowed; opacity: 0.7; }
 .profile__preview img,
 .profile__preview > .pi-user {
+  display: block;
   width: 100%;
   height: 100%;
   border-radius: 50%;

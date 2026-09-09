@@ -52,6 +52,15 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null;
             }
 
-            return ApiResponse::error($e->getMessage() ?: 'Error', $e->getStatusCode());
+            $message = $e->getMessage();
+            if ($message === '') {
+                $message = match ($e->getStatusCode()) {
+                    403 => 'No tienes permiso para esta acción',
+                    404 => 'No encontrado',
+                    default => 'Error',
+                };
+            }
+
+            return ApiResponse::error($message, $e->getStatusCode());
         });
     })->create();

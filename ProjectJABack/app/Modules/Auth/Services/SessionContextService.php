@@ -7,6 +7,7 @@ use App\Modules\Clubs\Models\Club;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
+use App\Modules\Shared\Services\PublicFileService;
 use App\Modules\Users\Models\Role;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
@@ -18,6 +19,7 @@ final class SessionContextService
 {
     public function __construct(
         private readonly OrganizationAccessService $orgAccess,
+        private readonly PublicFileService $publicFiles,
     ) {}
 
     /**
@@ -316,19 +318,6 @@ final class SessionContextService
 
     private function publicFileUrl(?string $value): ?string
     {
-        if (! is_string($value) || $value === '') {
-            return null;
-        }
-
-        if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
-            return $value;
-        }
-
-        $path = ltrim($value, '/');
-        if (str_starts_with($path, 'storage/')) {
-            return url($path);
-        }
-
-        return url('storage/'.$path);
+        return $this->publicFiles->url($value);
     }
 }

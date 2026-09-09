@@ -1,6 +1,10 @@
 import type { AsignacionCama } from '@/modules/cabanas/types'
 import type { CuentaBancaria } from '@/modules/settings/types'
 
+export type EventoNivelConjunto = 'club' | 'iglesia' | 'distrito' | 'zona' | 'asociacion'
+
+export type EventoRolConjunto = 'director' | 'subdirector' | 'secretario' | 'tesorero' | 'pastor'
+
 export interface EventOrganizacionRef {
   id: number
   nombre: string
@@ -104,6 +108,7 @@ export interface EventoCriterioAsignado {
   icono?: string | null
   puntos: number
   orden: number
+  juez_id?: number | null
 }
 
 export type EventoArchivoTipo = 'pdf' | 'imagen' | 'video' | 'youtube'
@@ -141,6 +146,9 @@ export interface ParticipationCalificacionAporte {
   puntaje_obtenido: number
   observaciones?: string | null
   updated_at?: string | null
+  puesto_entrega?: string | null
+  tiempo_entrega?: string | null
+  resultado_obtenido?: number | null
 }
 
 export interface ParticipationCalificacion {
@@ -152,10 +160,14 @@ export interface ParticipationCalificacion {
   es_agregado?: boolean
   es_promedio?: boolean
   jueces_count?: number
+  permite_editar_evidencia?: boolean
   aportes?: ParticipationCalificacionAporte[]
   observaciones_director?: string | null
   observaciones_director_updated_at?: string | null
   detalles?: Array<{ criterio_evaluacion_id: number; puntos: number }>
+  puesto_entrega?: string | null
+  tiempo_entrega?: string | null
+  resultado_obtenido?: number | null
 }
 
 export interface ParticipationNode {
@@ -175,6 +187,7 @@ export interface ParticipationNode {
   puntaje_maximo?: number | null
   puntaje_desde_hijos?: boolean
   puntaje_por_participar?: boolean
+  criterios_compartidos?: boolean
   requiere_evidencia: boolean
   requiere_inscripcion?: boolean
   inscrito?: boolean
@@ -184,20 +197,30 @@ export interface ParticipationNode {
   maneja_penalizaciones?: boolean
   puntos_penalizacion?: number | null
   reglas_penalizacion?: string | null
+  premia_puestos?: boolean
+  puntos_puesto_1?: number | null
+  puntos_puesto_2?: number | null
+  puntos_puesto_3?: number | null
   tiempo_estimado_minutos?: number | null
   requiere_puesto_entrega?: boolean
   requiere_tiempo_entrega?: boolean
+  criterio_tiempo?: 'menor' | 'mayor' | string | null
+  modo_captura_tiempo?: 'cronometro' | 'digitar' | string | null
   resultado_esperado?: number | null
+  resultado_esperado_etiqueta?: string | null
+  mostrar_resultados_participantes?: boolean
   participantes_min?: number | null
   participantes_max?: number | null
   permite_inscribir_no_participantes?: boolean
+  fecha_limite_inscripcion?: string | null
   participantes_genero?: 'mixto' | 'M' | 'F' | 'cualquiera' | string | null
   participantes_min_m?: number | null
   participantes_max_m?: number | null
   participantes_min_f?: number | null
   participantes_max_f?: number | null
   es_conjunto?: boolean
-  nivel_conjunto?: string | null
+  nivel_conjunto?: EventoNivelConjunto | string | null
+  rol_conjunto?: EventoRolConjunto | string | null
   requiere_pago?: boolean
   precio?: number | null
   starts_at?: string | null
@@ -218,6 +241,7 @@ export interface ActivityRosterCandidato {
   id: number
   nombre: string
   sexo?: 'M' | 'F' | string | null
+  organizacion?: string | null
   inscrito_evento: boolean
   elegible: boolean
   seleccionado?: boolean
@@ -230,14 +254,19 @@ export interface ActivityRoster {
     participantes_min?: number | null
     participantes_max?: number | null
     permite_inscribir_no_participantes?: boolean
+    fecha_limite_inscripcion?: string | null
     participantes_genero?: 'mixto' | 'M' | 'F' | 'cualquiera' | string | null
     participantes_min_m?: number | null
     participantes_max_m?: number | null
     participantes_min_f?: number | null
     participantes_max_f?: number | null
+    es_conjunto?: boolean
+    nivel_conjunto?: EventoNivelConjunto | string | null
+    rol_conjunto?: EventoRolConjunto | string | null
   }
   seleccionados: number[]
   bloqueada?: boolean
+  inscripcion_cerrada?: boolean
   candidatos: ActivityRosterCandidato[]
 }
 
@@ -278,6 +307,7 @@ export interface JudgeCalificacion {
   tiempo_entrega?: string | null
   resultado_obtenido?: number | null
   calificado_por?: number | null
+  permite_editar_evidencia?: boolean
   observaciones_director?: string | null
   observaciones_director_updated_at?: string | null
   detalles: JudgeCalificacionDetalle[]
@@ -314,6 +344,7 @@ export interface JudgeClubResumen {
   evidencias_pendientes: number
   eventos_evaluados: number
   evidencias_count: number
+  fecha_inscripcion?: string | null
 }
 
 export interface JudgeSubeventoHijo {
@@ -362,6 +393,7 @@ export interface JudgeSubevento {
   es_calificable?: boolean
   puntaje_desde_hijos?: boolean
   puntaje_por_participar?: boolean
+  criterios_compartidos?: boolean
   /** El juez actual puede calificar este nodo (asignado + calificable). */
   puede_calificar?: boolean
   /** El juez está asignado directamente a este nodo. */
@@ -369,22 +401,32 @@ export interface JudgeSubevento {
   tiempo_estimado_minutos?: number | null
   requiere_puesto_entrega?: boolean
   requiere_tiempo_entrega?: boolean
+  criterio_tiempo?: 'menor' | 'mayor' | string | null
+  modo_captura_tiempo?: 'cronometro' | 'digitar' | string | null
   resultado_esperado?: number | null
+  resultado_esperado_etiqueta?: string | null
+  mostrar_resultados_participantes?: boolean
   participantes_min?: number | null
   participantes_max?: number | null
   permite_inscribir_no_participantes?: boolean
+  fecha_limite_inscripcion?: string | null
   participantes_genero?: 'mixto' | 'M' | 'F' | 'cualquiera' | string | null
   participantes_min_m?: number | null
   participantes_max_m?: number | null
   participantes_min_f?: number | null
   participantes_max_f?: number | null
   es_conjunto?: boolean
-  nivel_conjunto?: string | null
+  nivel_conjunto?: EventoNivelConjunto | string | null
+  rol_conjunto?: EventoRolConjunto | string | null
   maneja_fecha_fin?: boolean
   permite_editar_despues_fin?: boolean
   maneja_penalizaciones?: boolean
   puntos_penalizacion?: number | null
   reglas_penalizacion?: string | null
+  premia_puestos?: boolean
+  puntos_puesto_1?: number | null
+  puntos_puesto_2?: number | null
+  puntos_puesto_3?: number | null
   requiere_pago?: boolean
   precio?: number | null
   tipo_evento?: Pick<TipoEvento, 'id' | 'nombre' | 'slug' | 'color' | 'icono'> | null
@@ -397,7 +439,7 @@ export interface JudgeSubevento {
   hijos?: JudgeSubeventoHijo[]
 }
 
-export type JudgeNodeStatus = 'pendiente' | 'evaluado' | 'neutral'
+export type JudgeNodeStatus = 'pendiente' | 'evaluado' | 'inscrito' | 'neutral'
 
 export interface JudgeTreeNode {
   id: number
@@ -445,6 +487,8 @@ export interface JudgeBoard {
   evaluados?: Record<string, Record<string, number>>
   /** organizacion_id => { evento_id => total evidencias cargadas } */
   evidencias?: Record<string, Record<string, number>>
+  /** organizacion_id => { evento_id => fecha de inscripción de participantes } */
+  inscripciones?: Record<string, Record<string, string>>
 }
 
 export type JudgeEvaluacionEstado = 'completado' | 'pendiente' | 'sin_evidencia'
@@ -680,13 +724,19 @@ export interface ClubEvent {
   puntaje_maximo?: number | null
   puntaje_desde_hijos?: boolean
   puntaje_por_participar?: boolean
+  criterios_compartidos?: boolean
   tiempo_estimado_minutos?: number | null
   requiere_puesto_entrega?: boolean
   requiere_tiempo_entrega?: boolean
+  criterio_tiempo?: 'menor' | 'mayor' | string | null
+  modo_captura_tiempo?: 'cronometro' | 'digitar' | string | null
   resultado_esperado?: number | null
+  resultado_esperado_etiqueta?: string | null
+  mostrar_resultados_participantes?: boolean
   participantes_min?: number | null
   participantes_max?: number | null
   permite_inscribir_no_participantes?: boolean
+  fecha_limite_inscripcion?: string | null
   participantes_genero?: 'mixto' | 'M' | 'F' | 'cualquiera' | string | null
   participantes_min_m?: number | null
   participantes_max_m?: number | null
@@ -695,12 +745,17 @@ export interface ClubEvent {
   equipos_org_min?: number | null
   equipos_org_max?: number | null
   es_conjunto?: boolean
-  nivel_conjunto?: 'club' | 'iglesia' | 'distrito' | 'asociacion' | string | null
+  nivel_conjunto?: EventoNivelConjunto | string | null
+  rol_conjunto?: EventoRolConjunto | string | null
   maneja_fecha_fin?: boolean
   permite_editar_despues_fin?: boolean
   maneja_penalizaciones?: boolean
   puntos_penalizacion?: number | null
   reglas_penalizacion?: string | null
+  premia_puestos?: boolean
+  puntos_puesto_1?: number | null
+  puntos_puesto_2?: number | null
+  puntos_puesto_3?: number | null
   requiere_evidencia?: boolean
   tipos_evidencia?: Array<'link' | 'pdf' | 'imagen' | 'audio' | 'video' | string>
   requiere_pago: boolean
@@ -823,13 +878,19 @@ export interface EventFormPayload {
   puntaje_maximo?: number | null
   puntaje_desde_hijos?: boolean
   puntaje_por_participar?: boolean
+  criterios_compartidos?: boolean
   tiempo_estimado_minutos?: number | null
   requiere_puesto_entrega?: boolean
   requiere_tiempo_entrega?: boolean
+  criterio_tiempo?: 'menor' | 'mayor' | string | null
+  modo_captura_tiempo?: 'cronometro' | 'digitar' | string | null
   resultado_esperado?: number | null
+  resultado_esperado_etiqueta?: string | null
+  mostrar_resultados_participantes?: boolean
   participantes_min?: number | null
   participantes_max?: number | null
   permite_inscribir_no_participantes?: boolean
+  fecha_limite_inscripcion?: string | null
   participantes_genero?: 'mixto' | 'M' | 'F' | 'cualquiera' | string | null
   participantes_min_m?: number | null
   participantes_max_m?: number | null
@@ -838,12 +899,17 @@ export interface EventFormPayload {
   equipos_org_min?: number | null
   equipos_org_max?: number | null
   es_conjunto?: boolean
-  nivel_conjunto?: 'club' | 'iglesia' | 'distrito' | 'asociacion' | string | null
+  nivel_conjunto?: EventoNivelConjunto | string | null
+  rol_conjunto?: EventoRolConjunto | string | null
   maneja_fecha_fin?: boolean
   permite_editar_despues_fin?: boolean
   maneja_penalizaciones?: boolean
   puntos_penalizacion?: number | null
   reglas_penalizacion?: string | null
+  premia_puestos?: boolean
+  puntos_puesto_1?: number | null
+  puntos_puesto_2?: number | null
+  puntos_puesto_3?: number | null
   requiere_evidencia?: boolean
   tipos_evidencia?: Array<'link' | 'pdf' | 'imagen' | 'audio' | 'video' | string> | null
   reglas?: string | null

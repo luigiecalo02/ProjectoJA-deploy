@@ -22,13 +22,22 @@ export interface PersonasPage {
 }
 
 export const clubsService = {
-  async list(params: { page?: number; per_page?: number; search?: string; is_active?: boolean | null } = {}): Promise<ClubsPage> {
+  async list(params: {
+    page?: number
+    per_page?: number
+    search?: string
+    is_active?: boolean | null
+    organizacion_id?: number | null
+    tipo_club?: string | null
+  } = {}): Promise<ClubsPage> {
     const { data } = await api.get<ApiEnvelope<Club[]>>('/api/v1/clubs', {
       params: {
         page: params.page,
         per_page: params.per_page,
         q: params.search || undefined,
         is_active: params.is_active === null ? undefined : params.is_active,
+        organizacion_id: params.organizacion_id || undefined,
+        tipo_club: params.tipo_club || undefined,
       },
     })
     return { items: data.data ?? [], pagination: data.pagination }
@@ -49,6 +58,7 @@ export const clubsService = {
       nombre: string
       codigo?: string | null
       tipo_nombre?: string | null
+      zona?: string | null
       distrito?: string | null
       ciudad?: string | null
     }>
@@ -60,6 +70,7 @@ export const clubsService = {
           nombre: string
           codigo?: string | null
           tipo_nombre?: string | null
+          zona?: string | null
           distrito?: string | null
           ciudad?: string | null
         }>
@@ -95,9 +106,7 @@ export const clubsService = {
   async uploadLogo(id: number, file: File): Promise<Club> {
     const body = new FormData()
     body.append('logo', await prepareUploadFile(file))
-    const { data } = await api.post<ApiEnvelope<Club>>(`/api/v1/clubs/${id}/logo`, body, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    const { data } = await api.post<ApiEnvelope<Club>>(`/api/v1/clubs/${id}/logo`, body)
     return data.data
   },
 

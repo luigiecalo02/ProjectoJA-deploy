@@ -9,6 +9,7 @@ import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import PageLoader from '@/components/PageLoader.vue'
 import EventJudgeActivityCard from '@/components/events/EventJudgeActivityCard.vue'
+import EventJudgeTreeNodes from '@/components/events/EventJudgeTreeNodes.vue'
 import EventMaterialsViewer from '@/components/events/EventMaterialsViewer.vue'
 import EventActivityRosterTab from '@/components/events/EventActivityRosterTab.vue'
 import MediaGalleryUpload from '@/components/media/MediaGalleryUpload.vue'
@@ -17,10 +18,12 @@ import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
 import { extractBannerHeroVars } from '@/utils/dominantColor'
+import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
 import type {
   EventParticipation,
   ParticipationNode,
   EventoEvidenciaItem,
+  JudgeNodeStatus,
   JudgeSubevento,
   JudgeTreeNode,
 } from '@/modules/events/types'
@@ -53,6 +56,7 @@ const saving = ref(false)
 const savingDirectorObs = ref(false)
 const data = ref<EventParticipation | null>(null)
 const selectedId = ref<number | null>(null)
+const expandedEvalIds = ref<Set<number>>(new Set())
 const editingEvidence = ref(true)
 const pendingFile = ref<File | null>(null)
 const fileObjectUrl = ref<string | null>(null)
@@ -128,6 +132,17 @@ const directorLocked = computed(() =>
   Boolean(data.value?.modificacion_bloqueada || selected.value?.modificacion_bloqueada),
 )
 
+const scoredLocked = computed(() => {
+  const cal = selected.value?.calificacion
+  if (!cal || cal.es_agregado) return false
+  const hasJudge = Boolean((cal.jueces_count ?? 0) > 0 || cal.es_promedio)
+  return hasJudge && !cal.permite_editar_evidencia
+})
+
+const evidenceLocked = computed(() => directorLocked.value || scoredLocked.value)
+
+const unlockingEvidence = ref(false)
+
 const deadlineLocked = computed(() => {
   const node = selected.value
   if (!node?.maneja_fecha_fin || node.permite_editar_despues_fin) return false
@@ -153,13 +168,19 @@ function toJudgeSubevento(node: ParticipationNode): JudgeSubevento {
     es_calificable: node.es_calificable,
     puntaje_desde_hijos: node.puntaje_desde_hijos,
     puntaje_por_participar: node.puntaje_por_participar,
+    criterios_compartidos: node.criterios_compartidos !== false,
     tiempo_estimado_minutos: node.tiempo_estimado_minutos,
     requiere_puesto_entrega: node.requiere_puesto_entrega,
     requiere_tiempo_entrega: node.requiere_tiempo_entrega,
+    criterio_tiempo: node.criterio_tiempo,
+    modo_captura_tiempo: node.modo_captura_tiempo,
     resultado_esperado: node.resultado_esperado,
+    resultado_esperado_etiqueta: node.resultado_esperado_etiqueta,
+    mostrar_resultados_participantes: node.mostrar_resultados_participantes !== false,
     participantes_min: node.participantes_min,
     participantes_max: node.participantes_max,
     permite_inscribir_no_participantes: node.permite_inscribir_no_participantes,
+    fecha_limite_inscripcion: node.fecha_limite_inscripcion,
     participantes_genero: node.participantes_genero,
     participantes_min_m: node.participantes_min_m,
     participantes_max_m: node.participantes_max_m,
@@ -167,11 +188,16 @@ function toJudgeSubevento(node: ParticipationNode): JudgeSubevento {
     participantes_max_f: node.participantes_max_f,
     es_conjunto: node.es_conjunto,
     nivel_conjunto: node.nivel_conjunto,
+    rol_conjunto: node.rol_conjunto,
     maneja_fecha_fin: node.maneja_fecha_fin,
     permite_editar_despues_fin: node.permite_editar_despues_fin,
     maneja_penalizaciones: node.maneja_penalizaciones,
     puntos_penalizacion: node.puntos_penalizacion,
     reglas_penalizacion: node.reglas_penalizacion,
+    premia_puestos: node.premia_puestos,
+    puntos_puesto_1: node.puntos_puesto_1,
+    puntos_puesto_2: node.puntos_puesto_2,
+    puntos_puesto_3: node.puntos_puesto_3,
     requiere_pago: node.requiere_pago,
     precio: node.precio,
     tipo_evento: node.tipo_evento,
@@ -187,6 +213,7 @@ function toJudgeTreeNode(node: ParticipationNode): JudgeTreeNode {
   return {
     id: node.id,
     name: node.name,
+    image_url: node.image_url,
     puntaje_maximo: node.puntaje_maximo,
     es_calificable: node.es_calificable,
     requiere_evidencia: node.requiere_evidencia,
@@ -197,6 +224,46 @@ function toJudgeTreeNode(node: ParticipationNode): JudgeTreeNode {
     hijos: (node.hijos || []).map(toJudgeTreeNode),
   }
 }
+
+const participationTree = computed(() =>
+  (data.value?.evento.hijos || []).map(toJudgeTreeNode),
+)
+
+const treeStatusById = computed(() => {
+  const map: Record<number, JudgeNodeStatus> = {}
+  function walk(node: ParticipationNode) {
+    const status = nodeStatus(node)
+    map[node.id] =
+      status === 'calificada'
+        ? 'evaluado'
+        : status === 'inscrito'
+          ? 'inscrito'
+          : status === 'neutral'
+            ? 'neutral'
+            : 'pendiente'
+    for (const hijo of node.hijos || []) walk(hijo)
+  }
+  if (data.value) walk(data.value.evento)
+  return map
+})
+
+const treePendingById = computed(() => {
+  const map: Record<number, number> = {}
+  function walk(node: ParticipationNode): number {
+    const children = node.hijos || []
+    if (!children.length) {
+      const pending = nodeStatus(node) === 'pendiente' ? 1 : 0
+      map[node.id] = pending
+      return pending
+    }
+    let count = 0
+    for (const hijo of children) count += walk(hijo)
+    map[node.id] = count
+    return count
+  }
+  for (const hijo of data.value?.evento.hijos || []) walk(hijo)
+  return map
+})
 
 const selectedActivity = computed(() =>
   selected.value ? toJudgeSubevento(selected.value) : null,
@@ -239,19 +306,80 @@ const evidenceDeadline = computed(() => {
   return evidenceDeadlineMs(node.ends_at)
 })
 
-const deadlineCountdown = computed(() => {
-  const end = evidenceDeadline.value
+const enrollmentDeadline = computed(() => {
+  const node = selected.value
+  if (!node?.fecha_limite_inscripcion) return null
+  return evidenceDeadlineMs(node.fecha_limite_inscripcion)
+})
+
+type CountdownBox = {
+  expired: boolean
+  days: number
+  hours: number
+  minutes: number
+  seconds: number
+  label: string
+}
+
+function countdownFrom(end: number | null, activeLabel: string, expiredLabel: string): CountdownBox | null {
   if (end == null) return null
   const diff = end - nowTick.value
   if (diff <= 0) {
-    return { expired: true, days: 0, hours: 0, minutes: 0, seconds: 0, label: t('events.evidenceDeadlineExpired') }
+    return { expired: true, days: 0, hours: 0, minutes: 0, seconds: 0, label: expiredLabel }
   }
   const totalSec = Math.floor(diff / 1000)
-  const days = Math.floor(totalSec / 86400)
-  const hours = Math.floor((totalSec % 86400) / 3600)
-  const minutes = Math.floor((totalSec % 3600) / 60)
-  const seconds = totalSec % 60
-  return { expired: false, days, hours, minutes, seconds, label: t('events.evidenceDeadlineLabel') }
+  return {
+    expired: false,
+    days: Math.floor(totalSec / 86400),
+    hours: Math.floor((totalSec % 86400) / 3600),
+    minutes: Math.floor((totalSec % 3600) / 60),
+    seconds: totalSec % 60,
+    label: activeLabel,
+  }
+}
+
+const deadlineCountdown = computed(() =>
+  countdownFrom(
+    evidenceDeadline.value,
+    t('events.evidenceDeadlineLabel'),
+    t('events.evidenceDeadlineExpired'),
+  ),
+)
+
+const enrollmentCountdown = computed(() =>
+  countdownFrom(
+    enrollmentDeadline.value,
+    t('events.enrollmentDeadlineLabel'),
+    t('events.enrollmentDeadlineExpired'),
+  ),
+)
+
+const headerCountdowns = computed(() => {
+  const items: Array<CountdownBox & { kind: 'evidence' | 'enroll' }> = []
+  if (deadlineCountdown.value) items.push({ ...deadlineCountdown.value, kind: 'evidence' })
+  if (enrollmentCountdown.value) items.push({ ...enrollmentCountdown.value, kind: 'enroll' })
+  return items
+})
+
+const showParticipantesTab = computed(() => {
+  const node = selected.value
+  if (!node) return false
+  return (
+    node.participantes_min != null ||
+    node.participantes_max != null ||
+    Boolean(node.permite_inscribir_no_participantes) ||
+    Boolean(node.fecha_limite_inscripcion)
+  )
+})
+
+const showResultsToParticipants = computed(
+  () => selected.value?.mostrar_resultados_participantes !== false,
+)
+
+const directorDefaultTab = computed(() => {
+  if (showParticipantesTab.value) return 'participantes'
+  if (showResultsToParticipants.value && selected.value?.calificacion) return 'resultado'
+  return 'info'
 })
 
 function pad2(n: number): string {
@@ -272,9 +400,9 @@ function stopDeadlineTicker(): void {
 }
 
 watch(
-  evidenceDeadline,
-  (end) => {
-    if (end != null) {
+  [evidenceDeadline, enrollmentDeadline],
+  ([evidenceEnd, enrollmentEnd]) => {
+    if (evidenceEnd != null || enrollmentEnd != null) {
       nowTick.value = Date.now()
       startDeadlineTicker()
     } else {
@@ -417,19 +545,39 @@ function isActionableNode(node: ParticipationNode): boolean {
   return Boolean(node.es_calificable || node.requiere_evidencia || node.requiere_inscripcion)
 }
 
+function nodeHasJudgeScore(node: ParticipationNode): boolean {
+  const cal = node.calificacion
+  if (!cal) return false
+  if ((cal.jueces_count ?? 0) > 0) return true
+  if (cal.es_promedio) return true
+  if ((cal.aportes?.length ?? 0) > 0) return true
+  if (cal.es_agregado) return true
+  if (cal.tiempo_entrega || cal.puesto_entrega || cal.resultado_obtenido != null) return true
+  return false
+}
+
 function nodeStatus(node: ParticipationNode): EvalStatus {
-  if (node.requiere_evidencia) {
-    if (node.calificacion) {
-      if (node.puntaje_desde_hijos && node.calificacion.es_agregado && node.calificacion.observaciones?.includes('Parcial')) {
-        return 'en_revision'
-      }
-      return 'calificada'
+  if (nodeHasJudgeScore(node)) {
+    if (
+      node.puntaje_desde_hijos &&
+      node.calificacion?.es_agregado &&
+      node.calificacion.observaciones?.includes('Parcial')
+    ) {
+      return 'en_revision'
     }
+    return 'calificada'
+  }
+  if (node.requiere_evidencia) {
     if ((node.evidencias?.length ?? 0) > 0) return 'en_revision'
     if (node.puntaje_desde_hijos) {
       const leaves = collectScoreableLeaves(node)
-      if (leaves.length && leaves.every((n) => n.calificacion)) return 'calificada'
-      if (leaves.some((n) => n.calificacion || (n.evidencias?.length ?? 0) > 0)) return 'en_revision'
+      if (leaves.length && leaves.every((n) => nodeHasJudgeScore(n))) return 'calificada'
+      if (leaves.some((n) => nodeHasJudgeScore(n) || (n.evidencias?.length ?? 0) > 0)) {
+        return 'en_revision'
+      }
+    }
+    if (node.requiere_inscripcion) {
+      return node.inscrito ? 'inscrito' : 'pendiente'
     }
     return 'pendiente'
   }
@@ -437,6 +585,12 @@ function nodeStatus(node: ParticipationNode): EvalStatus {
     return node.inscrito ? 'inscrito' : 'pendiente'
   }
   return 'neutral'
+}
+
+function applyRosterSaved(payload: { count: number }): void {
+  const node = selected.value ?? (selectedId.value ? findParticipationNode(selectedId.value) : null)
+  if (!node) return
+  node.inscrito = payload.count > 0
 }
 
 function collectScoreableLeaves(node: ParticipationNode): ParticipationNode[] {
@@ -469,8 +623,71 @@ function statusMeta(status: EvalStatus): { label: string; css: string; icon: str
   return { label: t('events.statusPending'), css: 'is-pending', icon: 'pi pi-circle' }
 }
 
-function nodeDepth(node: FlatNode): number {
-  return node.depth
+function nodeHasChildren(node: ParticipationNode): boolean {
+  return (node.hijos?.length ?? 0) > 0
+}
+
+function findParticipationNode(id: number): ParticipationNode | null {
+  if (!data.value) return null
+  function find(node: ParticipationNode): ParticipationNode | null {
+    if (node.id === id) return node
+    for (const hijo of node.hijos || []) {
+      const found = find(hijo)
+      if (found) return found
+    }
+    return null
+  }
+  return find(data.value.evento)
+}
+
+function ancestorIdsOf(id: number): number[] {
+  if (!data.value) return []
+  function walk(node: ParticipationNode, trail: number[]): number[] | null {
+    if (node.id === id) return trail
+    for (const hijo of node.hijos || []) {
+      const found = walk(hijo, node.is_root ? trail : [...trail, node.id])
+      if (found) return found
+    }
+    return null
+  }
+  return walk(data.value.evento, []) ?? []
+}
+
+function expandAncestors(id: number): void {
+  const next = new Set(expandedEvalIds.value)
+  for (const ancestor of ancestorIdsOf(id)) next.add(ancestor)
+  expandedEvalIds.value = next
+}
+
+function toggleEvalTreeNode(id: number): void {
+  const next = new Set(expandedEvalIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedEvalIds.value = next
+}
+
+function onEvalTreeSelect(node: JudgeTreeNode): void {
+  const found = findParticipationNode(node.id)
+  if (!found) return
+  if (nodeHasChildren(found) && !isActionableNode(found)) {
+    toggleEvalTreeNode(found.id)
+    return
+  }
+  if (nodeHasChildren(found)) {
+    const next = new Set(expandedEvalIds.value)
+    next.add(found.id)
+    expandedEvalIds.value = next
+  }
+  selectNode(found)
+}
+
+function nodeIcon(node: ParticipationNode): string {
+  const icon =
+    node.icono?.trim() ||
+    node.categoria_subevento?.icono?.trim() ||
+    node.tipo_evento?.icono?.trim() ||
+    'pi pi-flag'
+  return icon.startsWith('pi ') ? icon : `pi ${icon}`
 }
 
 function ringStyle(pct: number, color: string): Record<string, string> {
@@ -521,6 +738,7 @@ async function load(keepSelection = false): Promise<void> {
 function selectNode(node: ParticipationNode): void {
   if (!isActionableNode(node)) return
   selectedId.value = node.id
+  expandAncestors(node.id)
   if (isMobile.value) detailSheetVisible.value = true
   const latest = node.evidencias?.[0]
   const defaultTipo = node.tipos_evidencia?.[0] || 'link'
@@ -606,8 +824,32 @@ function selectEvidenceTipo(tipo: string): void {
   }
 }
 
+async function unlockEvidenceEdit(): Promise<void> {
+  if (!selected.value || directorLocked.value) return
+  unlockingEvidence.value = true
+  try {
+    await eventsService.unlockDirectorEvidenceEdit(selected.value.id)
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('events.evidenceEditUnlocked'),
+      life: 2500,
+    })
+    await load(true)
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: getApiErrorMessage(error),
+      life: 4000,
+    })
+  } finally {
+    unlockingEvidence.value = false
+  }
+}
+
 function startChangeEvidence(): void {
-  if (directorLocked.value) return
+  if (evidenceLocked.value) return
   const latest = latestEvidence.value
   evidenceForm.value = {
     tipo: latest?.tipo || selected.value?.tipos_evidencia?.[0] || 'link',
@@ -652,7 +894,7 @@ function clearPendingFile(): void {
 }
 
 async function addEvidence(): Promise<void> {
-  if (!selected.value || directorLocked.value) return
+  if (!selected.value || evidenceLocked.value) return
 
   if (evidenceForm.value.tipo === 'link' && !evidenceForm.value.url.trim()) {
     toast.add({
@@ -717,7 +959,7 @@ async function addEvidence(): Promise<void> {
 }
 
 async function removeEvidence(item: EventoEvidenciaItem): Promise<void> {
-  if (directorLocked.value) return
+  if (evidenceLocked.value) return
   try {
     await eventsService.removeEvidencia(item.id)
     await load(true)
@@ -825,42 +1067,25 @@ watch(isMobile, (mobile) => {
             <p class="pj-muted">
               {{ t('events.evalListCount', { count: flatNodes.length }) }}
             </p>
+            <p class="pj-muted">{{ t('events.evalListTreeHint') }}</p>
           </header>
 
-          <button
-            v-for="node in flatNodes"
-            :key="node.id"
-            type="button"
-            class="eval-item"
-            :class="{
-              'is-active': selectedId === node.id,
-              'is-inert': !isActionableNode(node),
-            }"
-            :style="{ paddingLeft: `${0.85 + nodeDepth(node) * 0.7}rem` }"
-            @click="selectNode(node)"
-          >
-            <span v-if="node.image_url" class="eval-item__thumb">
-              <img :src="node.image_url" :alt="node.name" />
-            </span>
-            <span v-else class="eval-item__icon" :class="statusMeta(nodeStatus(node)).css">
-              <i :class="statusMeta(nodeStatus(node)).icon" />
-            </span>
-            <span class="eval-item__body">
-              <strong>{{ node.name }}</strong>
-              <span class="eval-item__pts">
-                {{ node.puntaje_maximo != null ? `${node.puntaje_maximo} pts` : '—' }}
-              </span>
-            </span>
-            <span
-              v-if="nodeStatus(node) !== 'neutral'"
-              class="status-badge"
-              :class="statusMeta(nodeStatus(node)).css"
-            >
-              {{ statusMeta(nodeStatus(node)).label }}
-            </span>
-          </button>
+          <div v-if="participationTree.length" class="eval-tree">
+            <EventJudgeTreeNodes
+              :nodes="participationTree"
+              :expanded="expandedEvalIds"
+              :selected-id="selectedId"
+              :pending-by-id="treePendingById"
+              :status-by-id="treeStatusById"
+              :pending-label="t('events.statusPending')"
+              :scored-label="t('events.statusScored')"
+              :enrolled-label="t('events.statusEnrolled')"
+              @toggle="toggleEvalTreeNode"
+              @select="onEvalTreeSelect"
+            />
+          </div>
 
-          <p v-if="!flatNodes.length" class="pj-muted empty">{{ t('events.wizard.subeventsEmpty') }}</p>
+          <p v-else class="pj-muted empty">{{ t('events.wizard.subeventsEmpty') }}</p>
         </aside>
 
         <div
@@ -889,13 +1114,16 @@ watch(isMobile, (mobile) => {
           <template v-if="selected">
             <header class="detail-head">
               <div class="detail-head__main">
-                <div class="detail-avatar">
+                <div
+                  class="detail-avatar"
+                  :style="selected.image_url ? undefined : iconBoxStyle(resolveEventIconColor(selected))"
+                >
                   <img
                     v-if="selected.image_url"
                     :src="selected.image_url"
                     :alt="selected.name"
                   />
-                  <i v-else class="pi pi-bookmark" />
+                  <i v-else :class="nodeIcon(selected)" />
                 </div>
                 <div>
                   <div class="detail-head__title-row">
@@ -913,34 +1141,44 @@ watch(isMobile, (mobile) => {
               </div>
               <div class="detail-head__stats">
                 <div
-                  v-if="deadlineCountdown"
+                  v-for="box in headerCountdowns"
+                  :key="box.kind"
                   class="deadline-box"
-                  :class="{ 'deadline-box--expired': deadlineCountdown.expired }"
+                  :class="{
+                    'deadline-box--expired': box.expired,
+                    'deadline-box--enroll': box.kind === 'enroll' && !box.expired,
+                  }"
                 >
-                <span class="deadline-box__label">{{ deadlineCountdown.label }}</span>
-                <template v-if="deadlineCountdown.expired">
-                  <strong class="deadline-box__expired-text">{{ t('events.evidenceDeadlineClosed') }}</strong>
+                <span class="deadline-box__label">{{ box.label }}</span>
+                <template v-if="box.expired">
+                  <strong class="deadline-box__expired-text">
+                    {{
+                      box.kind === 'enroll'
+                        ? t('events.enrollmentDeadlineClosed')
+                        : t('events.evidenceDeadlineClosed')
+                    }}
+                  </strong>
                 </template>
                 <div v-else class="deadline-box__digits">
-                  <span v-if="deadlineCountdown.days > 0">
-                    <strong>{{ deadlineCountdown.days }}</strong>
+                  <span v-if="box.days > 0">
+                    <strong>{{ box.days }}</strong>
                     <small>{{ t('events.evidenceDeadlineDays') }}</small>
                   </span>
                   <span>
-                    <strong>{{ pad2(deadlineCountdown.hours) }}</strong>
+                    <strong>{{ pad2(box.hours) }}</strong>
                     <small>{{ t('events.evidenceDeadlineHours') }}</small>
                   </span>
                   <span>
-                    <strong>{{ pad2(deadlineCountdown.minutes) }}</strong>
+                    <strong>{{ pad2(box.minutes) }}</strong>
                     <small>{{ t('events.evidenceDeadlineMins') }}</small>
                   </span>
                   <span>
-                    <strong>{{ pad2(deadlineCountdown.seconds) }}</strong>
+                    <strong>{{ pad2(box.seconds) }}</strong>
                     <small>{{ t('events.evidenceDeadlineSecs') }}</small>
                   </span>
                 </div>
               </div>
-              <div class="score-box">
+              <div v-if="showResultsToParticipants" class="score-box">
                 <strong>
                   {{
                     selected.calificacion
@@ -972,15 +1210,13 @@ watch(isMobile, (mobile) => {
             <EventJudgeActivityCard
               v-if="selectedActivity"
               :actividad="selectedActivity"
-              :default-tab="selected.calificacion ? 'resultado' : 'info'"
+              hide-media
+              hide-head
+              :default-tab="directorDefaultTab"
               :show-calificacion="false"
-              :show-resultado="true"
+              :show-resultado="showResultsToParticipants"
               :show-observaciones="true"
-              :show-participantes="
-                selected.participantes_min != null ||
-                selected.participantes_max != null ||
-                Boolean(selected.permite_inscribir_no_participantes)
-              "
+              :show-participantes="showParticipantesTab"
               observaciones-mode="director"
               :resultado="selected.calificacion"
               :tip-text="t('events.participateActivityTip')"
@@ -999,7 +1235,11 @@ watch(isMobile, (mobile) => {
               @save-director-obs="saveDirectorObservacion"
             >
               <template #participantes>
-                <EventActivityRosterTab :actividad-id="selected.id" :locked="directorLocked" />
+                <EventActivityRosterTab
+                  :actividad-id="selected.id"
+                  :locked="directorLocked"
+                  @saved="applyRosterSaved"
+                />
               </template>
             </EventJudgeActivityCard>
 
@@ -1032,7 +1272,7 @@ watch(isMobile, (mobile) => {
                         {{ latestEvidence.descripcion }}
                       </p>
                     </div>
-                    <div v-if="!directorLocked" class="evidence-preview__actions">
+                    <div v-if="!evidenceLocked" class="evidence-preview__actions">
                       <Button
                         type="button"
                         outlined
@@ -1048,7 +1288,27 @@ watch(isMobile, (mobile) => {
                         @click="removeEvidence(latestEvidence)"
                       />
                     </div>
+                    <div
+                      v-else-if="scoredLocked && !directorLocked"
+                      class="evidence-preview__actions"
+                    >
+                      <Button
+                        type="button"
+                        outlined
+                        size="small"
+                        icon="pi pi-unlock"
+                        :label="t('events.allowEvidenceEdit')"
+                        :loading="unlockingEvidence"
+                        @click="unlockEvidenceEdit"
+                      />
+                    </div>
                   </div>
+                  <p
+                    v-if="scoredLocked && !directorLocked && !editingEvidence"
+                    class="pj-muted"
+                  >
+                    {{ t('events.evidenceScoredLocked') }}
+                  </p>
 
                   <div v-if="savedPreview" class="media-preview">
                     <p class="media-preview__label">{{ t('events.evidencePreview') }}</p>
@@ -1107,9 +1367,27 @@ watch(isMobile, (mobile) => {
                   </div>
                 </div>
 
-                <p v-else-if="directorLocked" class="pj-muted">
-                  {{ deadlineLocked ? t('events.evidenceDeadlineLocked') : t('events.evidenceLocked') }}
-                </p>
+                <div v-else-if="evidenceLocked" class="evidence-unlock">
+                  <p class="pj-muted">
+                    {{
+                      deadlineLocked
+                        ? t('events.evidenceDeadlineLocked')
+                        : scoredLocked && !directorLocked
+                          ? t('events.evidenceScoredLocked')
+                          : t('events.evidenceLocked')
+                    }}
+                  </p>
+                  <Button
+                    v-if="scoredLocked && !directorLocked"
+                    type="button"
+                    outlined
+                    size="small"
+                    icon="pi pi-unlock"
+                    :label="t('events.allowEvidenceEdit')"
+                    :loading="unlockingEvidence"
+                    @click="unlockEvidenceEdit"
+                  />
+                </div>
 
                 <div v-else class="evidence-form">
                   <div class="field">
@@ -1259,7 +1537,7 @@ watch(isMobile, (mobile) => {
                   <li v-for="ev in selected.evidencias.slice(1)" :key="ev.id">
                     <span>{{ ev.titulo || ev.tipo }}</span>
                     <Button
-                      v-if="!directorLocked"
+                      v-if="!evidenceLocked"
                       type="button"
                       icon="pi pi-trash"
                       text
@@ -1284,7 +1562,19 @@ watch(isMobile, (mobile) => {
 <style scoped>
 .participate-page {
   --participate-sheet-gap: calc(4.75rem + env(safe-area-inset-top, 0px));
+  --participate-ink: #071e48;
+  --participate-muted: #5b6b82;
   gap: 1rem;
+  color: var(--participate-ink);
+}
+
+html.dark .participate-page {
+  --participate-ink: #e8eef8;
+  --participate-muted: #9aabc2;
+}
+
+.participate-page .pj-muted {
+  color: var(--participate-muted);
 }
 
 .summary-row {
@@ -1303,6 +1593,7 @@ watch(isMobile, (mobile) => {
   background: var(--pj-bg-elevated);
   border: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
   box-shadow: 0 8px 24px color-mix(in srgb, #0f172a 4%, transparent);
+  color: var(--participate-ink);
 }
 
 .summary-card--club {
@@ -1313,9 +1604,10 @@ watch(isMobile, (mobile) => {
 
 .summary-card--club.has-cover {
   min-height: 7.25rem;
-  color: var(--hero-text, #fff);
+  color: #fff;
   background-image:
-    var(--hero-overlay, linear-gradient(180deg, rgba(7, 18, 42, 0.28) 0%, rgba(7, 18, 42, 0.78) 100%)),
+    linear-gradient(180deg, rgba(7, 18, 42, 0.42) 0%, rgba(7, 18, 42, 0.88) 100%),
+    var(--hero-overlay, none),
     var(--hero-image);
   background-size: cover;
   background-position: center;
@@ -1323,19 +1615,19 @@ watch(isMobile, (mobile) => {
 }
 
 .summary-card--club.has-cover h2 {
-  color: var(--hero-text, #fff);
-  text-shadow: 0 1px 12px color-mix(in srgb, var(--hero-chip-bg, rgba(15, 23, 42, 0.5)) 70%, transparent);
+  color: #fff;
+  text-shadow: 0 1px 12px rgba(7, 18, 42, 0.55);
 }
 
 .summary-card--club.has-cover .pj-muted {
-  color: var(--hero-muted, rgba(255, 255, 255, 0.86));
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .summary-card--club.has-cover .chip-enrolled,
 .summary-card--club.has-cover .chip-open {
-  background: var(--hero-chip-bg, rgba(15, 23, 42, 0.48));
-  border: 1px solid var(--hero-chip-border, rgba(255, 255, 255, 0.28));
-  color: var(--hero-chip-text, #fff);
+  background: rgba(15, 23, 42, 0.48);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #fff;
 }
 
 .club-hero__intro {
@@ -1387,12 +1679,17 @@ watch(isMobile, (mobile) => {
 .summary-card h3 {
   margin: 0 0 0.2rem;
   font-size: 1rem;
+  color: var(--participate-ink);
+}
+
+.summary-card--club.has-cover h2 {
+  color: #fff;
 }
 
 .summary-card__metric {
   margin: 0.15rem 0 0.55rem;
   font-size: 0.86rem;
-  color: var(--pj-text-muted);
+  color: var(--participate-muted);
 }
 
 .summary-card__points {
@@ -1416,21 +1713,11 @@ watch(isMobile, (mobile) => {
 
 .club-avatar img,
 .detail-avatar img,
-.eval-item__thumb img,
 .detail-hero img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
-}
-
-.eval-item__thumb {
-  width: 2.35rem;
-  height: 2.35rem;
-  border-radius: 10px;
-  overflow: hidden;
-  flex-shrink: 0;
-  background: color-mix(in srgb, var(--pj-border) 40%, transparent);
 }
 
 .detail-hero {
@@ -1502,7 +1789,7 @@ watch(isMobile, (mobile) => {
   background: var(--pj-bg-elevated);
   font-weight: 800;
   font-size: 0.92rem;
-  color: var(--pj-navy);
+  color: var(--participate-ink);
 }
 
 .participate-layout {
@@ -1518,6 +1805,7 @@ watch(isMobile, (mobile) => {
   border-radius: 16px;
   box-shadow: 0 8px 24px color-mix(in srgb, #0f172a 4%, transparent);
   min-height: 28rem;
+  color: var(--participate-ink);
 }
 
 .panel--list {
@@ -1540,7 +1828,7 @@ watch(isMobile, (mobile) => {
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0;
-  color: var(--pj-text);
+  color: var(--participate-ink);
 }
 
 .panel__head p {
@@ -1548,78 +1836,21 @@ watch(isMobile, (mobile) => {
   font-size: 0.8rem;
 }
 
-.eval-item {
-  width: 100%;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 0.65rem;
-  align-items: center;
-  text-align: left;
-  padding: 0.7rem 0.75rem;
-  margin-bottom: 0.35rem;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+.eval-tree {
+  padding: 0.15rem 0 0.25rem;
 }
 
-.eval-item:hover {
-  background: color-mix(in srgb, var(--pj-navy) 5%, transparent);
+.eval-tree :deep(.judge-tree__row) {
+  color: #071e48;
 }
 
-.eval-item.is-inert {
-  cursor: default;
-  opacity: 0.72;
+.eval-tree :deep(.judge-tree__body strong) {
+  color: #071e48;
 }
 
-.eval-item.is-active {
-  background: color-mix(in srgb, #2563eb 8%, transparent);
-  border-color: color-mix(in srgb, #2563eb 28%, transparent);
-}
-
-.eval-item__icon {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 0.95rem;
-}
-
-.eval-item__icon.is-scored {
-  color: #15803d;
-  background: color-mix(in srgb, #16a34a 14%, transparent);
-}
-
-.eval-item__icon.is-review {
-  color: #c2410c;
-  background: color-mix(in srgb, #ea580c 14%, transparent);
-}
-
-.eval-item__icon.is-pending {
-  color: #64748b;
-  background: color-mix(in srgb, #94a3b8 16%, transparent);
-}
-
-.eval-item__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-.eval-item__body strong {
-  font-size: 0.88rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.eval-item__pts {
-  font-size: 0.75rem;
-  color: var(--pj-text-muted);
+.eval-tree :deep(.judge-tree__pts),
+.eval-tree :deep(.judge-tree__pill) {
+  color: #5b6b82;
 }
 
 .status-badge {
@@ -1676,7 +1907,7 @@ watch(isMobile, (mobile) => {
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: 0;
-  color: var(--pj-text);
+  color: var(--participate-ink);
 }
 
 .detail-avatar {
@@ -1711,13 +1942,13 @@ watch(isMobile, (mobile) => {
 .score-box strong {
   display: block;
   font-size: 0.92rem;
-  color: var(--pj-navy);
+  color: var(--participate-ink);
   line-height: 1.2;
 }
 
 .score-box span {
   font-size: 0.62rem;
-  color: var(--pj-text-muted);
+  color: var(--participate-muted);
 }
 
 .score-box__avg {
@@ -1725,7 +1956,7 @@ watch(isMobile, (mobile) => {
   margin-top: 0.15rem;
   font-size: 0.6rem;
   font-weight: 600;
-  color: var(--pj-navy);
+  color: var(--participate-ink);
   opacity: 0.85;
 }
 
@@ -1788,6 +2019,12 @@ watch(isMobile, (mobile) => {
   color: #b91c1c;
 }
 
+.deadline-box--enroll {
+  background: color-mix(in srgb, #2563eb 8%, transparent);
+  border-color: color-mix(in srgb, #2563eb 28%, transparent);
+  color: #1d4ed8;
+}
+
 .detail-section {
   margin-top: 1.1rem;
 }
@@ -1795,11 +2032,13 @@ watch(isMobile, (mobile) => {
 .detail-section h3 {
   margin: 0 0 0.65rem;
   font-size: 0.95rem;
+  color: var(--participate-ink);
 }
 
 .detail-section h4 {
   margin: 0.75rem 0 0.45rem;
   font-size: 0.85rem;
+  color: var(--participate-ink);
 }
 
 .info-grid {
@@ -1885,6 +2124,16 @@ watch(isMobile, (mobile) => {
   flex-direction: column;
   gap: 0.35rem;
   align-items: flex-end;
+}
+
+.evidence-unlock {
+  display: grid;
+  gap: 0.65rem;
+  justify-items: start;
+}
+
+.evidence-unlock .pj-muted {
+  margin: 0;
 }
 
 .tipo-chip {
@@ -2101,6 +2350,7 @@ watch(isMobile, (mobile) => {
   margin-bottom: 0.25rem;
   font-size: 0.8rem;
   font-weight: 650;
+  color: var(--participate-ink);
 }
 
 .link-preview {

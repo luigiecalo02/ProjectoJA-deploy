@@ -33,7 +33,6 @@ const emit = defineEmits<{
   edit: [item: ClubEvent]
   remove: [item: ClubEvent]
   duplicate: [item: ClubEvent]
-  enter: [item: ClubEvent]
   addChild: [item: ClubEvent]
   dragStart: [item: ClubEvent, event: DragEvent]
   dragOver: [item: ClubEvent, event: DragEvent]
@@ -79,11 +78,6 @@ const rowMenuItems = computed<MenuItem[]>(() => {
       label: t('events.wizard.subAddChild'),
       icon: 'pi pi-plus',
       command: () => emit('addChild', item),
-    },
-    {
-      label: t('events.wizard.subOpenChildren'),
-      icon: 'pi pi-sitemap',
-      command: () => emit('enter', item),
     },
     {
       label: t('common.edit'),
@@ -205,16 +199,6 @@ async function toggleRowMenu(item: ClubEvent, event: Event): Promise<void> {
           <Button
             type="button"
             class="sub-action--desktop"
-            icon="pi pi-sitemap"
-            text
-            rounded
-            size="small"
-            v-tooltip.top="t('events.wizard.subOpenChildren')"
-            @click="emit('enter', node)"
-          />
-          <Button
-            type="button"
-            class="sub-action--desktop"
             icon="pi pi-pencil"
             text
             rounded
@@ -269,7 +253,6 @@ async function toggleRowMenu(item: ClubEvent, event: Event): Promise<void> {
         @edit="emit('edit', $event)"
         @remove="emit('remove', $event)"
         @duplicate="emit('duplicate', $event)"
-        @enter="emit('enter', $event)"
         @add-child="emit('addChild', $event)"
         @drag-start="(item, event) => emit('dragStart', item, event)"
         @drag-over="(item, event) => emit('dragOver', item, event)"
@@ -333,6 +316,9 @@ async function toggleRowMenu(item: ClubEvent, event: Event): Promise<void> {
   border: 1px solid transparent;
   box-sizing: border-box;
   cursor: grab;
+  color: var(--pj-text);
+  font-family: var(--pj-font-sans);
+  letter-spacing: 0;
   transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 
@@ -436,7 +422,11 @@ async function toggleRowMenu(item: ClubEvent, event: Event): Promise<void> {
 }
 
 .sub-tree__body strong {
+  font-family: var(--pj-font-sans);
   font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--pj-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -451,8 +441,10 @@ async function toggleRowMenu(item: ClubEvent, event: Event): Promise<void> {
 }
 
 .sub-tree__score {
+  font-family: var(--pj-font-sans);
   font-size: 0.75rem;
-  color: var(--pj-text-muted);
+  font-weight: 700;
+  color: var(--pj-text);
   white-space: nowrap;
 }
 

@@ -12,7 +12,7 @@ class OrganizacionCatalogSeeder extends Seeder
         $now = now();
 
         // Jerarquía de tipos:
-        // Unión → Asociación → Distrito → Iglesia → Club → (Conquistadores | Aventureros | Guías Mayores)
+        // Unión → Asociación → Zona → Distrito → Iglesia → Club
         $tipos = [
             [
                 'id' => 1,
@@ -29,10 +29,17 @@ class OrganizacionCatalogSeeder extends Seeder
                 'estado' => true,
             ],
             [
-                'id' => 3,
+                'id' => 9,
                 'tipo_organizacion_padre_id' => 2,
+                'nombre' => 'Zona',
+                'descripcion' => 'Hijo de Asociación; agrupa municipios y es padre del Distrito',
+                'estado' => true,
+            ],
+            [
+                'id' => 3,
+                'tipo_organizacion_padre_id' => 9,
                 'nombre' => 'Distrito',
-                'descripcion' => 'Hijo de Asociación',
+                'descripcion' => 'Hijo de Zona',
                 'estado' => true,
             ],
             [
@@ -65,41 +72,40 @@ class OrganizacionCatalogSeeder extends Seeder
             );
         }
 
-        // Hijos de Club: upsert por nombre para respetar IDs ya existentes.
-        $hijosClub = [
+        // Filas inactivas: no son tipos de organización. Se conservan para la audiencia de eventos.
+        $audienciaEvento = [
             [
                 'nombre' => 'Conquistadores',
-                'descripcion' => 'Hijo de Club',
+                'descripcion' => 'Audiencia de eventos (no es tipo de organización)',
             ],
             [
                 'nombre' => 'Aventureros',
-                'descripcion' => 'Hijo de Club',
+                'descripcion' => 'Audiencia de eventos (no es tipo de organización)',
             ],
             [
                 'nombre' => 'Guías Mayores',
                 'nombres_alternativos' => ['Guias Mayores', 'Guías Mayores'],
-                'descripcion' => 'Hijo de Club',
+                'descripcion' => 'Audiencia de eventos (no es tipo de organización)',
             ],
         ];
 
-        foreach ($hijosClub as $hijo) {
-            $nombres = $hijo['nombres_alternativos'] ?? [$hijo['nombre']];
+        foreach ($audienciaEvento as $tipo) {
+            $nombres = $tipo['nombres_alternativos'] ?? [$tipo['nombre']];
             $existente = DB::table('tipo_organizacion')->whereIn('nombre', $nombres)->first();
 
             if ($existente) {
                 DB::table('tipo_organizacion')->where('id', $existente->id)->update([
-                    'tipo_organizacion_padre_id' => 5,
-                    'nombre' => $hijo['nombre'],
-                    'descripcion' => $hijo['descripcion'],
-                    'estado' => true,
+                    'nombre' => $tipo['nombre'],
+                    'descripcion' => $tipo['descripcion'],
+                    'estado' => false,
                     'updated_at' => $now,
                 ]);
             } else {
                 DB::table('tipo_organizacion')->insert([
                     'tipo_organizacion_padre_id' => 5,
-                    'nombre' => $hijo['nombre'],
-                    'descripcion' => $hijo['descripcion'],
-                    'estado' => true,
+                    'nombre' => $tipo['nombre'],
+                    'descripcion' => $tipo['descripcion'],
+                    'estado' => false,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);

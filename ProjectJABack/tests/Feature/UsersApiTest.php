@@ -3,10 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Modules\Clubs\Models\Club;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
-use App\Modules\Organizations\Models\TipoOrganizacion;
 use App\Modules\Users\Models\Role;
 use Database\Seeders\OrganizacionCatalogSeeder;
 use Database\Seeders\RolePermissionSeeder;
@@ -50,7 +50,9 @@ class UsersApiTest extends TestCase
         // pastor via role_ids / POR; no role_user
         Sanctum::actingAs($user);
 
-        $this->getJson('/api/v1/users')->assertForbidden();
+        $this->getJson('/api/v1/users')
+            ->assertForbidden()
+            ->assertJsonPath('message', 'No tienes permiso para esta acción');
     }
 
     public function test_admin_can_create_user(): void
@@ -135,24 +137,29 @@ class UsersApiTest extends TestCase
     {
         $this->seed(OrganizacionCatalogSeeder::class);
 
-        $tipoAventureros = (int) TipoOrganizacion::query()
-            ->where('nombre', 'like', '%Aventurer%')
-            ->value('id');
-        $tipoConquistadores = (int) TipoOrganizacion::query()
-            ->where('nombre', 'like', '%Conquistador%')
-            ->value('id');
-
         $clubAve = Organizacion::query()->create([
-            'tipo_organizacion_id' => $tipoAventureros,
+            'tipo_organizacion_id' => Organizacion::TIPO_CLUB,
             'nombre' => 'Club Aventureros Norte',
             'codigo' => 'AVE-N-'.uniqid(),
             'estado' => true,
         ]);
         $clubConq = Organizacion::query()->create([
-            'tipo_organizacion_id' => $tipoConquistadores,
+            'tipo_organizacion_id' => Organizacion::TIPO_CLUB,
             'nombre' => 'Club Conquistadores Norte',
             'codigo' => 'CON-N-'.uniqid(),
             'estado' => true,
+        ]);
+        Club::query()->create([
+            'organizacion_id' => $clubAve->id,
+            'nombre' => 'Club Aventureros Norte',
+            'tipos' => ['aventureros'],
+            'is_active' => true,
+        ]);
+        Club::query()->create([
+            'organizacion_id' => $clubConq->id,
+            'nombre' => 'Club Conquistadores Norte',
+            'tipos' => ['conquistadores'],
+            'is_active' => true,
         ]);
 
         $aveUser = $this->userInOrganization($clubAve->id, 'ave@test.local');

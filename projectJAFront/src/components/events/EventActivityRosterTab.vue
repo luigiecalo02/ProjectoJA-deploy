@@ -12,10 +12,15 @@ import TabPanel from 'primevue/tabpanel'
 import { eventsService } from '@/services/eventsService'
 import { getApiErrorMessage } from '@/services/api'
 import type { ActivityRoster, ActivityRosterCandidato } from '@/modules/events/types'
+import { formatDateOnly } from '@/modules/events/dateUtils'
 
 const props = defineProps<{
   actividadId: number
   locked?: boolean
+}>()
+
+const emit = defineEmits<{
+  saved: [payload: { count: number }]
 }>()
 
 const { t } = useI18n()
@@ -56,6 +61,12 @@ const overF = computed(() => {
   }
   return Math.max(0, selectedF.value - config.value.participantes_max_f)
 })
+const overTotal = computed(() => {
+  if (config.value?.participantes_genero !== 'mixto' || config.value.participantes_max == null) {
+    return 0
+  }
+  return Math.max(0, selectedIds.value.length - config.value.participantes_max)
+})
 
 const countLabel = computed(() => {
   const selected = selectedIds.value.length
@@ -66,7 +77,11 @@ const countLabel = computed(() => {
     const maxF = config.value.participantes_max_f
     const mRange = maxM != null ? `${minM}–${maxM}` : String(minM)
     const fRange = maxF != null ? `${minF}–${maxF}` : String(minF)
-    return `${selected} · M ${selectedM.value}/${mRange} · F ${selectedF.value}/${fRange}`
+    const total =
+      config.value.participantes_max != null
+        ? ` · ${t('events.wizard.subParticipantsMaxTotal')} ${config.value.participantes_max}`
+        : ''
+    return `${selected}${total} · M ${selectedM.value}/${mRange} · F ${selectedF.value}/${fRange}`
   }
   const min = config.value?.participantes_min ?? 0
   const max = config.value?.participantes_max
@@ -75,6 +90,10 @@ const countLabel = computed(() => {
   }
   return t('events.activityRosterCountMin', { selected, min })
 })
+
+function formatDeadline(value: string): string {
+  return formatDateOnly(value)
+}
 
 function genderLabel(row: ActivityRosterCandidato): string {
   if (row.sexo === 'M') return t('events.activityRosterMale')
@@ -120,6 +139,7 @@ async function save(): Promise<void> {
     roster.value = await eventsService.syncActivityRoster(props.actividadId, selectedIds.value)
     selectedIds.value = [...(roster.value.seleccionados ?? [])]
     activeTab.value = 'inscritos'
+    emit('saved', { count: selectedIds.value.length })
     toast.add({
       severity: 'success',
       summary: t('common.success'),
@@ -152,8 +172,22 @@ onMounted(() => {
 
 <template>
   <div class="roster">
-    <p v-if="locked" class="roster__lock">{{ t('events.activityRosterLocked') }}</p>
-    <p v-else class="pj-muted">{{ t('events.activityRosterHint') }}</p>
+    <p v-if="locked" class="roster__lock">
+      {{
+        roster?.inscripcion_cerrada
+          ? t('events.activityRosterDeadlineLocked')
+          : t('events.activityRosterLocked')
+      }}
+    </p>
+    <p v-else class="pj-muted">
+      {{ t('events.activityRosterHint') }}
+      <template v-if="config?.es_conjunto">
+        {{ t('events.activityRosterConjuntoHint') }}
+      </template>
+      <template v-if="config?.fecha_limite_inscripcion">
+        {{ t('events.activityRosterDeadlineUntil', { date: formatDeadline(config.fecha_limite_inscripcion) }) }}
+      </template>
+    </p>
     <div class="roster__meta">
       <strong>{{ countLabel }}</strong>
       <span v-if="config?.participantes_genero === 'mixto'">
@@ -163,6 +197,7 @@ onMounted(() => {
       <span v-if="needF > 0" class="roster__warn">{{ t('events.activityRosterNeedF', { count: needF }) }}</span>
       <span v-if="overM > 0" class="roster__warn">{{ t('events.activityRosterOverM', { count: overM }) }}</span>
       <span v-if="overF > 0" class="roster__warn">{{ t('events.activityRosterOverF', { count: overF }) }}</span>
+      <span v-if="overTotal > 0" class="roster__warn">{{ t('events.activityRosterOverTotal', { count: overTotal }) }}</span>
     </div>
 
     <p v-if="loading" class="pj-muted">{{ t('common.loading') }}</p>
@@ -188,6 +223,7 @@ onMounted(() => {
                 <strong>{{ row.nombre }}</strong>
                 <small>
                   {{ genderLabel(row) }}
+                  <template v-if="row.organizacion"> · {{ row.organizacion }}</template>
                   <em v-if="!row.inscrito_evento"> · {{ t('events.activityRosterNotInEvent') }}</em>
                 </small>
               </div>
@@ -210,6 +246,7 @@ onMounted(() => {
                   <strong>{{ row.nombre }}</strong>
                   <small>
                     {{ genderLabel(row) }}
+                    <template v-if="row.organizacion"> · {{ row.organizacion }}</template>
                     <em v-if="!row.inscrito_evento"> · {{ t('events.activityRosterNotInEvent') }}</em>
                   </small>
                 </label>

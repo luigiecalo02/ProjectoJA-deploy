@@ -167,7 +167,9 @@ class AuthApiTest extends TestCase
         $target = User::factory()->create(['is_active' => true]);
 
         Sanctum::actingAs($actor);
-        $this->postJson("/api/v1/auth/impersonate/{$target->id}")->assertForbidden();
+        $this->postJson("/api/v1/auth/impersonate/{$target->id}")
+            ->assertForbidden()
+            ->assertJsonPath('message', 'No puedes entrar como este usuario.');
     }
 
     public function test_admin_cannot_impersonate_self(): void

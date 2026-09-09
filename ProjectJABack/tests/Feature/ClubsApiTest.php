@@ -315,4 +315,65 @@ class ClubsApiTest extends TestCase
 
         $this->assertTrue(collect($availableOwner)->contains('id', $club->id));
     }
+
+    public function test_can_filter_clubs_by_organizacion_and_tipo(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $iglesiaA = $this->createIglesia();
+        $iglesiaB = $this->createIglesia();
+
+        $this->postJson('/api/v1/clubs', [
+            'organizacion_id' => $iglesiaA->id,
+            'nombre' => 'Club Aventureros A',
+            'tipos' => ['aventureros'],
+        ])->assertCreated();
+
+        $this->postJson('/api/v1/clubs', [
+            'organizacion_id' => $iglesiaB->id,
+            'nombre' => 'Club Conquistadores B',
+            'tipos' => ['conquistadores'],
+        ])->assertCreated();
+
+        $byIglesia = collect($this->getJson('/api/v1/clubs?organizacion_id='.$iglesiaA->id)
+            ->assertOk()
+            ->json('data'))->pluck('nombre');
+        $this->assertTrue($byIglesia->contains('Club Aventureros A'));
+        $this->assertFalse($byIglesia->contains('Club Conquistadores B'));
+
+        $byTipo = collect($this->getJson('/api/v1/clubs?tipo_club=conquistadores')
+            ->assertOk()
+            ->json('data'))->pluck('nombre');
+        $this->assertTrue($byTipo->contains('Club Conquistadores B'));
+        $this->assertFalse($byTipo->contains('Club Aventureros A'));
+    }
+
+    public function test_club_context_can_update_own_club_with_parent_iglesia(): void
+    {
+        $admin = $this->admin();
+        $iglesia = $this->createIglesia();
+        $clubOrg = Organizacion::query()->create([
+            'organizacion_padre_id' => $iglesia->id,
+            'tipo_organizacion_id' => Organizacion::TIPO_CLUB,
+            'nombre' => 'Club Barzilai Org',
+            'codigo' => 'CLB-BZ',
+            'estado' => true,
+        ]);
+        $club = Club::query()->create([
+            'organizacion_id' => $clubOrg->id,
+            'nombre' => 'Club Barzilai',
+            'is_active' => true,
+            'tipos' => ['conquistadores'],
+        ]);
+
+        $admin->forceFill(['active_organizacion_id' => $clubOrg->id])->save();
+        Sanctum::actingAs($admin);
+
+        $this->putJson("/api/v1/clubs/{$club->id}", [
+            'organizacion_id' => $iglesia->id,
+            'nombre' => 'Club Barzilai Junior',
+            'tipos' => ['conquistadores'],
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.nombre', 'Club Barzilai Junior');
+    }
 }

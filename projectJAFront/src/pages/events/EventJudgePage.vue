@@ -9,13 +9,15 @@ import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import PageLoader from '@/components/PageLoader.vue'
-import EventSearchPanel from '@/components/events/EventSearchPanel.vue'
 import AppStackDrawer from '@/components/drawers/AppStackDrawer.vue'
+import EventJudgeClubList from '@/components/events/EventJudgeClubList.vue'
 import EventJudgeTreeNodes from '@/components/events/EventJudgeTreeNodes.vue'
 import EventJudgeActivityCard from '@/components/events/EventJudgeActivityCard.vue'
 import { eventsService } from '@/services/eventsService'
 import { resolveAssetUrl, toCssImageUrl } from '@/modules/settings/assetUrl'
 import { extractBannerHeroVars } from '@/utils/dominantColor'
+import { cssColor } from '@/utils/color'
+import { iconBoxStyle, resolveEventIconColor } from '@/utils/iconVisual'
 import { getApiErrorMessage, isNetworkError } from '@/services/api'
 import { FieldPackMissingError } from '@/services/fieldModeService'
 import { resolveCachedEvidenceUrl } from '@/modules/fieldMode/evidenceCache'
@@ -34,15 +36,25 @@ import type {
   ParticipationCalificacion,
 } from '@/modules/events/types'
 import { previewFromEvidenceUrl } from '@/modules/events/evidencePreview'
+import { formatDateTime } from '@/modules/events/dateUtils'
 
 type ClubFilter = 'todos' | 'pendientes' | 'evaluados'
 type JudgeBrowseMode = 'club-first' | 'event-first'
+type ClubSort = 'nombre_asc' | 'nombre_desc' | 'fecha_asc' | 'fecha_desc'
 
 const BROWSE_MODE_KEY = 'pj.judgeBrowseMode'
+const CLUB_SORT_KEY = 'pj.judgeClubSort'
+const CLUB_SORTS: ClubSort[] = ['nombre_asc', 'nombre_desc', 'fecha_asc', 'fecha_desc']
 
 function readBrowseMode(): JudgeBrowseMode {
   if (typeof localStorage === 'undefined') return 'club-first'
   return localStorage.getItem(BROWSE_MODE_KEY) === 'event-first' ? 'event-first' : 'club-first'
+}
+
+function readClubSort(): ClubSort {
+  if (typeof localStorage === 'undefined') return 'fecha_asc'
+  const stored = localStorage.getItem(CLUB_SORT_KEY)
+  return CLUB_SORTS.includes(stored as ClubSort) ? (stored as ClubSort) : 'fecha_asc'
 }
 
 const { t } = useI18n()
@@ -53,18 +65,30 @@ const fieldMode = useFieldModeStore()
 
 const loading = ref(true)
 const saving = ref(false)
+const unlockingEvidence = ref(false)
 const board = ref<JudgeBoard | null>(null)
 const selectedSubeventoId = ref<number | null>(null)
 const selectedActividadId = ref<number | null>(null)
 const selectedOrgId = ref<number | null>(null)
 const clubFilter = ref<ClubFilter>('pendientes')
 const browseMode = ref<JudgeBrowseMode>(readBrowseMode())
+const clubSort = ref<ClubSort>(readClubSort())
 const isEventFirst = computed(() => browseMode.value === 'event-first')
+const clubSortOptions = computed(() => [
+  { value: 'nombre_asc' as const, label: t('events.judgeClubSortNameAsc') },
+  { value: 'nombre_desc' as const, label: t('events.judgeClubSortNameDesc') },
+  { value: 'fecha_asc' as const, label: t('events.judgeClubSortDateAsc') },
+  { value: 'fecha_desc' as const, label: t('events.judgeClubSortDateDesc') },
+])
 const search = ref('')
 const observaciones = ref('')
 const genericScore = ref<number | null>(null)
 const puestoEntrega = ref('')
 const durMin = ref(0)
+const chronoRunning = ref(false)
+const chronoBaseMs = ref(0)
+const chronoStartedAt = ref<number | null>(null)
+let chronoFrame = 0
 const durSec = ref(0)
 const durCs = ref(0)
 const resultadoObtenido = ref<number | null>(null)
@@ -74,8 +98,11 @@ const expandedTreeIds = ref<Set<number>>(new Set())
 const treeInitialized = ref(false)
 const drawerVisible = ref(false)
 const treeSheetVisible = ref(false)
+const clubSheetVisible = ref(false)
+const clubSheetOpenedOnce = ref(false)
 const isMobile = useMediaQuery('(max-width: 900px)')
 const drawerPosition = computed(() => (isMobile.value ? 'bottom' : 'right'))
+const gradingDrawerLevel = computed(() => (isMobile.value && isEventFirst.value ? 3 : 1))
 
 const eventId = computed(() => Number(route.params.id))
 const isCampo = computed(() => route.name === 'campo.judge')
@@ -117,8 +144,14 @@ watch(
   { immediate: true },
 )
 
-const subevento = computed<JudgeSubevento | null>(() => board.value?.subevento ?? null)
-const actividad = computed<JudgeSubevento | null>(() => board.value?.actividad ?? board.value?.subevento ?? null)
+const subevento = computed<JudgeSubevento | null>(() => {
+  if (!selectedSubeventoId.value) return null
+  return board.value?.subevento ?? null
+})
+const actividad = computed<JudgeSubevento | null>(() => {
+  if (!selectedActividadId.value && !selectedSubeventoId.value) return null
+  return board.value?.actividad ?? board.value?.subevento ?? null
+})
 const activityCoverUrl = computed(
   () => resolveAssetUrl(actividad.value?.image_url) ?? actividad.value?.image_url ?? null,
 )
@@ -133,6 +166,10 @@ const selectedClub = computed<JudgeClub | JudgeClubResumen | null>(() => {
   if (fromActivity) return fromActivity
   return board.value.clubes_resumen?.find((c) => c.organizacion_id === selectedOrgId.value) ?? null
 })
+
+function clubLogoSrc(url?: string | null): string | null {
+  return resolveAssetUrl(url)
+}
 
 const clubesCatalog = computed<JudgeClubResumen[]>(() => board.value?.clubes_resumen ?? [])
 
@@ -155,17 +192,20 @@ const hasEventSelection = computed(() => selectedBrowseEventId.value != null)
 const filteredClubs = computed(() => {
   const q = search.value.trim().toLowerCase()
   const actId = isEventFirst.value ? selectedBrowseEventId.value : null
-  return clubesCatalog.value.filter((club) => {
+  const rows = clubesCatalog.value.filter((club) => {
     const pending = clubPendingForActivity(club, actId)
     if (clubFilter.value === 'pendientes' && pending <= 0) return false
     if (clubFilter.value === 'evaluados' && !clubScoredActivity(club, actId)) return false
     if (q && !club.nombre.toLowerCase().includes(q)) return false
     return true
   })
+  if (!isEventFirst.value) return rows
+  return [...rows].sort((a, b) => compareClubs(a, b, clubSort.value))
 })
 
 /** Clubes del alcance actual (sin filtro de búsqueda) para navegar en el drawer. */
 const drawerClubs = computed(() => {
+  if (isEventFirst.value) return filteredClubs.value
   if (board.value?.clubes?.length) return board.value.clubes
   return clubesCatalog.value
 })
@@ -188,10 +228,13 @@ const canGoNextClub = computed(() => {
 
 const filterCounts = computed(() => {
   const clubs = clubesCatalog.value
+  const actId = isEventFirst.value ? selectedBrowseEventId.value : null
   return {
     todos: clubs.length,
-    pendientes: clubs.filter((c) => (c.eventos_pendientes ?? 0) > 0).length,
-    evaluados: clubs.filter((c) => c.estado === 'evaluado').length,
+    pendientes: clubs.filter((c) => clubPendingForActivity(c, actId) > 0).length,
+    evaluados: clubs.filter((c) =>
+      actId ? clubScoredActivity(c, actId) : c.estado === 'evaluado',
+    ).length,
   }
 })
 
@@ -306,6 +349,16 @@ function findTreeParent(
   }
   return undefined
 }
+
+const activityIconClass = computed(() => {
+  const act = actividad.value
+  const icon =
+    act?.icono?.trim() ||
+    act?.categoria_subevento?.icono?.trim() ||
+    act?.tipo_evento?.icono?.trim() ||
+    'pi pi-flag'
+  return icon.startsWith('pi ') ? icon : `pi ${icon}`
+})
 
 const parentEventName = computed(() => {
   const actId = actividad.value?.id
@@ -425,6 +478,47 @@ function toggleBrowseMode(): void {
   browseMode.value = browseMode.value === 'club-first' ? 'event-first' : 'club-first'
   localStorage.setItem(BROWSE_MODE_KEY, browseMode.value)
   treeSheetVisible.value = false
+  clubSheetVisible.value = false
+  drawerVisible.value = false
+  clubSheetOpenedOnce.value = false
+}
+
+function persistClubSort(value: ClubSort): void {
+  clubSort.value = value
+  localStorage.setItem(CLUB_SORT_KEY, value)
+}
+
+function clubInscriptionAt(club: JudgeClubResumen): string | null {
+  const byEvent = board.value?.inscripciones?.[String(club.organizacion_id)]
+  const actId = selectedBrowseEventId.value
+  if (actId != null && byEvent?.[String(actId)]) return byEvent[String(actId)]
+  const rootId = board.value?.evento?.id
+  if (rootId != null && byEvent?.[String(rootId)]) return byEvent[String(rootId)]
+  return club.fecha_inscripcion ?? null
+}
+
+function compareClubs(a: JudgeClubResumen, b: JudgeClubResumen, sort: ClubSort): number {
+  const byName = a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })
+  if (sort === 'nombre_asc') return byName
+  if (sort === 'nombre_desc') return -byName
+  const ta = clubInscriptionAt(a)
+  const tb = clubInscriptionAt(b)
+  const pa = ta ? Date.parse(ta) : NaN
+  const pb = tb ? Date.parse(tb) : NaN
+  const ha = Number.isFinite(pa)
+  const hb = Number.isFinite(pb)
+  let byDate = 0
+  if (ha && hb) byDate = pa - pb
+  else if (ha) byDate = -1
+  else if (hb) byDate = 1
+  if (sort === 'fecha_desc') byDate = -byDate
+  return byDate || byName
+}
+
+function clubEnrolledLabel(club: JudgeClubResumen): string {
+  const at = clubInscriptionAt(club)
+  if (!at) return ''
+  return t('events.judgeClubEnrolledAt', { date: formatDateTime(at) })
 }
 
 function collectExpandableIds(nodes: JudgeTreeNode[], into: Set<number>): void {
@@ -478,29 +572,59 @@ async function onTreeNodeSelect(node: JudgeTreeNode): Promise<void> {
 
   if (isLeafActivity || isSelfCalificable) {
     if (selectedSubeventoId.value === sel.id && selectedActividadId.value === node.id) {
+      if (isEventFirst.value && isMobile.value) {
+        openClubSheet()
+        return
+      }
       if (!isEventFirst.value || clubHasSelection.value) openGradingDrawer()
       return
     }
     selectedSubeventoId.value = sel.id
     selectedActividadId.value = node.id
     await load(true)
+    if (isEventFirst.value && isMobile.value) {
+      openClubSheet()
+      return
+    }
     if (!isEventFirst.value || clubHasSelection.value) openGradingDrawer()
     return
   }
 
   await onSubeventoChange(sel.id)
+  if (!nodeCanScore(node)) {
+    drawerVisible.value = false
+    clubSheetVisible.value = false
+    clubSheetOpenedOnce.value = false
+    return
+  }
+  if (isEventFirst.value && isMobile.value) {
+    openClubSheet()
+    return
+  }
   if (!isEventFirst.value || clubHasSelection.value) openGradingDrawer()
 }
 
+function openClubSheet(): void {
+  if (!isMobile.value || !isEventFirst.value) return
+  drawerVisible.value = false
+  clubSheetVisible.value = true
+  clubSheetOpenedOnce.value = true
+}
+
 function openGradingDrawer(): void {
-  if (isMobile.value) treeSheetVisible.value = false
+  if (isMobile.value && !isEventFirst.value) treeSheetVisible.value = false
   drawerVisible.value = true
 }
 
 const hasCriteria = computed(() => (actividad.value?.criterios?.length ?? 0) > 0)
+const criteriaShared = computed(() => actividad.value?.criterios_compartidos !== false)
+const splitCriteria = computed(() => actividad.value?.criterios_compartidos === false)
 
 const resultadoEsperado = computed(() => actividad.value?.resultado_esperado ?? null)
-const scoreByParticipation = computed(() => Boolean(actividad.value?.puntaje_por_participar))
+const scoreByParticipation = computed(
+  () => Boolean(actividad.value?.puntaje_por_participar) && criteriaShared.value,
+)
+const usesChrono = computed(() => actividad.value?.modo_captura_tiempo === 'cronometro')
 
 function formatDuration(min: number, sec: number, cs: number): string {
   const m = Math.max(0, Math.floor(Number(min) || 0))
@@ -517,13 +641,74 @@ function parseDuration(value: string | null | undefined): { min: number; sec: nu
 
 const tiempoEntrega = computed(() => formatDuration(durMin.value, durSec.value, durCs.value))
 
+const chronoDisplay = computed(() => {
+  const m = Math.max(0, Math.floor(Number(durMin.value) || 0))
+  const s = Math.min(59, Math.max(0, Math.floor(Number(durSec.value) || 0)))
+  const c = Math.min(99, Math.max(0, Math.floor(Number(durCs.value) || 0)))
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(c).padStart(2, '0')}`
+})
+
+function durationToMs(min: number, sec: number, cs: number): number {
+  return (Math.max(0, min) * 60 + Math.max(0, sec)) * 1000 + Math.max(0, cs) * 10
+}
+
+function applyMsToDuration(ms: number): void {
+  const capped = Math.max(0, Math.min(ms, 999 * 60 * 1000 + 59 * 1000 + 990))
+  const totalCs = Math.floor(capped / 10)
+  durCs.value = totalCs % 100
+  const totalSec = Math.floor(totalCs / 100)
+  durSec.value = totalSec % 60
+  durMin.value = Math.min(999, Math.floor(totalSec / 60))
+}
+
+function syncChronoFace(): void {
+  if (chronoStartedAt.value == null) return
+  applyMsToDuration(chronoBaseMs.value + (performance.now() - chronoStartedAt.value))
+}
+
+function tickChrono(): void {
+  if (!chronoRunning.value) return
+  syncChronoFace()
+  chronoFrame = requestAnimationFrame(tickChrono)
+}
+
+function startChrono(): void {
+  if (chronoRunning.value) return
+  chronoBaseMs.value = durationToMs(durMin.value, durSec.value, durCs.value)
+  chronoStartedAt.value = performance.now()
+  chronoRunning.value = true
+  tickChrono()
+}
+
+function pauseChrono(): void {
+  if (!chronoRunning.value) return
+  syncChronoFace()
+  chronoRunning.value = false
+  chronoStartedAt.value = null
+  cancelAnimationFrame(chronoFrame)
+}
+
+function resetChrono(): void {
+  pauseChrono()
+  durMin.value = 0
+  durSec.value = 0
+  durCs.value = 0
+  chronoBaseMs.value = 0
+}
+
+const criteriaBonusTotal = computed(() => {
+  if (!hasCriteria.value || !actividad.value) return 0
+  return actividad.value.criterios.reduce((sum, c) => sum + (Number(criterioScores.value[c.id]) || 0), 0)
+})
+
 const scoredTotal = computed(() => {
   if (!actividad.value) return 0
   if (scoreByParticipation.value) {
-    return Number(actividad.value.puntaje_maximo ?? 0)
+    const base = Number(actividad.value.puntaje_maximo ?? 0)
+    return Math.round((base + criteriaBonusTotal.value) * 100) / 100
   }
   if (hasCriteria.value) {
-    return actividad.value.criterios.reduce((sum, c) => sum + (Number(criterioScores.value[c.id]) || 0), 0)
+    return criteriaBonusTotal.value
   }
   const expected = resultadoEsperado.value
   if (expected != null && expected > 0 && resultadoObtenido.value != null) {
@@ -535,19 +720,40 @@ const scoredTotal = computed(() => {
 
 const maxScore = computed(() => actividad.value?.puntaje_maximo ?? null)
 
+const judgeCriteriaMax = computed(() =>
+  (actividad.value?.criterios ?? []).reduce((sum, row) => sum + (Number(row.puntos) || 0), 0),
+)
+
 const scorePct = computed(() => {
-  if (!maxScore.value) return 0
-  return Math.min(100, Math.round((scoredTotal.value / maxScore.value) * 100))
+  const cap = splitCriteria.value ? judgeCriteriaMax.value : maxScore.value
+  if (!cap) return 0
+  return Math.min(100, Math.round((scoredTotal.value / cap) * 100))
 })
 
 const scoreOverflow = computed(() => {
-  if (maxScore.value == null) return false
-  return scoredTotal.value > maxScore.value + 0.001
+  if (scoreByParticipation.value) return false
+  const cap = splitCriteria.value ? judgeCriteriaMax.value : maxScore.value
+  if (cap == null) return false
+  return scoredTotal.value > cap + 0.001
 })
 
 const visibleEvidencias = computed<EventoEvidenciaItem[]>(() => {
   return selectedActivityClub.value?.evidencias ?? []
 })
+
+const requiresEvidence = computed(() => Boolean(actividad.value?.requiere_evidencia))
+
+const showEvidenceUnlock = computed(
+  () => requiresEvidence.value && Boolean(selectedActivityClub.value?.calificacion),
+)
+
+const showScoreHintRow = computed(
+  () => scoreByParticipation.value || splitCriteria.value || showEvidenceUnlock.value,
+)
+
+const showEvidencePanel = computed(
+  () => requiresEvidence.value || visibleEvidencias.value.length > 0,
+)
 
 const selectedEvidence = computed<EventoEvidenciaItem | null>(() => {
   const list = visibleEvidencias.value
@@ -663,6 +869,7 @@ async function onPhotoPicked(event: Event): Promise<void> {
 }
 
 function hydrateForm(club: JudgeClub | null): void {
+  pauseChrono()
   observaciones.value = club?.calificacion?.observaciones || ''
   const details = club?.calificacion?.detalles ?? []
   const map: Record<number, number> = {}
@@ -706,16 +913,10 @@ async function load(keepClub = false): Promise<void> {
       syncExpandedTree(board.value.arbol)
       treeInitialized.value = true
     }
-    if (!selectedSubeventoId.value && board.value.subevento) {
-      selectedSubeventoId.value = board.value.subevento.id
-    }
-    if (board.value.actividad) {
-      selectedActividadId.value = board.value.actividad.id
-    }
     const clubs = board.value.clubes
     if (prevOrg) {
       selectedOrgId.value = prevOrg
-    } else {
+    } else if (!selectedOrgId.value) {
       const qOrg = route.query.organizacion_id
       if (qOrg != null && qOrg !== '') {
         const orgId = Number(qOrg)
@@ -725,8 +926,6 @@ async function load(keepClub = false): Promise<void> {
         const fromClubes = clubs.find((c) => c.organizacion_id === orgId)
         if (fromResumen || fromClubes) {
           selectedOrgId.value = orgId
-          if (isMobile.value) treeSheetVisible.value = true
-          else drawerVisible.value = true
         }
       }
     }
@@ -809,7 +1008,7 @@ function selectClub(club: JudgeClub | JudgeClubResumen): void {
   selectedOrgId.value = club.organizacion_id
   hydrateForm(activityClubForOrg(club.organizacion_id))
   if (isEventFirst.value) {
-    if (hasEventSelection.value && actividad.value) {
+    if (hasEventSelection.value && canScoreActivity.value) {
       drawerVisible.value = true
     }
     return
@@ -856,6 +1055,46 @@ function clubStatusMeta(estado: string): { label: string; css: string } {
     return { label: t('events.statusScored'), css: 'is-scored' }
   }
   return { label: t('events.statusPending'), css: 'is-pending' }
+}
+
+function applyEvidenceEditUnlock(): void {
+  if (!board.value || !selectedOrgId.value) return
+  const orgId = selectedOrgId.value
+  board.value = {
+    ...board.value,
+    clubes: board.value.clubes.map((club) =>
+      club.organizacion_id === orgId && club.calificacion
+        ? {
+            ...club,
+            calificacion: { ...club.calificacion, permite_editar_evidencia: true },
+          }
+        : club,
+    ),
+  }
+}
+
+async function unlockDirectorEvidence(): Promise<void> {
+  if (!actividad.value || !selectedOrgId.value) return
+  unlockingEvidence.value = true
+  try {
+    await eventsService.unlockJudgeEvidenceEdit(actividad.value.id, selectedOrgId.value)
+    applyEvidenceEditUnlock()
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('events.judgeEvidenceEditUnlocked'),
+      life: 2500,
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: t('common.error'),
+      detail: getApiErrorMessage(error),
+      life: 4000,
+    })
+  } finally {
+    unlockingEvidence.value = false
+  }
 }
 
 function applyLocalBoardScore(calificacion: JudgeCalificacion): void {
@@ -916,13 +1155,12 @@ function scorePayload() {
     organizacion_id: orgId,
     observaciones: observaciones.value || null,
     puntaje_obtenido: scoredTotal.value,
-    criterios:
-      hasCriteria.value && !scoreByParticipation.value
-        ? activity.criterios.map((c) => ({
-            criterio_evaluacion_id: c.id,
-            puntos: Number(criterioScores.value[c.id]) || 0,
-          }))
-        : undefined,
+    criterios: hasCriteria.value
+      ? activity.criterios.map((c) => ({
+          criterio_evaluacion_id: c.id,
+          puntos: Number(criterioScores.value[c.id]) || 0,
+        }))
+      : undefined,
     puesto_entrega: activity.requiere_puesto_entrega ? puestoEntrega.value.trim() || null : null,
     tiempo_entrega: activity.requiere_tiempo_entrega ? tiempoEntrega.value : null,
     resultado_obtenido:
@@ -931,6 +1169,7 @@ function scorePayload() {
 }
 
 async function saveAndMaybeNext(goNext: boolean): Promise<void> {
+  pauseChrono()
   if (!actividad.value || !selectedOrgId.value) return
   if (!canScoreActivity.value) {
     toast.add({
@@ -1074,13 +1313,19 @@ watch(
 )
 
 watch(isMobile, (mobile) => {
-  if (!mobile) treeSheetVisible.value = false
+  if (!mobile) {
+    treeSheetVisible.value = false
+    clubSheetVisible.value = false
+  }
 })
 
 watch(drawerVisible, (open) => {
-  if (!open && isMobile.value && clubHasSelection.value) {
-    treeSheetVisible.value = true
+  if (open || !isMobile.value) return
+  if (isEventFirst.value) {
+    if (hasEventSelection.value) clubSheetVisible.value = true
+    return
   }
+  if (clubHasSelection.value) treeSheetVisible.value = true
 })
 
 watch(
@@ -1109,6 +1354,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  pauseChrono()
   revokeLocalPhotoUrls()
 })
 </script>
@@ -1175,103 +1421,29 @@ onBeforeUnmount(() => {
       <p v-if="!judgeTree.length" class="pj-muted empty">{{ t('events.judgeNoSubevents') }}</p>
 
       <div v-else class="judge-layout" :class="{ 'judge-layout--event-first': isEventFirst }">
-        <aside class="panel panel--list" :class="{ 'is-locked': isEventFirst && !hasEventSelection }">
-          <div class="list-head">
-            <div class="phase-chip">
-              <span class="phase-chip__step" :class="{ 'is-ready': isEventFirst ? hasEventSelection : true }">
-                {{ isEventFirst ? 2 : 1 }}
-              </span>
-              <div>
-                <strong>{{ isEventFirst ? t('events.judgePhaseClubsOrder') : t('events.judgePhaseClub') }}</strong>
-                <p class="pj-muted">
-                  {{
-                    isEventFirst
-                      ? hasEventSelection
-                        ? t('events.judgePhaseClubsOrderHint')
-                        : t('events.judgePhaseClubsOrderLocked')
-                      : t('events.judgePhaseClubHint')
-                  }}
-                </p>
-              </div>
-            </div>
-            <EventSearchPanel
-              v-model="search"
-              input-id="judge-club-search"
-              icon="pi pi-users"
-              :label="t('events.standingsSearchLabel')"
-              :placeholder="t('events.judgeSearchClub')"
-              :hint="t('segurosConsulta.liveSearchHint')"
-            />
-            <div class="filter-tabs">
-              <button
-                type="button"
-                :class="{ active: clubFilter === 'todos' }"
-                @click="clubFilter = 'todos'"
-              >
-                {{ t('events.judgeFilterAll') }} ({{ filterCounts.todos }})
-              </button>
-              <button
-                type="button"
-                :class="{ active: clubFilter === 'pendientes' }"
-                @click="clubFilter = 'pendientes'"
-              >
-                {{ t('events.judgeFilterPending') }} ({{ filterCounts.pendientes }})
-              </button>
-              <button
-                type="button"
-                :class="{ active: clubFilter === 'evaluados' }"
-                @click="clubFilter = 'evaluados'"
-              >
-                {{ t('events.judgeFilterScored') }} ({{ filterCounts.evaluados }})
-              </button>
-            </div>
-          </div>
-
-          <div v-if="isEventFirst && !hasEventSelection" class="tree-lock">
-            <i class="pi pi-lock" />
-            <p>{{ t('events.judgeSelectEventFirst') }}</p>
-          </div>
-
-          <button
-            v-for="(club, index) in filteredClubs"
-            v-show="!isEventFirst || hasEventSelection"
-            :key="club.organizacion_id"
-            type="button"
-            class="club-item"
-            :class="{ active: selectedOrgId === club.organizacion_id }"
-            @click="selectClub(club)"
-          >
-            <span v-if="isEventFirst" class="club-item__turn" :title="t('events.judgeClubTurn', { n: clubTurn(index) })">
-              {{ clubTurn(index) }}
-            </span>
-            <div class="club-item__avatar">
-              <img v-if="club.logo_url" :src="club.logo_url" :alt="club.nombre" />
-              <i v-else class="pi pi-building" />
-            </div>
-            <div class="club-item__body">
-              <strong>{{ club.nombre }}</strong>
-              <span class="pj-muted">
-                {{ t('events.judgeEvidencesCount', { count: club.evidencias_count }) }}
-              </span>
-              <span class="status-badge" :class="clubStatusMeta(club.estado).css">
-                {{ clubStatusMeta(club.estado).label }}
-              </span>
-            </div>
-            <div class="club-item__pending">
-              <span
-                v-if="clubPendingCount(club) > 0"
-                class="pending-badge"
-                :title="t('events.judgeClubPendingEvents', { count: clubPendingCount(club) })"
-              >
-                {{ clubPendingCount(club) > 99 ? '99+' : clubPendingCount(club) }}
-              </span>
-              <small v-else class="pj-muted">{{ t('events.judgeClubNoPending') }}</small>
-            </div>
-          </button>
-
-          <p v-if="(!isEventFirst || hasEventSelection) && !filteredClubs.length" class="pj-muted empty">
-            {{ t('events.judgeClubsEmpty') }}
-          </p>
+        <aside
+          v-if="!(isMobile && isEventFirst)"
+          class="panel panel--list"
+          :class="{ 'is-locked': isEventFirst && !hasEventSelection }"
+        >
+          <EventJudgeClubList
+            v-model:search="search"
+            v-model:club-filter="clubFilter"
+            :clubs="filteredClubs"
+            :selected-org-id="selectedOrgId"
+            :is-event-first="isEventFirst"
+            :has-event-selection="hasEventSelection"
+            :filter-counts="filterCounts"
+            :club-sort="clubSort"
+            :club-sort-options="clubSortOptions"
+            :club-turn="clubTurn"
+            :club-logo-src="clubLogoSrc"
+            :club-enrolled-label="clubEnrolledLabel"
+            :club-pending-count="clubPendingCount"
+            :club-status-meta="clubStatusMeta"
+            @persist-sort="persistClubSort"
+            @select="selectClub"
+          />
         </aside>
 
         <button
@@ -1282,6 +1454,24 @@ onBeforeUnmount(() => {
         >
           <i class="pi pi-sitemap" />
           <span>{{ t('events.judgeReopenEvents', { club: selectedClub?.nombre || '' }) }}</span>
+        </button>
+
+        <button
+          v-if="
+            isMobile &&
+            isEventFirst &&
+            hasEventSelection &&
+            canScoreActivity &&
+            clubSheetOpenedOnce &&
+            !clubSheetVisible &&
+            !drawerVisible
+          "
+          type="button"
+          class="tree-reopen"
+          @click="clubSheetVisible = true"
+        >
+          <i class="pi pi-users" />
+          <span>{{ t('events.judgeReopenClubs', { event: actividad?.name || '' }) }}</span>
         </button>
 
         <div
@@ -1355,18 +1545,47 @@ onBeforeUnmount(() => {
       </div>
 
       <AppStackDrawer
+        v-if="isMobile && isEventFirst"
+        v-model:visible="clubSheetVisible"
+        :title="t('events.judgePhaseClub')"
+        :subtitle="actividad?.name || ''"
+        :level="2"
+        :position="drawerPosition"
+      >
+        <EventJudgeClubList
+          v-model:search="search"
+          v-model:club-filter="clubFilter"
+          :show-phase-chip="false"
+          :clubs="filteredClubs"
+          :selected-org-id="selectedOrgId"
+          :is-event-first="isEventFirst"
+          :has-event-selection="hasEventSelection"
+          :filter-counts="filterCounts"
+          :club-sort="clubSort"
+          :club-sort-options="clubSortOptions"
+          :club-turn="clubTurn"
+          :club-logo-src="clubLogoSrc"
+          :club-enrolled-label="clubEnrolledLabel"
+          :club-pending-count="clubPendingCount"
+          :club-status-meta="clubStatusMeta"
+          @persist-sort="persistClubSort"
+          @select="selectClub"
+        />
+      </AppStackDrawer>
+
+      <AppStackDrawer
         v-model:visible="drawerVisible"
         :title="drawerTitle"
         :subtitle="drawerSubtitle"
-        :level="1"
+        :level="gradingDrawerLevel"
         :position="drawerPosition"
       >
         <template #header>
           <div class="drawer-club-head">
             <div class="club-item__avatar lg">
               <img
-                v-if="selectedClub?.logo_url"
-                :src="selectedClub.logo_url"
+                v-if="clubLogoSrc(selectedClub?.logo_url)"
+                :src="clubLogoSrc(selectedClub?.logo_url) || ''"
                 :alt="selectedClub.nombre"
               />
               <i v-else class="pi pi-building" />
@@ -1410,10 +1629,36 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="club-switcher__nav">
-              <span v-if="parentEventName || clubNavLabel" class="club-switcher__count">
-                <span v-if="parentEventName" class="club-switcher__parent">{{ parentEventName }}</span>
+              <div class="club-switcher__activity">
+                <span
+                  v-if="actividad.image_url"
+                  class="club-switcher__thumb"
+                >
+                  <img :src="actividad.image_url" :alt="actividad.name" />
+                </span>
+                <span
+                  v-else
+                  class="club-switcher__thumb"
+                  :style="iconBoxStyle(resolveEventIconColor(actividad))"
+                >
+                  <i :class="activityIconClass" />
+                </span>
+                <div class="club-switcher__activity-text">
+                  <strong>{{ actividad.name }}</strong>
+                  <span
+                    v-if="actividad.categoria_subevento"
+                    class="club-switcher__cat"
+                    :style="{
+                      color: cssColor(actividad.categoria_subevento.color),
+                      borderColor: cssColor(actividad.categoria_subevento.color),
+                    }"
+                  >
+                    {{ actividad.categoria_subevento.nombre }}
+                  </span>
+                  <small v-if="parentEventName">{{ parentEventName }}</small>
+                </div>
                 <span v-if="clubNavLabel" class="club-switcher__index">{{ clubNavLabel }}</span>
-              </span>
+              </div>
               <Select
                 :model-value="selectedOrgId"
                 :options="drawerClubs"
@@ -1461,6 +1706,7 @@ onBeforeUnmount(() => {
             :evidencia-by-id="clubEvidencias"
             :has-club-selected="!!selectedOrgId"
             :hide-media="true"
+            :hide-head="true"
             :show-participantes="
               actividad.participantes_min != null ||
               actividad.participantes_max != null ||
@@ -1517,13 +1763,70 @@ onBeforeUnmount(() => {
             </template>
             <template #calificacion>
               <template v-if="selectedActivityClub">
-                <div class="workspace">
+                <div class="workspace" :class="{ 'workspace--solo': !showEvidencePanel }">
                   <section class="score-panel">
                     <h3>{{ t('events.criteriaTitle') }}</h3>
 
-                    <p v-if="scoreByParticipation" class="pj-muted">
-                      {{ t('events.judgeParticipationScoreHint') }}
-                    </p>
+                    <div
+                      v-if="
+                        selectedActivityClub.participantes?.length ||
+                        actividad.participantes_min != null ||
+                        actividad.participantes_max != null ||
+                        Boolean(actividad.permite_inscribir_no_participantes)
+                      "
+                      class="score-roster"
+                    >
+                      <h4>
+                        {{ t('events.revisionMembersTitle') }}
+                        <small v-if="selectedActivityClub.participantes?.length">
+                          ({{ selectedActivityClub.participantes.length }})
+                        </small>
+                      </h4>
+                      <p v-if="!selectedActivityClub.participantes?.length" class="pj-muted">
+                        {{ t('events.activityRosterJudgeEmpty') }}
+                      </p>
+                      <ul v-else class="judge-roster judge-roster--score">
+                        <li v-for="row in selectedActivityClub.participantes" :key="row.id">
+                          <strong>{{ row.nombre }}</strong>
+                          <small v-if="row.sexo === 'M'">{{ t('events.activityRosterMale') }}</small>
+                          <small v-else-if="row.sexo === 'F'">{{ t('events.activityRosterFemale') }}</small>
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div
+                      v-if="showScoreHintRow"
+                      class="score-hint-row"
+                    >
+                      <p v-if="scoreByParticipation" class="pj-muted">
+                        {{ t('events.judgeParticipationScoreHint') }}
+                      </p>
+                      <p v-else-if="splitCriteria" class="pj-muted">
+                        {{ t('events.judgeSplitCriteriaHint') }}
+                      </p>
+                      <div
+                        v-if="showEvidenceUnlock"
+                        class="score-hint-row__action"
+                      >
+                        <p
+                          v-if="selectedActivityClub.calificacion.permite_editar_evidencia"
+                          class="pj-muted"
+                        >
+                          {{ t('events.judgeEvidenceEditEnabled') }}
+                        </p>
+                        <Button
+                          v-else
+                          type="button"
+                          outlined
+                          size="small"
+                          icon="pi pi-unlock"
+                          :label="t('events.judgeAllowEvidenceEdit')"
+                          :loading="unlockingEvidence"
+                          :disabled="!canScoreActivity"
+                          @click="unlockDirectorEvidence"
+                        />
+                      </div>
+                    </div>
 
                     <div
                       v-if="
@@ -1533,49 +1836,128 @@ onBeforeUnmount(() => {
                       "
                       class="grading-extras"
                     >
-                      <div v-if="actividad.requiere_puesto_entrega" class="field">
+                      <section v-if="actividad.requiere_puesto_entrega" class="grade-card">
                         <label>{{ t('events.judgePuestoEntrega') }}</label>
                         <InputText v-model="puestoEntrega" class="w-full" />
-                      </div>
-                      <div v-if="actividad.requiere_tiempo_entrega" class="field">
-                        <label>{{ t('events.judgeTiempoEntrega') }}</label>
-                        <div class="duration-input">
+                      </section>
+                      <section v-if="actividad.requiere_tiempo_entrega" class="grade-card grade-card--chrono">
+                        <header class="grade-card__head">
+                          <strong>{{ t('events.judgeTiempoEntrega') }}</strong>
+                          <small>
+                            {{
+                              actividad.criterio_tiempo === 'mayor'
+                                ? t('events.judgeChronoHintMayor')
+                                : t('events.judgeChronoHintMenor')
+                            }}
+                          </small>
+                          <small v-if="!usesChrono">
+                            {{ t('events.judgeTiempoDigitarHint') }}
+                          </small>
+                        </header>
+                        <div v-if="usesChrono" class="chrono">
+                          <div class="chrono__face" :class="{ 'is-running': chronoRunning }">
+                            {{ chronoDisplay }}
+                          </div>
+                          <div class="chrono__actions">
+                            <Button
+                              v-if="!chronoRunning"
+                              type="button"
+                              class="chrono__primary"
+                              icon="pi pi-play"
+                              :label="t('events.judgeChronoPlay')"
+                              :disabled="!canScoreActivity"
+                              @click="startChrono"
+                            />
+                            <Button
+                              v-else
+                              type="button"
+                              class="chrono__primary"
+                              icon="pi pi-pause"
+                              :label="t('events.judgeChronoPause')"
+                              @click="pauseChrono"
+                            />
+                            <Button
+                              type="button"
+                              class="chrono__reset"
+                              outlined
+                              icon="pi pi-replay"
+                              :label="t('events.judgeChronoReset')"
+                              :disabled="!canScoreActivity && !chronoRunning"
+                              @click="resetChrono"
+                            />
+                          </div>
+                        </div>
+                        <div v-else class="duration-input">
                           <div>
-                            <InputNumber v-model="durMin" :min="0" :max="999" input-class="w-full" />
+                            <InputNumber
+                              v-model="durMin"
+                              :min="0"
+                              :max="999"
+                              input-class="w-full"
+                            />
                             <small>{{ t('events.judgeTiempoMin') }}</small>
                           </div>
                           <span>:</span>
                           <div>
-                            <InputNumber v-model="durSec" :min="0" :max="59" input-class="w-full" />
+                            <InputNumber
+                              v-model="durSec"
+                              :min="0"
+                              :max="59"
+                              input-class="w-full"
+                            />
                             <small>{{ t('events.judgeTiempoSec') }}</small>
                           </div>
                           <span>.</span>
                           <div>
-                            <InputNumber v-model="durCs" :min="0" :max="99" input-class="w-full" />
+                            <InputNumber
+                              v-model="durCs"
+                              :min="0"
+                              :max="99"
+                              input-class="w-full"
+                            />
                             <small>{{ t('events.judgeTiempoCs') }}</small>
                           </div>
                         </div>
-                      </div>
-                      <div v-if="resultadoEsperado != null" class="field">
-                        <label>{{ t('events.judgeResultadoObtenido') }}</label>
-                        <InputNumber
-                          v-model="resultadoObtenido"
-                          :min="0"
-                          :max="resultadoEsperado"
-                          input-class="w-full"
-                        />
-                        <small class="pj-muted">
+                      </section>
+                      <section v-if="resultadoEsperado != null" class="grade-card grade-card--result">
+                        <label>
                           {{
-                            t('events.judgeResultadoOf', {
-                              got: resultadoObtenido ?? 0,
-                              expected: resultadoEsperado,
-                            })
+                            actividad.resultado_esperado_etiqueta
+                              ? t('events.judgeResultadoObtenidoLabeled', {
+                                  label: actividad.resultado_esperado_etiqueta,
+                                })
+                              : t('events.judgeResultadoObtenido')
                           }}
-                        </small>
-                      </div>
+                        </label>
+                        <div class="result-row">
+                          <InputNumber
+                            v-model="resultadoObtenido"
+                            :min="0"
+                            :max="resultadoEsperado"
+                            input-class="w-full"
+                          />
+                          <span class="result-row__badge">
+                            {{
+                              actividad.resultado_esperado_etiqueta
+                                ? t('events.judgeResultadoOfLabeled', {
+                                    got: resultadoObtenido ?? 0,
+                                    expected: resultadoEsperado,
+                                    label: actividad.resultado_esperado_etiqueta,
+                                  })
+                                : t('events.judgeResultadoOf', {
+                                    got: resultadoObtenido ?? 0,
+                                    expected: resultadoEsperado,
+                                  })
+                            }}
+                          </span>
+                        </div>
+                      </section>
                     </div>
 
-                    <template v-if="!scoreByParticipation && hasCriteria">
+                    <p v-if="splitCriteria && !hasCriteria" class="pj-muted">
+                      {{ t('events.judgeCriteriaNotAssigned') }}
+                    </p>
+                    <template v-else-if="hasCriteria">
                       <div class="criteria-table">
                         <div class="criteria-row criteria-row--head">
                           <span>{{ t('events.criteriaTitle') }}</span>
@@ -1604,7 +1986,10 @@ onBeforeUnmount(() => {
                       </div>
                     </template>
 
-                    <div v-else-if="!scoreByParticipation && resultadoEsperado == null" class="generic-score">
+                    <div
+                      v-else-if="!scoreByParticipation && resultadoEsperado == null && !splitCriteria"
+                      class="generic-score"
+                    >
                       <p class="pj-muted">{{ t('events.criteriaGenericHint') }}</p>
                       <label>{{ t('events.judgeScoreObtained') }}</label>
                       <InputNumber
@@ -1618,14 +2003,26 @@ onBeforeUnmount(() => {
 
                     <div class="total-row" :class="{ 'total-row--bad': scoreOverflow }">
                       <span>{{ t('events.judgeTotal') }}</span>
-                      <strong>
-                        {{ scoredTotal }} / {{ maxScore ?? '—' }} pts
+                      <strong v-if="scoreByParticipation">
+                        {{ scoredTotal }} pts
+                        <small v-if="hasCriteria">
+                          ({{
+                            t('events.judgeParticipationTotalHint', {
+                              base: maxScore ?? 0,
+                              extra: criteriaBonusTotal,
+                            })
+                          }})
+                        </small>
+                      </strong>
+                      <strong v-else>
+                        {{ scoredTotal }} /
+                        {{ (splitCriteria ? judgeCriteriaMax : maxScore) ?? '—' }} pts
                         <small>({{ scorePct }}%)</small>
                       </strong>
                     </div>
                   </section>
 
-                  <section class="evidence-panel">
+                  <section v-if="showEvidencePanel" class="evidence-panel">
                     <h3>{{ t('events.clubEvidenceTitle') }}</h3>
                     <p v-if="!visibleEvidencias.length" class="pj-muted">
                       {{ t('events.evidenceEmpty') }}
@@ -1965,7 +2362,7 @@ onBeforeUnmount(() => {
 }
 
 .judge-layout--event-first {
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+  grid-template-columns: minmax(280px, 1fr) minmax(420px, 1.2fr);
 }
 
 .judge-layout--event-first .panel--tree {
@@ -2061,7 +2458,9 @@ onBeforeUnmount(() => {
 .club-switcher--photo .club-switcher__score,
 .club-switcher--photo .club-switcher__count,
 .club-switcher--photo .club-switcher__parent,
-.club-switcher--photo .club-switcher__index {
+.club-switcher--photo .club-switcher__index,
+.club-switcher--photo .club-switcher__activity-text strong,
+.club-switcher--photo .club-switcher__activity-text small {
   color: #fff;
   font-family: var(--pj-font-sans);
   font-weight: 700;
@@ -2106,6 +2505,67 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 0.55rem;
   align-items: center;
+}
+
+.club-switcher__activity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.club-switcher__thumb {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 10px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, #2563eb 22%, transparent);
+  background: color-mix(in srgb, #2563eb 12%, #fff);
+  color: #1d4ed8;
+  font-size: 1.05rem;
+}
+
+.club-switcher__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.club-switcher__activity-text {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.club-switcher__activity-text strong {
+  font-size: 1.02rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #071e48;
+}
+
+.club-switcher__activity-text small {
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: #5b6b82;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.club-switcher__cat {
+  justify-self: start;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid;
+  background: #fff;
 }
 
 .club-switcher__count {
@@ -2270,6 +2730,22 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #071e48;
+}
+
+.club-sort {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.club-sort label {
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: #5b6b82;
+}
+
+.club-sort :deep(.p-select) {
+  width: 100%;
 }
 
 .club-item__score {
@@ -2431,6 +2907,10 @@ onBeforeUnmount(() => {
   margin-top: 1rem;
 }
 
+.workspace--solo {
+  grid-template-columns: 1fr;
+}
+
 .score-panel,
 .evidence-panel {
   display: grid;
@@ -2446,6 +2926,44 @@ onBeforeUnmount(() => {
   font-weight: 700;
   letter-spacing: 0;
   color: var(--pj-text);
+}
+
+.score-roster {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.score-roster h4 {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--pj-text);
+}
+
+.score-roster h4 small {
+  font-weight: 600;
+  color: var(--pj-text-muted, #64748b);
+}
+
+.score-hint-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.score-hint-row .pj-muted {
+  margin: 0;
+  flex: 1 1 16rem;
+}
+
+.score-hint-row__action {
+  flex: 0 0 auto;
+}
+
+.score-hint-row__action .pj-muted {
+  flex: none;
 }
 
 .evidence-actions {
@@ -2718,14 +3236,114 @@ onBeforeUnmount(() => {
   margin-bottom: 1rem;
 }
 
-.grading-extras .field {
+.grade-card {
   display: grid;
-  gap: 0.3rem;
+  gap: 0.55rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--pj-border, #cbd5e1) 80%, transparent);
+  background: color-mix(in srgb, #2563eb 4%, #fff);
+}
+
+.grade-card > label,
+.grade-card__head strong {
+  color: #071e48;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.grade-card__head {
+  display: grid;
+  gap: 0.2rem;
+  text-align: center;
+}
+
+.grade-card__head small {
+  color: #5b6b82;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.grade-card--result > label {
+  text-align: center;
+}
+
+.result-row {
+  display: grid;
+  gap: 0.55rem;
+  justify-items: center;
+}
+
+.result-row :deep(.p-inputnumber) {
+  width: 100%;
+  max-width: 12rem;
+}
+
+.result-row__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.5rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #2563eb 12%, #fff);
+  color: #1d4ed8;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.chrono {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: center;
+}
+
+.chrono__face {
+  width: 100%;
+  max-width: 18rem;
+  padding: 0.85rem 1rem;
+  border-radius: 16px;
+  background: #071e48;
+  color: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 2.35rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.chrono__face.is-running {
+  background: #14532d;
+}
+
+.chrono__actions {
+  display: grid;
+  gap: 0.55rem;
+  width: 100%;
+  max-width: 18rem;
+}
+
+.chrono__actions :deep(.p-button) {
+  width: 100%;
+  justify-content: center;
+}
+
+.chrono__actions :deep(.chrono__primary) {
+  min-height: 3.15rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.chrono__actions :deep(.chrono__reset) {
+  min-height: 2.75rem;
+  font-weight: 700;
 }
 
 .duration-input {
   display: flex;
   align-items: end;
+  justify-content: center;
   gap: 0.4rem;
 }
 
@@ -2767,14 +3385,63 @@ onBeforeUnmount(() => {
   color: var(--pj-text-muted, #64748b);
 }
 
+.judge-roster--score {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.judge-roster--score li {
+  padding: 0.4rem 0.65rem;
+}
+
 .empty {
   margin: 1rem 0;
+}
+
+@media (min-width: 901px) {
+  .judge-layout--event-first .club-item__body strong {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    line-height: 1.3;
+  }
+
+  .grade-card--chrono .grade-card__head,
+  .grade-card--result > label {
+    text-align: left;
+  }
+
+  .chrono,
+  .result-row {
+    justify-items: start;
+  }
+
+  .chrono__face {
+    max-width: 14rem;
+    padding: 0.55rem 0.9rem;
+    font-size: 1.85rem;
+  }
+
+  .chrono__actions {
+    grid-template-columns: 1fr auto;
+    max-width: 22rem;
+  }
+
+  .result-row {
+    grid-template-columns: minmax(8rem, 12rem) auto;
+    align-items: center;
+  }
 }
 
 @media (max-width: 900px) {
   .judge-layout,
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .judge-layout--event-first .panel--tree {
+    max-height: none;
   }
 
   .panel--list {

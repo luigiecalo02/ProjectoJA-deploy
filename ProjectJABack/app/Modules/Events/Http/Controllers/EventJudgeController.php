@@ -78,6 +78,24 @@ final class EventJudgeController
         return ApiResponse::success($calificacion, 'Calificación guardada', Response::HTTP_CREATED);
     }
 
+    public function unlockEvidence(Request $request, Event $event): JsonResponse
+    {
+        $data = $request->validate([
+            'organizacion_id' => ['required', 'integer', 'exists:organizacion,id'],
+        ]);
+
+        $this->service->unlockDirectorEvidence(
+            $request->user(),
+            $event,
+            (int) $data['organizacion_id'],
+        );
+
+        return ApiResponse::success(
+            ['permite_editar_evidencia' => true],
+            'El director puede editar la evidencia',
+        );
+    }
+
     public function storePhoto(Request $request, Event $event): JsonResponse
     {
         $archivo = $request->file('archivo');

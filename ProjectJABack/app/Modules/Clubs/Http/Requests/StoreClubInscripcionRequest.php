@@ -18,6 +18,7 @@ class StoreClubInscripcionRequest extends FormRequest
     {
         return [
             'asociacion_id' => ['nullable', 'integer', 'exists:organizacion,id'],
+            'zona_id' => ['nullable', 'integer', 'exists:organizacion,id'],
             'distrito_id' => ['nullable', 'integer', 'exists:organizacion,id'],
             'iglesia_id' => ['nullable', 'integer', 'exists:organizacion,id'],
 

@@ -9,13 +9,31 @@ export function resolveAssetUrl(url?: string | null): string | null {
     return url
   }
 
+  try {
+    const path = /^https?:\/\//i.test(url) ? new URL(url).pathname : url
+    const normalized = path.replace(/\\/g, '/')
+    for (const prefix of ['/api/v1/files/', '/storage/', 'api/v1/files/', 'storage/']) {
+      if (!normalized.startsWith(prefix)) continue
+      const rest = normalized.slice(prefix.length).replace(/^\/+/, '')
+      if (rest && !rest.includes('..')) {
+        return `${API_ORIGIN}/api/v1/files/${rest}`
+      }
+    }
+  } catch {
+    /* seguir con el resto de reglas */
+  }
+
   if (url.startsWith('/')) {
     return `${API_ORIGIN}${url}`
   }
 
+  if (!/^https?:\/\//i.test(url) && !url.includes('..')) {
+    return `${API_ORIGIN}/api/v1/files/${url}`
+  }
+
   try {
     const parsed = new URL(url)
-    if (parsed.pathname.startsWith('/storage/')) {
+    if (parsed.pathname.startsWith('/api/v1/files/')) {
       return `${API_ORIGIN}${parsed.pathname}${parsed.search}`
     }
     return url

@@ -155,6 +155,7 @@ export function optimisticCalificacion(
     puesto_entrega: payload.puesto_entrega ?? null,
     tiempo_entrega: payload.tiempo_entrega ?? null,
     resultado_obtenido: payload.resultado_obtenido ?? null,
+    permite_editar_evidencia: false,
     detalles: payload.criterios ?? previous?.detalles ?? [],
     updated_at: new Date().toISOString(),
     observaciones_director: previous?.observaciones_director,

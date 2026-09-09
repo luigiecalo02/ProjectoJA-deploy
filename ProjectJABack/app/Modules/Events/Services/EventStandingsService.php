@@ -94,7 +94,8 @@ final class EventStandingsService
             ->get(['id', 'organizacion_id', 'nombre', 'logo', 'distrito'])
             ->keyBy('organizacion_id');
 
-        $scoresByOrg = $this->calificacionAggregator->averagedTotalsByOrg($leafIds, $orgIds);
+        $matrix = $this->calificacionAggregator->averagedScoresMatrix($leafIds, $orgIds);
+        $totalsByNode = $this->scoredTotalsByNode($scope, $leafIds, $matrix, $orgIds);
 
         $inscripcionByOrg = collect();
         if ($isRootScope) {
@@ -115,7 +116,7 @@ final class EventStandingsService
             }
             $club = $clubs->get($orgId);
             $district = $this->resolveDistrict($org, $club);
-            $subPts = (float) ($scoresByOrg[$orgId] ?? 0);
+            $subPts = (float) ($totalsByNode[(int) $scope->id][$orgId] ?? 0);
             $insPts = $isRootScope
                 ? (float) ($inscripcionByOrg->get($orgId)?->puntaje_obtenido ?? 0)
                 : null;
@@ -269,7 +270,7 @@ final class EventStandingsService
             ->keyBy('organizacion_id');
 
         $matrix = $this->calificacionAggregator->averagedScoresMatrix($leafIds, $orgIds);
-        $leavesByNode = $this->leafIdsByNode($root);
+        $totalsByNode = $this->scoredTotalsByNode($root, $leafIds, $matrix, $orgIds);
 
         $inscripcionByOrg = EventoCalificacion::query()
             ->where('evento_id', $root->id)
@@ -288,15 +289,10 @@ final class EventStandingsService
             $club = $clubs->get($orgId);
             $district = $this->resolveDistrict($org, $club);
             $insPts = (float) ($inscripcionByOrg->get($orgId)?->puntaje_obtenido ?? 0);
-            $leafMap = $matrix[$orgId] ?? [];
 
             $scores = [];
             foreach ($allNodeIds as $nodeId) {
-                $nodeLeaves = $leavesByNode[$nodeId] ?? [];
-                $sub = 0.0;
-                foreach ($nodeLeaves as $leafId) {
-                    $sub += (float) ($leafMap[$leafId] ?? 0);
-                }
+                $sub = (float) ($totalsByNode[$nodeId][$orgId] ?? 0);
                 if ($nodeId === (int) $root->id) {
                     $scores[(string) $nodeId] = round($insPts + $sub, 2);
                 } else {
@@ -397,23 +393,6 @@ final class EventStandingsService
     }
 
     /**
-     * @return array<int, list<int>> nodeId => leafIds under that node
-     */
-    private function leafIdsByNode(Event $root): array
-    {
-        $map = [];
-        $walk = function (Event $n) use (&$walk, &$map): void {
-            $map[(int) $n->id] = $this->collectLeafScoreIds($n);
-            foreach ($n->hijos ?? [] as $hijo) {
-                $walk($hijo);
-            }
-        };
-        $walk($root);
-
-        return $map;
-    }
-
-    /**
      * @return array<string, mixed>
      */
     private function emptyPayload(Event $root, Event $scope, bool $isRootScope, string $sort, float $maxSub): array
@@ -499,7 +478,7 @@ final class EventStandingsService
         }
 
         if (count($leafIds) === 1 && (int) $scope->id === $leafIds[0]) {
-            return (float) ($scope->puntaje_maximo ?? 0);
+            return (float) ($scope->puntaje_maximo ?? 0) + $this->placementMaxInSubtree($scope);
         }
 
         $sum = 0.0;
@@ -507,6 +486,196 @@ final class EventStandingsService
             if (in_array((int) $n->id, $leafIds, true)) {
                 $sum += (float) ($n->puntaje_maximo ?? 0);
             }
+            foreach ($n->hijos ?? [] as $hijo) {
+                $walk($hijo);
+            }
+        };
+        $walk($scope);
+
+        return $sum + $this->placementMaxInSubtree($scope);
+    }
+
+    /**
+     * @param  list<int>  $leafIds
+     * @param  array<int, array<int, float>>  $matrix
+     * @param  list<int>  $orgIds
+     * @return array<int, array<int, float>> nodeId => [orgId => total]
+     */
+    private function scoredTotalsByNode(Event $root, array $leafIds, array $matrix, array $orgIds): array
+    {
+        $out = [];
+        $this->accumulateNodeScores($root, $leafIds, $matrix, $orgIds, $out);
+
+        return $out;
+    }
+
+    /**
+     * @param  list<int>  $leafIds
+     * @param  array<int, array<int, float>>  $matrix
+     * @param  list<int>  $orgIds
+     * @param  array<int, array<int, float>>  $out
+     * @return array<int, float>
+     */
+    private function accumulateNodeScores(
+        Event $node,
+        array $leafIds,
+        array $matrix,
+        array $orgIds,
+        array &$out,
+    ): array {
+        $nodeId = (int) $node->id;
+        $base = [];
+        foreach ($orgIds as $orgId) {
+            $base[$orgId] = 0.0;
+        }
+
+        if (in_array($nodeId, $leafIds, true)) {
+            foreach ($orgIds as $orgId) {
+                $base[$orgId] = (float) ($matrix[$orgId][$nodeId] ?? 0);
+            }
+        } else {
+            foreach ($node->hijos ?? [] as $hijo) {
+                $child = $this->accumulateNodeScores($hijo, $leafIds, $matrix, $orgIds, $out);
+                foreach ($orgIds as $orgId) {
+                    $base[$orgId] += $child[$orgId] ?? 0;
+                }
+            }
+        }
+
+        $times = in_array($nodeId, $leafIds, true) && $node->timeRankingMode()
+            ? $this->timesByOrg($nodeId, $orgIds)
+            : [];
+        $bonus = $this->placementBonuses($node, $base, $times);
+        $total = [];
+        foreach ($orgIds as $orgId) {
+            $total[$orgId] = round(($base[$orgId] ?? 0) + ($bonus[$orgId] ?? 0), 2);
+        }
+        $out[$nodeId] = $total;
+
+        return $total;
+    }
+
+    /**
+     * @param  array<int, float>  $scoresByOrg
+     * @param  array<int, float>  $timesByOrg
+     * @return array<int, float>
+     */
+    private function placementBonuses(Event $node, array $scoresByOrg, array $timesByOrg = []): array
+    {
+        if (! $node->awardsPlacementBonuses()) {
+            return [];
+        }
+
+        $prizes = [
+            1 => (float) ($node->puntos_puesto_1 ?? 0),
+            2 => (float) ($node->puntos_puesto_2 ?? 0),
+            3 => (float) ($node->puntos_puesto_3 ?? 0),
+        ];
+
+        $timeMode = $node->timeRankingMode();
+        $ranked = [];
+        if ($timeMode !== null && $timesByOrg !== []) {
+            foreach ($timesByOrg as $orgId => $ms) {
+                if ((float) $ms > 0) {
+                    $ranked[(int) $orgId] = (float) $ms;
+                }
+            }
+        } else {
+            foreach ($scoresByOrg as $orgId => $score) {
+                if ((float) $score > 0.0001) {
+                    $ranked[(int) $orgId] = (float) $score;
+                }
+            }
+        }
+        if ($ranked === []) {
+            return [];
+        }
+
+        uasort(
+            $ranked,
+            $timeMode === 'menor'
+                ? fn (float $a, float $b) => $a <=> $b
+                : fn (float $a, float $b) => $b <=> $a
+        );
+
+        $out = [];
+        $place = 0;
+        $index = 0;
+        $prev = null;
+        foreach ($ranked as $orgId => $score) {
+            $index++;
+            if ($prev === null || abs($score - $prev) > 0.001) {
+                $place = $index;
+                $prev = $score;
+            }
+            if ($place > 3) {
+                break;
+            }
+            $extra = $prizes[$place] ?? 0.0;
+            if ($extra > 0) {
+                $out[$orgId] = $extra;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<int>  $orgIds
+     * @return array<int, float> orgId => milliseconds
+     */
+    private function timesByOrg(int $eventoId, array $orgIds): array
+    {
+        if ($orgIds === []) {
+            return [];
+        }
+
+        $rows = EventoCalificacion::query()
+            ->where('evento_id', $eventoId)
+            ->whereIn('organizacion_id', $orgIds)
+            ->whereNull('persona_id')
+            ->whereNotNull('calificado_por')
+            ->whereNotNull('tiempo_entrega')
+            ->get(['organizacion_id', 'tiempo_entrega']);
+
+        $bucket = [];
+        foreach ($rows as $row) {
+            $ms = $this->tiempoToMs($row->tiempo_entrega);
+            if ($ms === null) {
+                continue;
+            }
+            $bucket[(int) $row->organizacion_id][] = $ms;
+        }
+
+        $out = [];
+        foreach ($bucket as $orgId => $times) {
+            $out[$orgId] = array_sum($times) / max(1, count($times));
+        }
+
+        return $out;
+    }
+
+    private function tiempoToMs(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        $text = trim((string) $value);
+        if (preg_match('/^(\d{1,3}):([0-5]\d)\.(\d{2})$/', $text, $m)) {
+            return ((int) $m[1] * 60 + (int) $m[2]) * 1000 + (int) $m[3] * 10;
+        }
+        if (preg_match('/^(\d{1,2}):([0-5]\d):([0-5]\d)$/', $text, $m)) {
+            return ((int) $m[1] * 3600 + (int) $m[2] * 60 + (int) $m[3]) * 1000;
+        }
+
+        return null;
+    }
+
+    private function placementMaxInSubtree(Event $scope): float
+    {
+        $sum = 0.0;
+        $walk = function (Event $n) use (&$walk, &$sum): void {
+            $sum += $n->placementBonusMax();
             foreach ($n->hijos ?? [] as $hijo) {
                 $walk($hijo);
             }

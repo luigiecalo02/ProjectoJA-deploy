@@ -72,6 +72,22 @@ final class ClubService
             $query->where('is_active', filter_var($filters['is_active'], FILTER_VALIDATE_BOOLEAN));
         }
 
+        if (! empty($filters['organizacion_id'])) {
+            $orgId = (int) $filters['organizacion_id'];
+            $familyIds = array_values(array_unique(array_merge(
+                [$orgId],
+                $this->orgAccess->descendantIds($orgId),
+            )));
+            $query->whereIn('organizacion_id', $familyIds);
+        }
+
+        $tipoClub = is_string($filters['tipo_club'] ?? null)
+            ? strtolower(trim((string) $filters['tipo_club']))
+            : '';
+        if (in_array($tipoClub, Club::MINISTRIES, true)) {
+            $query->whereJsonContains('tipos', $tipoClub);
+        }
+
         return $query->orderBy('nombre')->paginate($perPage);
     }
 
@@ -220,7 +236,8 @@ final class ClubService
         $query = Organizacion::query()
             ->with([
                 'tipo:id,nombre',
-                'padre:id,nombre,tipo_organizacion_id',
+                'padre:id,nombre,tipo_organizacion_id,organizacion_padre_id',
+                'padre.padre:id,nombre,tipo_organizacion_id,organizacion_padre_id',
                 'departamento:id,nombre',
                 'ciudad:id,nombre',
             ])
@@ -231,6 +248,11 @@ final class ClubService
 
         if ($this->orgAccess->shouldScopeByOrganization($actor)) {
             $orgIds = $this->orgAccess->accessibleOrganizationIds($actor);
+            $churchId = $this->orgAccess->parentChurchOrganizationId($actor);
+            if ($churchId !== null) {
+                $orgIds[] = $churchId;
+            }
+            $orgIds = array_values(array_unique(array_map('intval', $orgIds)));
             if ($orgIds === []) {
                 return [];
             }
@@ -259,6 +281,7 @@ final class ClubService
     {
         $distrito = $org->padre?->nombre
             ?: $org->departamento?->nombre;
+        $location = $this->zonaYDistritoDesdeIglesia($org);
 
         return [
             'id' => $org->id,
@@ -267,28 +290,99 @@ final class ClubService
             'tipo_organizacion_id' => $org->tipo_organizacion_id,
             'tipo_nombre' => $org->tipo?->nombre,
             'organizacion_padre_id' => $org->organizacion_padre_id,
-            'distrito' => $distrito,
+            'zona' => $location['zona'],
+            'distrito' => $location['distrito'] ?: $distrito,
             'ciudad' => $org->ciudad?->nombre,
         ];
     }
 
     /**
-     * @return array{distrito: string|null, ciudad: string|null}
+     * @return array{zona: string|null, distrito: string|null, ciudad: string|null}
      */
-    private function locationLabelsFromIglesia(int $iglesiaId): array
+    public function locationLabelsFromIglesia(int $iglesiaId): array
     {
         $iglesia = Organizacion::query()
-            ->with(['padre:id,nombre', 'departamento:id,nombre', 'ciudad:id,nombre'])
+            ->with([
+                'padre:id,nombre,tipo_organizacion_id,organizacion_padre_id',
+                'padre.padre:id,nombre,tipo_organizacion_id,organizacion_padre_id',
+                'departamento:id,nombre',
+                'ciudad:id,nombre',
+            ])
             ->find($iglesiaId);
 
         if (! $iglesia) {
-            return ['distrito' => null, 'ciudad' => null];
+            return ['zona' => null, 'distrito' => null, 'ciudad' => null];
+        }
+
+        $hierarchy = $this->zonaYDistritoDesdeIglesia($iglesia);
+
+        return [
+            'zona' => $hierarchy['zona'],
+            'distrito' => $hierarchy['distrito'] ?: $iglesia->departamento?->nombre,
+            'ciudad' => $iglesia->ciudad?->nombre,
+        ];
+    }
+
+    /**
+     * @return array{zona: string|null, distrito: string|null}
+     */
+    private function zonaYDistritoDesdeIglesia(Organizacion $iglesia): array
+    {
+        $zona = null;
+        $distrito = null;
+        $current = $iglesia->relationLoaded('padre')
+            ? $iglesia->padre
+            : ($iglesia->organizacion_padre_id
+                ? Organizacion::query()->find(
+                    (int) $iglesia->organizacion_padre_id,
+                    ['id', 'nombre', 'tipo_organizacion_id', 'organizacion_padre_id']
+                )
+                : null);
+        $guard = 0;
+
+        while ($current && $guard < 16) {
+            $tipo = (int) $current->tipo_organizacion_id;
+            if ($tipo === Organizacion::TIPO_DISTRITO && $distrito === null) {
+                $distrito = $current->nombre;
+            }
+            if ($tipo === Organizacion::TIPO_ZONA && $zona === null) {
+                $zona = $current->nombre;
+            }
+            if ($zona !== null && $distrito !== null) {
+                break;
+            }
+
+            $parentId = $current->organizacion_padre_id ? (int) $current->organizacion_padre_id : 0;
+            if ($parentId <= 0) {
+                break;
+            }
+
+            $current = $current->relationLoaded('padre') && $current->padre
+                ? $current->padre
+                : Organizacion::query()->find(
+                    $parentId,
+                    ['id', 'nombre', 'tipo_organizacion_id', 'organizacion_padre_id']
+                );
+            $guard++;
         }
 
         return [
-            'distrito' => $iglesia->padre?->nombre ?: $iglesia->departamento?->nombre,
-            'ciudad' => $iglesia->ciudad?->nombre,
+            'zona' => $zona,
+            'distrito' => $distrito,
         ];
+    }
+
+    private function iglesiaIdOfClub(Club $club): ?int
+    {
+        if (! $club->organizacion_id) {
+            return null;
+        }
+
+        $parentId = Organizacion::query()
+            ->where('id', $club->organizacion_id)
+            ->value('organizacion_padre_id');
+
+        return $parentId ? (int) $parentId : null;
     }
 
     /**
@@ -437,6 +531,13 @@ final class ClubService
     public function update(Club $club, array $data, User $actor): Club
     {
         return DB::transaction(function () use ($club, $data, $actor) {
+            if ($this->orgAccess->shouldScopeByOrganization($actor)
+                && ! $this->orgAccess->canAccessClub($actor, $club)) {
+                throw ValidationException::withMessages([
+                    'organizacion_id' => ['No tienes acceso a esa organización.'],
+                ]);
+            }
+
             $old = $club->toArray();
             $personaIds = $data['persona_ids'] ?? null;
             $iglesiaId = null;
@@ -446,11 +547,15 @@ final class ClubService
             }
             unset($data['persona_ids'], $data['organizacion_id'], $data['iglesia_organizacion_id'], $data['distrito'], $data['ciudad']);
 
+            $currentIglesiaId = $this->iglesiaIdOfClub($club);
+
             if ($iglesiaId) {
-                if ($this->orgAccess->shouldScopeByOrganization($actor)
+                $iglesiaChanged = $currentIglesiaId !== $iglesiaId;
+                if ($iglesiaChanged
+                    && $this->orgAccess->shouldScopeByOrganization($actor)
                     && ! $this->orgAccess->canAccessOrganization($actor, $iglesiaId)) {
                     throw ValidationException::withMessages([
-                        'organizacion_id' => ['No tienes acceso a esa organización.'],
+                        'organizacion_id' => ['No puedes mover el club a esa iglesia.'],
                     ]);
                 }
 
@@ -459,16 +564,10 @@ final class ClubService
                     $iglesiaId,
                     isset($data['nombre']) ? (string) $data['nombre'] : null,
                 );
-            } elseif ($club->organizacion_id) {
-                // Sin cambio de iglesia: refrescar distrito/ciudad desde la iglesia actual.
-                $currentIglesiaId = (int) (Organizacion::query()
-                    ->where('id', $club->organizacion_id)
-                    ->value('organizacion_padre_id') ?? 0);
-                if ($currentIglesiaId > 0) {
-                    $location = $this->locationLabelsFromIglesia($currentIglesiaId);
-                    $club->distrito = $location['distrito'];
-                    $club->ciudad = $location['ciudad'];
-                }
+            } elseif ($currentIglesiaId) {
+                $location = $this->locationLabelsFromIglesia($currentIglesiaId);
+                $club->distrito = $location['distrito'];
+                $club->ciudad = $location['ciudad'];
             }
 
             $club->fill($data);
@@ -534,7 +633,6 @@ final class ClubService
     public function storeLogo(Club $club, UploadedFile $file, User $actor): Club
     {
         $stored = $this->imageOptimizer->store($file, "clubs/{$club->id}", 'logo');
-        $url = url('storage/'.$stored->path);
 
         StoredFile::query()->create([
             'name' => $file->getClientOriginalName(),
@@ -546,8 +644,8 @@ final class ClubService
         ]);
 
         $old = ['logo' => $club->logo];
-        $club->update(['logo' => $url]);
-        $this->auditLogger->log('clubs', 'logo', $old, ['logo' => $url], $club);
+        $club->update(['logo' => $stored->path]);
+        $this->auditLogger->log('clubs', 'logo', $old, ['logo' => $stored->path], $club);
 
         return $this->find($club->id);
     }

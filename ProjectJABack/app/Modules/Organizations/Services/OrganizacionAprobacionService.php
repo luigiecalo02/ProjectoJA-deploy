@@ -139,7 +139,15 @@ final class OrganizacionAprobacionService
         $distrito = $this->approvedOrg((int) $destino['distrito_id'], Organizacion::TIPO_DISTRITO);
         $asociacion = $this->approvedOrg((int) $destino['asociacion_id'], Organizacion::TIPO_ASOCIACION);
 
-        if ((int) $distrito->organizacion_padre_id !== (int) $asociacion->id) {
+        $distritoPadreId = $distrito->organizacion_padre_id ? (int) $distrito->organizacion_padre_id : 0;
+        $zona = $distritoPadreId > 0 ? Organizacion::query()->find($distritoPadreId) : null;
+        $bajoAsociacion = $distritoPadreId === (int) $asociacion->id
+            || (
+                $zona
+                && (int) $zona->tipo_organizacion_id === Organizacion::TIPO_ZONA
+                && (int) $zona->organizacion_padre_id === (int) $asociacion->id
+            );
+        if (! $bajoAsociacion) {
             throw ValidationException::withMessages([
                 'distrito_id' => ['El distrito no pertenece a la asociación seleccionada.'],
             ]);

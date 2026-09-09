@@ -24,6 +24,7 @@ class EventoCalificacion extends Model
         'tiempo_entrega',
         'resultado_obtenido',
         'calificado_por',
+        'permite_editar_evidencia',
     ];
 
     protected function casts(): array
@@ -31,6 +32,7 @@ class EventoCalificacion extends Model
         return [
             'puntaje_obtenido' => 'decimal:2',
             'resultado_obtenido' => 'integer',
+            'permite_editar_evidencia' => 'boolean',
         ];
     }
 

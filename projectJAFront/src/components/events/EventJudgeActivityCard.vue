@@ -47,6 +47,7 @@ const props = withDefaults(
     savingJudgeObs?: boolean
     showParticipantes?: boolean
     hideMedia?: boolean
+    hideHead?: boolean
   }>(),
   {
     defaultTab: 'info',
@@ -66,6 +67,7 @@ const props = withDefaults(
     savingJudgeObs: false,
     showParticipantes: false,
     hideMedia: false,
+    hideHead: false,
   },
 )
 
@@ -98,13 +100,17 @@ watch(
 const hasSubeventos = computed(() => (props.subeventos?.length ?? 0) > 0)
 
 const tabs = computed(() => {
-  const base: Array<{ id: JudgeDetailTab; label: string }> = [
-    { id: 'info', label: t('events.wizard.subTabInfo') },
-  ]
+  const directorRosterFirst =
+    props.observacionesMode === 'director' && props.showParticipantes
+  const base: Array<{ id: JudgeDetailTab; label: string }> = []
+  if (directorRosterFirst) {
+    base.push({ id: 'participantes', label: t('events.activityRosterTab') })
+  }
+  base.push({ id: 'info', label: t('events.wizard.subTabInfo') })
   if (hasSubeventos.value) {
     base.push({ id: 'subeventos', label: t('events.judgeTabSubeventos') })
   }
-  if (props.showParticipantes) {
+  if (props.showParticipantes && !directorRosterFirst) {
     base.push({ id: 'participantes', label: t('events.activityRosterTab') })
   }
   base.push(
@@ -224,6 +230,28 @@ const resultadoDetalles = computed(() => {
   })
 })
 
+const hasResultExtras = computed(() => {
+  const r = props.resultado
+  if (!r) return false
+  return Boolean(r.puesto_entrega || r.tiempo_entrega || r.resultado_obtenido != null)
+})
+
+function resultadoEsperadoLabel(): string {
+  const label = props.actividad.resultado_esperado_etiqueta
+  if (label) return t('events.judgeResultadoObtenidoLabeled', { label })
+  return t('events.judgeResultadoObtenido')
+}
+
+function resultadoObtenidoText(got: number): string {
+  const expected = props.actividad.resultado_esperado
+  const label = props.actividad.resultado_esperado_etiqueta
+  if (expected == null) return String(got)
+  if (label) {
+    return t('events.judgeResultadoOfLabeled', { got, expected, label })
+  }
+  return t('events.judgeResultadoOf', { got, expected })
+}
+
 watch(hasSubeventos, (ok) => {
   if (!ok && detailTab.value === 'subeventos') {
     detailTab.value = 'info'
@@ -285,9 +313,22 @@ function nivelConjuntoLabel(nivel: string | null | undefined): string {
     club: t('events.wizard.subNivelClub'),
     iglesia: t('events.wizard.subNivelIglesia'),
     distrito: t('events.wizard.subNivelDistrito'),
+    zona: t('events.wizard.subNivelZona'),
     asociacion: t('events.wizard.subNivelAsociacion'),
   }
   return map[nivel] || nivel
+}
+
+function rolConjuntoLabel(rol: string | null | undefined): string {
+  if (!rol) return ''
+  const map: Record<string, string> = {
+    director: t('events.wizard.subRolDirector'),
+    subdirector: t('events.wizard.subRolSubdirector'),
+    secretario: t('events.wizard.subRolSecretario'),
+    tesorero: t('events.wizard.subRolTesorero'),
+    pastor: t('events.wizard.subRolPastor'),
+  }
+  return map[rol] || rol
 }
 
 function evidenceCount(id: number): number {
@@ -346,7 +387,7 @@ const subeventoRows = computed(() =>
       <img :src="actividad.image_url" :alt="actividad.name" />
     </div>
 
-    <div class="judge-activity__head">
+    <div v-if="!hideHead" class="judge-activity__head">
       <span
         v-if="!actividad.image_url"
         class="judge-activity__icon"
@@ -397,7 +438,13 @@ const subeventoRows = computed(() =>
         </li>
         <li v-if="actividad.puntaje_maximo != null || actividad.es_calificable || actividad.puntaje_desde_hijos">
           <i class="pi pi-star" />
-          <span>{{ t('events.wizard.subColScore') }}</span>
+          <span>
+            {{
+              actividad.puntaje_por_participar
+                ? t('events.wizard.subOptScoreByParticipation')
+                : t('events.wizard.subColScore')
+            }}
+          </span>
           <strong>
             {{ Number(actividad.puntaje_maximo || 0) }} pts
             <template v-if="actividad.puntaje_desde_hijos">
@@ -423,12 +470,28 @@ const subeventoRows = computed(() =>
         <li v-if="actividad.requiere_tiempo_entrega">
           <i class="pi pi-clock" />
           <span>{{ t('events.wizard.subTiempoEntrega') }}</span>
-          <strong>{{ t('common.yes') }}</strong>
+          <strong>
+            {{
+              [
+                actividad.criterio_tiempo === 'mayor'
+                  ? t('events.wizard.subTiempoMayor')
+                  : t('events.wizard.subTiempoMenor'),
+                actividad.modo_captura_tiempo === 'cronometro'
+                  ? t('events.wizard.subTiempoCronometro')
+                  : t('events.wizard.subTiempoDigitar'),
+              ].join(' · ')
+            }}
+          </strong>
         </li>
         <li v-if="actividad.resultado_esperado != null">
           <i class="pi pi-check-square" />
           <span>{{ t('events.wizard.subResultadoEsperado') }}</span>
-          <strong>{{ actividad.resultado_esperado }}</strong>
+          <strong>
+            {{ actividad.resultado_esperado }}
+            <template v-if="actividad.resultado_esperado_etiqueta">
+              {{ actividad.resultado_esperado_etiqueta }}
+            </template>
+          </strong>
         </li>
         <li
           v-if="
@@ -442,6 +505,9 @@ const subeventoRows = computed(() =>
           <strong>
             <template v-if="actividad.participantes_genero === 'mixto'">
               {{ t('events.wizard.subParticipantsGenderMixto') }}
+              <template v-if="actividad.participantes_max != null">
+                · {{ t('events.wizard.subParticipantsMaxTotal') }} {{ actividad.participantes_max }}
+              </template>
               · M
               {{ actividad.participantes_min_m ?? '—' }}<template v-if="actividad.participantes_max_m != null">–{{ actividad.participantes_max_m }}</template>
               / F
@@ -461,10 +527,20 @@ const subeventoRows = computed(() =>
             </template>
           </strong>
         </li>
+        <li v-if="actividad.fecha_limite_inscripcion">
+          <i class="pi pi-calendar" />
+          <span>{{ t('events.wizard.enrollmentDeadline') }}</span>
+          <strong>{{ formatDateOnly(actividad.fecha_limite_inscripcion) }}</strong>
+        </li>
         <li v-if="actividad.es_conjunto">
           <i class="pi pi-share-alt" />
           <span>{{ t('events.wizard.subOptJoint') }}</span>
-          <strong>{{ nivelConjuntoLabel(actividad.nivel_conjunto) }}</strong>
+          <strong>
+            {{ nivelConjuntoLabel(actividad.nivel_conjunto) }}
+            <template v-if="actividad.rol_conjunto">
+              · {{ rolConjuntoLabel(actividad.rol_conjunto) }}
+            </template>
+          </strong>
         </li>
         <li v-if="actividad.maneja_fecha_fin">
           <i class="pi pi-calendar-times" />
@@ -479,6 +555,19 @@ const subeventoRows = computed(() =>
             <template v-if="actividad.reglas_penalizacion">
               · {{ actividad.reglas_penalizacion }}
             </template>
+          </strong>
+        </li>
+        <li v-if="actividad.premia_puestos">
+          <i class="pi pi-trophy" />
+          <span>{{ t('events.wizard.subOptPlacement') }}</span>
+          <strong>
+            {{
+              t('events.wizard.subPlacementSummary', {
+                first: Number(actividad.puntos_puesto_1 || 0),
+                second: Number(actividad.puntos_puesto_2 || 0),
+                third: Number(actividad.puntos_puesto_3 || 0),
+              })
+            }}
           </strong>
         </li>
         <li v-if="actividad.requiere_pago || actividad.precio != null">
@@ -606,6 +695,30 @@ const subeventoRows = computed(() =>
             <small v-if="resultadoPct != null">({{ resultadoPct }}%)</small>
           </strong>
         </div>
+
+        <ul v-if="hasResultExtras" class="result-extras">
+          <li v-if="resultado.puesto_entrega">
+            <span>{{ t('events.judgePuestoEntrega') }}</span>
+            <strong>{{ resultado.puesto_entrega }}</strong>
+          </li>
+          <li v-if="resultado.tiempo_entrega">
+            <div>
+              <span>{{ t('events.judgeTiempoEntrega') }}</span>
+              <small v-if="actividad.criterio_tiempo === 'mayor'" class="pj-muted">
+                {{ t('events.judgeChronoHintMayor') }}
+              </small>
+              <small v-else-if="actividad.criterio_tiempo === 'menor'" class="pj-muted">
+                {{ t('events.judgeChronoHintMenor') }}
+              </small>
+            </div>
+            <strong>{{ resultado.tiempo_entrega }}</strong>
+          </li>
+          <li v-if="resultado.resultado_obtenido != null">
+            <span>{{ resultadoEsperadoLabel() }}</span>
+            <strong>{{ resultadoObtenidoText(Number(resultado.resultado_obtenido)) }}</strong>
+          </li>
+        </ul>
+
         <p v-if="resultado.es_agregado" class="pj-muted result-rollup">
           {{ resultado.observaciones || t('events.judgeResultFromChildren') }}
         </p>
@@ -621,7 +734,22 @@ const subeventoRows = computed(() =>
             <strong>{{ t('events.judgeResultAportes') }}</strong>
           </li>
           <li v-for="aporte in resultado.aportes" :key="aporte.etiqueta">
-            <span>{{ aporte.etiqueta }}</span>
+            <div>
+              <span>{{ aporte.etiqueta }}</span>
+              <small
+                v-if="aporte.tiempo_entrega || aporte.puesto_entrega || aporte.resultado_obtenido != null"
+                class="pj-muted"
+              >
+                <template v-if="aporte.puesto_entrega">{{ aporte.puesto_entrega }}</template>
+                <template v-if="aporte.tiempo_entrega">
+                  {{ aporte.puesto_entrega ? ' · ' : '' }}{{ aporte.tiempo_entrega }}
+                </template>
+                <template v-if="aporte.resultado_obtenido != null">
+                  {{ aporte.puesto_entrega || aporte.tiempo_entrega ? ' · ' : ''
+                  }}{{ resultadoObtenidoText(Number(aporte.resultado_obtenido)) }}
+                </template>
+              </small>
+            </div>
             <strong>{{ aporte.puntaje_obtenido }} pts</strong>
           </li>
         </ul>
@@ -789,8 +917,12 @@ const subeventoRows = computed(() =>
 .judge-activity__titles h3 {
   margin: 0 0 0.25rem;
   font-size: 1.05rem;
-  color: var(--pj-navy, #1e3a5f);
+  color: #071e48;
   line-height: 1.25;
+}
+
+html.dark .judge-activity__titles h3 {
+  color: var(--pj-text);
 }
 
 .cat-pill {
@@ -1076,6 +1208,34 @@ const subeventoRows = computed(() =>
   opacity: 0.8;
 }
 
+.result-extras {
+  list-style: none;
+  margin: 0 0 0.85rem;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.result-extras li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
+  font-size: 0.88rem;
+}
+
+.result-extras li > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.result-extras small {
+  font-size: 0.75rem;
+}
+
 .result-aportes {
   list-style: none;
   margin: 0 0 0.85rem;
@@ -1235,7 +1395,11 @@ const subeventoRows = computed(() =>
 .result-director-obs h4 {
   margin: 0;
   font-size: 0.88rem;
-  color: var(--pj-navy, #1e3a5f);
+  color: #071e48;
+}
+
+html.dark .result-director-obs h4 {
+  color: var(--pj-text);
 }
 
 .result-director-obs__hint {

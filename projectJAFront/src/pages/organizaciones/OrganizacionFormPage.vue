@@ -29,8 +29,11 @@ import {
   TIPO_DISTRITO,
   TIPO_IGLESIA,
   TIPO_UNION,
+  TIPO_ZONA,
   TIPOS_HEREDAN_UBICACION,
   TIPOS_HEREDAN_UBICACION_COMPLETA,
+  esTipoOrganizacionDeCatalogo,
+  ordenarTiposCatalogo,
 } from '@/modules/organizaciones/types'
 
 const { t } = useI18n()
@@ -120,16 +123,28 @@ const parentDepartamentos = computed<DepartamentoOption[]>(() => {
   return []
 })
 
+const parentIsAsociacion = computed(
+  () => selectedParent.value?.tipo_organizacion_id === TIPO_ASOCIACION,
+)
+const parentIsZona = computed(() => selectedParent.value?.tipo_organizacion_id === TIPO_ZONA)
 const showPaisField = computed(() => form.tipo_organizacion_id === TIPO_UNION)
 const showDepartamentosMultiField = computed(
-  () => form.tipo_organizacion_id === TIPO_ASOCIACION || form.tipo_organizacion_id === TIPO_DISTRITO,
+  () =>
+    form.tipo_organizacion_id === TIPO_ASOCIACION ||
+    form.tipo_organizacion_id === TIPO_ZONA ||
+    (form.tipo_organizacion_id === TIPO_DISTRITO && parentIsAsociacion.value),
 )
-const showCiudadesMultiField = computed(() => form.tipo_organizacion_id === TIPO_DISTRITO)
+const showCiudadesMultiField = computed(
+  () =>
+    form.tipo_organizacion_id === TIPO_ZONA ||
+    (form.tipo_organizacion_id === TIPO_DISTRITO && parentIsAsociacion.value),
+)
 const showIglesiaUbicacionField = computed(() => form.tipo_organizacion_id === TIPO_IGLESIA)
 const showDireccionField = computed(() => form.tipo_organizacion_id === TIPO_IGLESIA)
 const showInheritedLocation = computed(() => {
   const tipoId = form.tipo_organizacion_id
   if (!tipoId) return false
+  if (tipoId === TIPO_DISTRITO && parentIsZona.value) return true
   return (
     TIPOS_HEREDAN_UBICACION.includes(tipoId as (typeof TIPOS_HEREDAN_UBICACION)[number]) ||
     isHijoDeClub(tipoId)
@@ -180,7 +195,9 @@ function applyIglesiaInheritedLocation(): void {
 
 const showDepartamentoHeredado = computed(() => {
   const tipoId = form.tipo_organizacion_id
-  if (!tipoId || tipoId === TIPO_ASOCIACION || tipoId === TIPO_DISTRITO) return false
+  if (!tipoId || tipoId === TIPO_ASOCIACION || tipoId === TIPO_ZONA) return false
+  if (tipoId === TIPO_DISTRITO && parentIsAsociacion.value) return false
+  if (tipoId === TIPO_DISTRITO && parentIsZona.value) return parentDepartamentos.value.length === 1
   if (tipoId === TIPO_IGLESIA) return parentDepartamentos.value.length === 1
   return TIPOS_HEREDAN_UBICACION_COMPLETA.includes(tipoId as (typeof TIPOS_HEREDAN_UBICACION_COMPLETA)[number]) || isHijoDeClub(tipoId)
 })
@@ -201,8 +218,12 @@ const locationHint = computed(() => {
       return t('organizaciones.locationHintUnion')
     case TIPO_ASOCIACION:
       return t('organizaciones.locationHintAsociacion')
+    case TIPO_ZONA:
+      return t('organizaciones.locationHintZona')
     case TIPO_DISTRITO:
-      return t('organizaciones.locationHintDistrito')
+      return parentIsZona.value
+        ? t('organizaciones.locationHintDistritoDesdeZona')
+        : t('organizaciones.locationHintDistrito')
     case TIPO_IGLESIA:
       return t('organizaciones.locationHintIglesia')
     case TIPO_CLUB:
@@ -313,7 +334,7 @@ watch(
       form.ciudad_id = null
       form.ciudad_nombre = ''
       form.direccion = ''
-    } else if (tipo === TIPO_DISTRITO) {
+    } else if (tipo === TIPO_ZONA || tipo === TIPO_DISTRITO) {
       form.pais_id = null
       form.pais_nombre = ''
       form.departamento_id = null
@@ -358,10 +379,13 @@ watch(
     const padre = parentOptions.value.find((o) => o.id === padreId)
     if (!padre) return
 
-    if (form.tipo_organizacion_id === TIPO_ASOCIACION && padre.pais_id) {
+    if (
+      (form.tipo_organizacion_id === TIPO_ASOCIACION || form.tipo_organizacion_id === TIPO_ZONA) &&
+      padre.pais_id
+    ) {
       await loadDepartamentos(padre.pais_id)
     }
-    if (form.tipo_organizacion_id === TIPO_DISTRITO) {
+    if (form.tipo_organizacion_id === TIPO_ZONA || form.tipo_organizacion_id === TIPO_DISTRITO) {
       form.departamento_ids = []
       form.ciudad_ids = []
       form.departamento_id = null
@@ -383,7 +407,12 @@ watch(
 watch(
   () => [...form.departamento_ids],
   async (ids) => {
-    if (form.tipo_organizacion_id !== TIPO_DISTRITO || loading.value) return
+    if (
+      (form.tipo_organizacion_id !== TIPO_ZONA && form.tipo_organizacion_id !== TIPO_DISTRITO) ||
+      loading.value
+    ) {
+      return
+    }
     await loadCiudadesByDepartamentos(ids)
     const valid = new Set(ciudades.value.map((item) => item.id))
     form.ciudad_ids = form.ciudad_ids.filter((id) => valid.has(id))
@@ -409,7 +438,7 @@ async function loadCatalogs(): Promise<void> {
     organizacionesService.tree(),
     organizacionesService.paises(),
   ])
-  tipos.value = tiposData
+  tipos.value = ordenarTiposCatalogo(tiposData.filter(esTipoOrganizacionDeCatalogo))
   tree.value = treeData
   paises.value = paisesData
   await refreshParentOptions()
@@ -433,11 +462,19 @@ async function submit(): Promise<void> {
     errorMessage.value = t('organizaciones.departamentosRequired')
     return
   }
-  if (form.tipo_organizacion_id === TIPO_DISTRITO && form.departamento_ids.length === 0) {
+  if (form.tipo_organizacion_id === TIPO_ZONA && form.departamento_ids.length === 0) {
+    errorMessage.value = t('organizaciones.departamentosRequired')
+    return
+  }
+  if (form.tipo_organizacion_id === TIPO_ZONA && form.ciudad_ids.length === 0) {
+    errorMessage.value = t('organizaciones.ciudadesRequired')
+    return
+  }
+  if (form.tipo_organizacion_id === TIPO_DISTRITO && parentIsAsociacion.value && form.departamento_ids.length === 0) {
     errorMessage.value = t('organizaciones.departamentoRequired')
     return
   }
-  if (form.tipo_organizacion_id === TIPO_DISTRITO && form.ciudad_ids.length === 0) {
+  if (form.tipo_organizacion_id === TIPO_DISTRITO && parentIsAsociacion.value && form.ciudad_ids.length === 0) {
     errorMessage.value = t('organizaciones.ciudadesRequired')
     return
   }
@@ -525,7 +562,7 @@ onMounted(async () => {
         organizacionesService.paises(),
         organizacionesService.get(orgId.value),
       ])
-      tipos.value = tiposData
+      tipos.value = ordenarTiposCatalogo(tiposData.filter(esTipoOrganizacionDeCatalogo))
       tree.value = treeData
       paises.value = paisesData
 
@@ -554,7 +591,7 @@ onMounted(async () => {
         org.tipo_organizacion_id === TIPO_ASOCIACION && org.pais_id
           ? loadDepartamentos(org.pais_id)
           : Promise.resolve(),
-        org.tipo_organizacion_id === TIPO_DISTRITO
+        org.tipo_organizacion_id === TIPO_ZONA || org.tipo_organizacion_id === TIPO_DISTRITO
           ? loadCiudadesByDepartamentos(form.departamento_ids)
           : org.departamento_id
             ? loadCiudades(org.departamento_id)
@@ -879,7 +916,7 @@ useOrganizacionesRealtime((payload) => {
                 <span class="pj-muted">{{ t('organizaciones.pais') }}</span>
                 <strong>{{ inheritedPaisLabel }}</strong>
               </div>
-              <div v-if="form.tipo_organizacion_id === TIPO_DISTRITO">
+              <div v-if="form.tipo_organizacion_id === TIPO_ZONA || form.tipo_organizacion_id === TIPO_DISTRITO">
                 <span class="pj-muted">{{ t('organizaciones.departamentosAsociacion') }}</span>
                 <strong>{{ inheritedDepartamentosLabel }}</strong>
               </div>
@@ -922,7 +959,7 @@ useOrganizacionesRealtime((payload) => {
             <MultiSelect
               id="departamentos"
               v-model="form.departamento_ids"
-              :options="form.tipo_organizacion_id === TIPO_DISTRITO && parentDepartamentos.length ? parentDepartamentos : departamentos"
+              :options="(form.tipo_organizacion_id === TIPO_ZONA || form.tipo_organizacion_id === TIPO_DISTRITO) && parentDepartamentos.length ? parentDepartamentos : departamentos"
               option-label="label"
               option-value="id"
               filter
@@ -931,7 +968,7 @@ useOrganizacionesRealtime((payload) => {
               class="w-full"
             />
             <small class="pj-muted">
-              {{ form.tipo_organizacion_id === TIPO_DISTRITO
+              {{ form.tipo_organizacion_id === TIPO_ZONA || form.tipo_organizacion_id === TIPO_DISTRITO
                 ? t('organizaciones.departamentosDistritoHint')
                 : t('organizaciones.departamentosHint') }}
             </small>

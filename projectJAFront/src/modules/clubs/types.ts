@@ -53,6 +53,7 @@ export interface Club {
   color_principal?: string | null
   color_secundario?: string | null
   sitio_web?: string | null
+  zona?: string | null
   distrito: string | null
   ciudad: string | null
   tipos: ClubMinistry[]

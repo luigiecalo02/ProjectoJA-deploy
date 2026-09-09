@@ -63,6 +63,22 @@ export function formatDateOnly(
   return d.toLocaleDateString(locale, options)
 }
 
+export function formatDateTime(
+  value: string | Date | null | undefined,
+  locale = 'es-ES',
+): string {
+  if (!value) return '—'
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString(locale, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export function addOneDay(from: Date): Date {
   const d = dateOnly(from) || new Date(from)
   d.setDate(d.getDate() + 1)

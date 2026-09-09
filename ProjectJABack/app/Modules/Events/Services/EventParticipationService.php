@@ -44,6 +44,7 @@ final class EventParticipationService
         private readonly OrganizationAccessService $orgAccess,
         private readonly EventCalificacionAggregator $calificacionAggregator,
         private readonly ImageOptimizer $imageOptimizer,
+        private readonly EventConjuntoShareService $conjuntoShare,
     ) {}
 
     /**
@@ -125,9 +126,15 @@ final class EventParticipationService
             );
 
             $this->applyInscripcionScore($root, $ctx['organizacion_id']);
+            $this->conjuntoShare->inheritForClub($root, $ctx['organizacion_id'], $actor->id);
 
             return $inscripcion->fresh();
         });
+    }
+
+    public function inheritConjuntoSelections(Event $root, int $organizacionId, ?int $actorId = null): void
+    {
+        $this->conjuntoShare->inheritForClub($root, $organizacionId, $actorId);
     }
 
     public function applyInscripcionScore(Event $root, int $organizacionId): EventoCalificacion
@@ -233,6 +240,7 @@ final class EventParticipationService
             ->groupBy('evento_id')
             ->pluck('total', 'evento_id');
         $tree = $this->mapNode($root, $calificaciones, $evidencias, true, $locked, $inscritos);
+        $this->hideParticipantScores($tree);
         $progreso = $this->buildProgress($root, $calificaciones);
 
         $clubLogo = Club::query()
@@ -281,6 +289,7 @@ final class EventParticipationService
         }
 
         $this->assertDirectorCanModify($subevento);
+        $this->assertDirectorCanEditEvidenceAfterScore($subevento, $ctx['organizacion_id']);
 
         if (! $subevento->requiere_evidencia) {
             throw ValidationException::withMessages([
@@ -454,6 +463,7 @@ final class EventParticipationService
         $actividad = Event::query()->find($evidencia->evento_id);
         if ($actividad) {
             $this->assertDirectorCanModify($actividad);
+            $this->assertDirectorCanEditEvidenceAfterScore($actividad, $ctx['organizacion_id']);
         }
 
         $evidencia->delete();
@@ -593,6 +603,7 @@ final class EventParticipationService
             'puntaje_maximo' => $event->puntaje_maximo !== null ? (float) $event->puntaje_maximo : null,
             'puntaje_desde_hijos' => (bool) $event->puntaje_desde_hijos,
             'puntaje_por_participar' => (bool) $event->puntaje_por_participar,
+            'criterios_compartidos' => $event->criterios_compartidos !== false,
             'requiere_evidencia' => (bool) $event->requiere_evidencia,
             'requiere_inscripcion' => $this->controlsParticipants($event),
             'inscrito' => (int) ($inscritos[(int) $event->id] ?? $inscritos[(string) $event->id] ?? 0) > 0,
@@ -604,15 +615,24 @@ final class EventParticipationService
                 ? (float) $event->puntos_penalizacion
                 : null,
             'reglas_penalizacion' => $event->reglas_penalizacion,
+            'premia_puestos' => (bool) $event->premia_puestos,
+            'puntos_puesto_1' => $event->puntos_puesto_1 !== null ? (float) $event->puntos_puesto_1 : null,
+            'puntos_puesto_2' => $event->puntos_puesto_2 !== null ? (float) $event->puntos_puesto_2 : null,
+            'puntos_puesto_3' => $event->puntos_puesto_3 !== null ? (float) $event->puntos_puesto_3 : null,
             'tiempo_estimado_minutos' => $event->tiempo_estimado_minutos !== null
                 ? (int) $event->tiempo_estimado_minutos
                 : null,
             'requiere_puesto_entrega' => (bool) $event->requiere_puesto_entrega,
             'requiere_tiempo_entrega' => (bool) $event->requiere_tiempo_entrega,
+            'criterio_tiempo' => $event->criterio_tiempo,
+            'modo_captura_tiempo' => $event->modo_captura_tiempo,
             'resultado_esperado' => $event->resultado_esperado !== null ? (int) $event->resultado_esperado : null,
+            'resultado_esperado_etiqueta' => $event->resultado_esperado_etiqueta,
+            'mostrar_resultados_participantes' => $event->mostrar_resultados_participantes !== false,
             'participantes_min' => $event->participantes_min !== null ? (int) $event->participantes_min : null,
             'participantes_max' => $event->participantes_max !== null ? (int) $event->participantes_max : null,
             'permite_inscribir_no_participantes' => (bool) $event->permite_inscribir_no_participantes,
+            'fecha_limite_inscripcion' => $event->fecha_limite_inscripcion?->toIso8601String(),
             'participantes_genero' => $event->participantes_genero,
             'participantes_min_m' => $event->participantes_min_m !== null ? (int) $event->participantes_min_m : null,
             'participantes_max_m' => $event->participantes_max_m !== null ? (int) $event->participantes_max_m : null,
@@ -620,6 +640,7 @@ final class EventParticipationService
             'participantes_max_f' => $event->participantes_max_f !== null ? (int) $event->participantes_max_f : null,
             'es_conjunto' => (bool) $event->es_conjunto,
             'nivel_conjunto' => $event->nivel_conjunto,
+            'rol_conjunto' => $event->rol_conjunto,
             'requiere_pago' => (bool) $event->requiere_pago,
             'precio' => $event->precio !== null ? (float) $event->precio : null,
             'starts_at' => $event->starts_at?->toIso8601String(),
@@ -659,6 +680,7 @@ final class EventParticipationService
                     'descripcion' => $c->descripcion,
                     'puntos' => (float) $c->pivot->puntos,
                     'orden' => (int) $c->pivot->orden,
+                    'juez_id' => $c->pivot->juez_id !== null ? (int) $c->pivot->juez_id : null,
                 ])->values()->all()
                 : [],
             'calificacion' => $calificacion,
@@ -667,6 +689,42 @@ final class EventParticipationService
             'is_root' => $isRoot,
             'hijos' => $hijos,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $node
+     */
+    private function hideParticipantScores(array &$node): void
+    {
+        if (($node['mostrar_resultados_participantes'] ?? true) === false && is_array($node['calificacion'] ?? null)) {
+            $cal = $node['calificacion'];
+            $cal['puntaje_obtenido'] = null;
+            $cal['detalles'] = [];
+            $cal['puesto_entrega'] = null;
+            $cal['tiempo_entrega'] = null;
+            $cal['resultado_obtenido'] = null;
+            if (! empty($cal['aportes']) && is_array($cal['aportes'])) {
+                $cal['aportes'] = array_map(static function ($aporte) {
+                    if (is_array($aporte)) {
+                        $aporte['puntaje_obtenido'] = null;
+                        $aporte['puesto_entrega'] = null;
+                        $aporte['tiempo_entrega'] = null;
+                        $aporte['resultado_obtenido'] = null;
+                    }
+
+                    return $aporte;
+                }, $cal['aportes']);
+            }
+            $node['calificacion'] = $cal;
+        }
+
+        foreach ($node['hijos'] ?? [] as $index => $hijo) {
+            if (! is_array($hijo)) {
+                continue;
+            }
+            $this->hideParticipantScores($hijo);
+            $node['hijos'][$index] = $hijo;
+        }
     }
 
     /**
@@ -683,9 +741,15 @@ final class EventParticipationService
      */
     private function indexAggregatedCalificaciones($rows, int $rootId)
     {
+        $eventoIds = $rows->pluck('evento_id')->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $events = Event::query()
+            ->whereIn('id', $eventoIds)
+            ->get(['id', 'criterios_compartidos', 'puntaje_por_participar', 'puntaje_maximo'])
+            ->keyBy('id');
+
         return $rows
             ->groupBy(fn (EventoCalificacion $c) => (int) $c->evento_id)
-            ->map(function ($group, $eventoId) use ($rootId) {
+            ->map(function ($group, $eventoId) use ($rootId, $events) {
                 $group = collect($group)->values();
                 if ((int) $eventoId === $rootId) {
                     $inscripcion = $group->first(fn (EventoCalificacion $c) => $c->calificado_por === null)
@@ -694,6 +758,15 @@ final class EventParticipationService
                     return $inscripcion
                         ? $this->calificacionAggregator->singlePayload($inscripcion, false)
                         : null;
+                }
+
+                $event = $events->get((int) $eventoId);
+                if ($event && ! $event->usesSharedCriteria()) {
+                    $bonus = $event->puntaje_por_participar && $event->puntaje_maximo !== null
+                        ? (float) $event->puntaje_maximo
+                        : 0.0;
+
+                    return $this->calificacionAggregator->composedPayload($group, $bonus);
                 }
 
                 return $this->calificacionAggregator->averagePayload($group);
@@ -817,10 +890,12 @@ final class EventParticipationService
             }
 
             if ($hijo->es_calificable && $hijo->puntaje_maximo !== null) {
-                $subMax += (float) $hijo->puntaje_maximo;
-                $cal = $calificaciones->get((int) $hijo->id);
-                if (is_array($cal)) {
-                    $subPts += (float) ($cal['puntaje_obtenido'] ?? 0);
+                if ($hijo->mostrar_resultados_participantes !== false) {
+                    $subMax += (float) $hijo->puntaje_maximo;
+                    $cal = $calificaciones->get((int) $hijo->id);
+                    if (is_array($cal)) {
+                        $subPts += (float) ($cal['puntaje_obtenido'] ?? 0);
+                    }
                 }
             }
 
@@ -875,6 +950,9 @@ final class EventParticipationService
         }
 
         $orgId = $ctx['organizacion_id'];
+        if ($actividad->es_conjunto) {
+            $this->conjuntoShare->inheritForClub($root, $orgId, $actor->id);
+        }
         $selectedIds = EventoActividadParticipante::query()
             ->where('evento_id', $actividad->id)
             ->where('organizacion_id', $orgId)
@@ -885,12 +963,14 @@ final class EventParticipationService
         $candidatos = $this->eligibleActivityMembers($root, $actividad, $orgId);
         $locked = $this->directorModificationsLocked($root)
             || $actividad->locksDirectorModifications()
-            || $actividad->locksDirectorAfterDeadline();
+            || $actividad->locksDirectorAfterDeadline()
+            || $actividad->locksRosterAfterEnrollmentDeadline();
 
         return [
             'actividad' => $this->activityRosterConfig($actividad),
             'seleccionados' => $selectedIds,
             'bloqueada' => $locked,
+            'inscripcion_cerrada' => $actividad->locksRosterAfterEnrollmentDeadline(),
             'candidatos' => $candidatos->map(function (array $row) use ($selectedIds) {
                 $row['seleccionado'] = in_array((int) $row['id'], $selectedIds, true);
 
@@ -917,6 +997,7 @@ final class EventParticipationService
         }
 
         $this->assertDirectorCanModify($actividad);
+        $this->assertRosterEnrollmentOpen($actividad);
 
         $orgId = $ctx['organizacion_id'];
         $personaIds = array_values(array_unique(array_map('intval', $personaIds)));
@@ -932,23 +1013,8 @@ final class EventParticipationService
 
         $this->assertRosterCounts($actividad, $personaIds, $eligible);
 
-        DB::transaction(function () use ($actividad, $orgId, $personaIds, $actor) {
-            EventoActividadParticipante::query()
-                ->where('evento_id', $actividad->id)
-                ->where('organizacion_id', $orgId)
-                ->whereNotIn('persona_id', $personaIds === [] ? [0] : $personaIds)
-                ->delete();
-
-            foreach ($personaIds as $personaId) {
-                EventoActividadParticipante::query()->updateOrCreate(
-                    [
-                        'evento_id' => $actividad->id,
-                        'organizacion_id' => $orgId,
-                        'persona_id' => $personaId,
-                    ],
-                    ['inscrito_por' => $actor->id],
-                );
-            }
+        DB::transaction(function () use ($root, $actividad, $orgId, $personaIds, $actor) {
+            $this->conjuntoShare->syncRoster($root, $actividad, $personaIds, $orgId, $actor->id);
         });
 
         return $this->activityRoster($actor, $actividad);
@@ -971,14 +1037,31 @@ final class EventParticipationService
      */
     private function eligibleActivityMembers(Event $root, Event $actividad, int $organizacionId): Collection
     {
-        $personaIds = PersonaOrganizacion::query()
-            ->where('organizacion_id', $organizacionId)
+        $scopeOrgIds = $this->conjuntoShare->scopeOrganizationIds($actividad, $organizacionId);
+        $rol = $actividad->es_conjunto ? $this->conjuntoShare->normalizedRol($actividad->rol_conjunto) : null;
+
+        $memberships = PersonaOrganizacion::query()
+            ->with('organizacion:id,nombre')
+            ->whereIn('organizacion_id', $scopeOrgIds === [] ? [0] : $scopeOrgIds)
             ->where('estado', true)
-            ->pluck('persona_id')
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->values()
-            ->all();
+            ->when($rol !== null, function ($query) use ($rol) {
+                $query->whereHas('rolesAsignados.rol', fn ($q) => $q->where('name', $rol));
+            })
+            ->get();
+
+        $orgNamesByPersona = [];
+        foreach ($memberships as $membership) {
+            $personaId = (int) $membership->persona_id;
+            $orgName = $membership->organizacion?->nombre;
+            if (! isset($orgNamesByPersona[$personaId])) {
+                $orgNamesByPersona[$personaId] = [];
+            }
+            if ($orgName) {
+                $orgNamesByPersona[$personaId][$orgName] = $orgName;
+            }
+        }
+
+        $personaIds = array_keys($orgNamesByPersona);
 
         $inscritosEvento = [];
         $inscripcion = $this->findRootInscripcion($root, $organizacionId);
@@ -995,7 +1078,8 @@ final class EventParticipationService
                 ->all();
         }
 
-        $allowNonEnrolled = (bool) $actividad->permite_inscribir_no_participantes;
+        $allowNonEnrolled = (bool) $actividad->permite_inscribir_no_participantes
+            || (bool) $actividad->es_conjunto;
         $genero = $actividad->participantes_genero;
 
         return Persona::query()
@@ -1003,7 +1087,7 @@ final class EventParticipationService
             ->orderBy('apellido1')
             ->orderBy('nombre1')
             ->get()
-            ->map(function (Persona $persona) use ($inscritosEvento, $allowNonEnrolled, $genero) {
+            ->map(function (Persona $persona) use ($inscritosEvento, $allowNonEnrolled, $genero, $orgNamesByPersona) {
                 $sexo = $this->normalizeSexo($persona->sexo);
                 $inscrito = in_array((int) $persona->id, $inscritosEvento, true);
                 $eligible = $allowNonEnrolled || $inscrito;
@@ -1018,6 +1102,7 @@ final class EventParticipationService
                     'id' => (int) $persona->id,
                     'nombre' => $persona->full_name,
                     'sexo' => $sexo,
+                    'organizacion' => implode(' · ', array_values($orgNamesByPersona[(int) $persona->id] ?? [])),
                     'inscrito_evento' => $inscrito,
                     'elegible' => $eligible,
                 ];
@@ -1075,6 +1160,13 @@ final class EventParticipationService
                 ]);
             }
 
+            $maxTotal = $actividad->participantes_max !== null ? (int) $actividad->participantes_max : null;
+            if ($maxTotal !== null && $count > $maxTotal) {
+                throw ValidationException::withMessages([
+                    'persona_ids' => ["No puedes inscribir más de {$maxTotal} integrantes."],
+                ]);
+            }
+
             return;
         }
 
@@ -1092,6 +1184,61 @@ final class EventParticipationService
         }
     }
 
+    public function unlockEvidenciaEdicion(int $eventoId, int $organizacionId): int
+    {
+        $updated = EventoCalificacion::query()
+            ->where('evento_id', $eventoId)
+            ->where('organizacion_id', $organizacionId)
+            ->whereNull('persona_id')
+            ->whereNotNull('calificado_por')
+            ->update(['permite_editar_evidencia' => true]);
+
+        if ($updated === 0) {
+            throw ValidationException::withMessages([
+                'evento' => ['Aún no hay calificación de jueces para habilitar la edición.'],
+            ]);
+        }
+
+        return $updated;
+    }
+
+    public function unlockEvidenciaEdicionForDirector(User $actor, Event $actividad): void
+    {
+        $ctx = $this->assertClubDirectorContext($actor);
+        $root = $this->resolveRoot($actividad);
+
+        if (! $actor->can('view', $root)) {
+            throw new AccessDeniedHttpException('No puedes ver este evento.');
+        }
+
+        $this->unlockEvidenciaEdicion((int) $actividad->id, $ctx['organizacion_id']);
+    }
+
+    public function judgeScoresBlockEvidence(Event $actividad, int $organizacionId): bool
+    {
+        $flags = EventoCalificacion::query()
+            ->where('evento_id', $actividad->id)
+            ->where('organizacion_id', $organizacionId)
+            ->whereNull('persona_id')
+            ->whereNotNull('calificado_por')
+            ->pluck('permite_editar_evidencia');
+
+        if ($flags->isEmpty()) {
+            return false;
+        }
+
+        return $flags->every(fn ($flag) => ! $flag);
+    }
+
+    private function assertDirectorCanEditEvidenceAfterScore(Event $actividad, int $organizacionId): void
+    {
+        if ($this->judgeScoresBlockEvidence($actividad, $organizacionId)) {
+            throw ValidationException::withMessages([
+                'evento' => ['El juez ya calificó. Habilita la edición de evidencia para poder cambiarla.'],
+            ]);
+        }
+    }
+
     private function assertDirectorCanModify(Event $actividad): void
     {
         $root = $this->resolveRoot($actividad);
@@ -1103,6 +1250,15 @@ final class EventParticipationService
         if ($actividad->locksDirectorAfterDeadline()) {
             throw ValidationException::withMessages([
                 'evento' => ['El plazo de este subevento venció. Ya no puedes cambiar ni adjuntar evidencia.'],
+            ]);
+        }
+    }
+
+    private function assertRosterEnrollmentOpen(Event $actividad): void
+    {
+        if ($actividad->locksRosterAfterEnrollmentDeadline()) {
+            throw ValidationException::withMessages([
+                'persona_ids' => ['Venció la fecha límite de inscripción. Ya no puedes cambiar los participantes.'],
             ]);
         }
     }
@@ -1123,11 +1279,15 @@ final class EventParticipationService
             'participantes_min' => $actividad->participantes_min !== null ? (int) $actividad->participantes_min : null,
             'participantes_max' => $actividad->participantes_max !== null ? (int) $actividad->participantes_max : null,
             'permite_inscribir_no_participantes' => (bool) $actividad->permite_inscribir_no_participantes,
+            'fecha_limite_inscripcion' => $actividad->fecha_limite_inscripcion?->toIso8601String(),
             'participantes_genero' => $actividad->participantes_genero,
             'participantes_min_m' => $actividad->participantes_min_m !== null ? (int) $actividad->participantes_min_m : null,
             'participantes_max_m' => $actividad->participantes_max_m !== null ? (int) $actividad->participantes_max_m : null,
             'participantes_min_f' => $actividad->participantes_min_f !== null ? (int) $actividad->participantes_min_f : null,
             'participantes_max_f' => $actividad->participantes_max_f !== null ? (int) $actividad->participantes_max_f : null,
+            'es_conjunto' => (bool) $actividad->es_conjunto,
+            'nivel_conjunto' => $actividad->nivel_conjunto,
+            'rol_conjunto' => $actividad->rol_conjunto,
         ];
     }
 

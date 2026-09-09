@@ -101,20 +101,23 @@ final class CriterioEvaluacionService
     /**
      * Sync criterios assigned to a subevent. Empty list clears assignment (generic scoring).
      *
-     * @param  list<array{id?: int, criterio_evaluacion_id?: int, puntos: float|int|string, orden?: int}>  $items
+     * @param  list<array{id?: int, criterio_evaluacion_id?: int, puntos: float|int|string, orden?: int, juez_id?: int|null}>  $items
      */
     public function syncForEvent(Event $event, array $items): void
     {
+        $shared = $event->usesSharedCriteria();
         $normalized = [];
         foreach ($items as $index => $item) {
             $criterioId = (int) ($item['criterio_evaluacion_id'] ?? $item['id'] ?? 0);
             if ($criterioId <= 0) {
                 continue;
             }
+            $juezId = isset($item['juez_id']) ? (int) $item['juez_id'] : 0;
             $normalized[] = [
                 'criterio_evaluacion_id' => $criterioId,
                 'puntos' => round((float) ($item['puntos'] ?? 0), 2),
                 'orden' => (int) ($item['orden'] ?? $index),
+                'juez_id' => $shared || $juezId <= 0 ? null : $juezId,
             ];
         }
 
@@ -144,16 +147,29 @@ final class CriterioEvaluacionService
 
             if ($maximo === null) {
                 throw ValidationException::withMessages([
-                    'criterios' => ['Define el puntaje máximo del subevento antes de asignar criterios.'],
+                    'criterios' => [
+                        $event->puntaje_por_participar
+                            ? 'Define el puntaje por participar del subevento antes de asignar criterios.'
+                            : 'Define el puntaje máximo del subevento antes de asignar criterios.',
+                    ],
                 ]);
             }
 
-            if (abs($suma - $maximo) > 0.009) {
+            if (! $event->puntaje_por_participar && abs($suma - $maximo) > 0.009) {
                 throw ValidationException::withMessages([
                     'criterios' => [
                         "La suma de puntos de criterios ({$suma}) debe ser igual al puntaje máximo ({$maximo}).",
                     ],
                 ]);
+            }
+
+            if (! $shared) {
+                $missingJudge = collect($normalized)->first(fn (array $row) => $row['juez_id'] === null);
+                if ($missingJudge) {
+                    throw ValidationException::withMessages([
+                        'criterios' => ['Asigna un juez a cada criterio cuando no son compartidos.'],
+                    ]);
+                }
             }
         }
 
@@ -163,6 +179,7 @@ final class CriterioEvaluacionService
                 $sync[$row['criterio_evaluacion_id']] = [
                     'puntos' => $row['puntos'],
                     'orden' => $row['orden'],
+                    'juez_id' => $row['juez_id'],
                 ];
             }
             $event->criterios()->sync($sync);

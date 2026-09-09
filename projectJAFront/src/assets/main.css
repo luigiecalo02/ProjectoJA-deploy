@@ -33,6 +33,27 @@
   --pj-space-page: 0.85rem;
   --pj-space-panel: 0.9rem;
 
+  /* Campos PrimeVue: texto navy sobre fondo blanco (nunca texto claro). */
+  --p-form-field-background: #ffffff;
+  --p-form-field-color: #071e48;
+  --p-form-field-placeholder-color: #5b6b82;
+  --p-form-field-icon-color: #5b6b82;
+  --p-select-background: #ffffff;
+  --p-select-color: #071e48;
+  --p-select-placeholder-color: #5b6b82;
+  --p-multiselect-background: #ffffff;
+  --p-multiselect-color: #071e48;
+  --p-multiselect-placeholder-color: #5b6b82;
+  --p-text-color: #071e48;
+  --p-text-muted-color: #5b6b82;
+  --p-content-color: #071e48;
+  --p-content-background: #ffffff;
+  --p-datatable-row-color: #071e48;
+  --p-datatable-row-background: #ffffff;
+  --p-datatable-row-striped-background: #f4f6f9;
+  --p-datatable-header-cell-color: #5b6b82;
+  --p-datatable-header-cell-background: #e8eef6;
+
   color-scheme: light;
   font-family: var(--pj-font-sans);
   font-size: 14.5px;
@@ -172,6 +193,55 @@ html.dark textarea::placeholder {
   color: #5b6b82;
 }
 
+/* Placeholder / label de Select: PrimeVue a veces usa --p-text-color (claro en dark)
+   sobre el campo blanco y el texto desaparece. */
+.p-select,
+.p-multiselect,
+.p-cascadeselect,
+.p-treeselect,
+.p-autocomplete,
+.p-inputnumber {
+  background: #ffffff;
+  color: #071e48;
+}
+
+.p-select .p-select-label,
+.p-multiselect .p-multiselect-label,
+.p-cascadeselect .p-cascadeselect-label,
+.p-treeselect .p-treeselect-label {
+  color: #071e48;
+}
+
+.p-select .p-select-label.p-placeholder,
+.p-multiselect .p-multiselect-label.p-placeholder,
+.p-cascadeselect .p-cascadeselect-label.p-placeholder,
+.p-treeselect .p-treeselect-label.p-placeholder {
+  color: #5b6b82;
+}
+
+.p-select-overlay,
+.p-multiselect-overlay,
+.p-cascadeselect-overlay,
+.p-treeselect-overlay {
+  background: #ffffff;
+  color: #071e48;
+}
+
+.p-select-overlay .p-select-option,
+.p-multiselect-overlay .p-multiselect-option,
+.p-select-overlay .p-select-empty-message,
+.p-multiselect-overlay .p-multiselect-empty-message {
+  color: #071e48;
+}
+
+.p-inputtext::placeholder,
+.p-textarea::placeholder,
+.p-autocomplete-input::placeholder,
+input::placeholder,
+textarea::placeholder {
+  color: #5b6b82;
+}
+
 *,
 *::before,
 *::after {
@@ -215,7 +285,8 @@ label {
 
 h1,
 h2,
-h3 {
+h3,
+h4 {
   font-family: var(--pj-font-sans);
   font-weight: 700;
   letter-spacing: 0;
@@ -348,6 +419,36 @@ b {
   letter-spacing: 0.02em;
   text-transform: uppercase;
   font-weight: 600;
+}
+
+/* Chrome + prefers-color-scheme:dark pinta el texto heredado en blanco sobre fondos claros. */
+html:not(.dark) .app-content,
+html:not(.dark) .pj-page,
+html:not(.dark) .pj-panel {
+  color: #071e48;
+}
+
+/* Chrome + prefers-color-scheme:dark pinta celdas en blanco si no se fija el color. */
+html:not(.dark) .p-datatable,
+html:not(.dark) .p-datatable-table,
+html:not(.dark) .p-datatable .p-datatable-thead > tr > th,
+html:not(.dark) .p-datatable .p-datatable-tbody > tr > td {
+  color: #071e48;
+}
+
+html:not(.dark) .p-datatable .p-datatable-thead > tr > th {
+  background: #e8eef6;
+  color: #5b6b82;
+}
+
+html:not(.dark) .p-datatable .p-datatable-tbody > tr > td {
+  background: #ffffff;
+}
+
+html:not(.dark) .p-datatable .p-datatable-tbody > tr.p-row-even > td,
+html:not(.dark) .p-datatable-striped .p-datatable-tbody > tr:nth-child(even) > td {
+  background: #f4f6f9;
+  color: #071e48;
 }
 
 .p-inputtext,

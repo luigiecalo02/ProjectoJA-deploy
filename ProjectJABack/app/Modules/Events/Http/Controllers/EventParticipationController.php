@@ -162,6 +162,16 @@ final class EventParticipationController
         );
     }
 
+    public function unlockEvidenciaEdicion(Request $request, Event $event): JsonResponse
+    {
+        $this->service->unlockEvidenciaEdicionForDirector($request->user(), $event);
+
+        return ApiResponse::success(
+            ['permite_editar_evidencia' => true],
+            'Ya puedes editar la evidencia',
+        );
+    }
+
     public function storeDirectorObservacion(Request $request, Event $event): JsonResponse
     {
         $data = $request->validate([

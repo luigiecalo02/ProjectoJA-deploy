@@ -18,6 +18,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -257,6 +258,7 @@ final class EventService
             'ends_at' => $event->ends_at?->toDateTimeString(),
             'tipo_evento_id' => $event->tipo_evento_id,
             'es_en_sitio' => $event->es_en_sitio,
+            'maneja_fecha_fin' => $event->maneja_fecha_fin,
         ], $event);
 
         if ($beforeId !== null) {
@@ -695,6 +697,7 @@ final class EventService
                     'id' => (int) $c->id,
                     'puntos' => (float) $c->pivot->puntos,
                     'orden' => (int) $c->pivot->orden,
+                    'juez_id' => $c->pivot->juez_id !== null ? (int) $c->pivot->juez_id : null,
                 ])->values()->all(),
             );
         }
@@ -834,11 +837,15 @@ final class EventService
      */
     private function resolveAudienceTipoIds(array $data): array
     {
+        if (array_key_exists('tipo_organizacion_ids', $data)) {
+            return $this->remapTipoOrganizacionIds($this->normalizeIds($data['tipo_organizacion_ids'] ?? []));
+        }
+
         if (array_key_exists('audiencia', $data) && is_string($data['audiencia'])) {
             return $this->tipoIdsFromAudiencia($data['audiencia']);
         }
 
-        return $this->remapTipoOrganizacionIds($this->normalizeIds($data['tipo_organizacion_ids'] ?? []));
+        return [];
     }
 
     /**
@@ -975,20 +982,41 @@ final class EventService
             return;
         }
 
-        $startsAt = strtotime((string) ($data['starts_at'] ?? ''));
-        $endsAt = strtotime((string) ($data['ends_at'] ?? ''));
-        $padreStart = $padre->starts_at?->getTimestamp();
-        $padreEnd = $padre->ends_at?->getTimestamp();
+        $managesOwnDates = array_key_exists('maneja_fecha_fin', $data)
+            ? filter_var($data['maneja_fecha_fin'], FILTER_VALIDATE_BOOLEAN)
+            : (bool) ($current?->maneja_fecha_fin);
 
-        if ($padreStart === null || $padreEnd === null || $startsAt === false || $endsAt === false) {
+        if (! $managesOwnDates) {
             return;
         }
 
-        if ($startsAt < $padreStart || $endsAt > $padreEnd) {
+        $startsAt = $this->calendarDay($data['starts_at'] ?? null);
+        $endsAt = $this->calendarDay($data['ends_at'] ?? null);
+        $padreStart = $padre->starts_at?->copy()->startOfDay();
+        $padreEnd = $padre->ends_at?->copy()->startOfDay();
+
+        if ($padreStart === null || $padreEnd === null || $startsAt === null || $endsAt === null) {
+            return;
+        }
+
+        if ($startsAt->lt($padreStart) || $endsAt->gt($padreEnd)) {
             throw ValidationException::withMessages([
                 'starts_at' => ['Las fechas del subevento en sitio deben estar dentro del rango de su evento padre.'],
                 'ends_at' => ['Las fechas del subevento en sitio deben estar dentro del rango de su evento padre.'],
             ]);
+        }
+    }
+
+    private function calendarDay(mixed $value): ?Carbon
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse((string) $value)->startOfDay();
+        } catch (\Throwable) {
+            return null;
         }
     }
 

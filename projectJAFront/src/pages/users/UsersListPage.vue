@@ -37,6 +37,7 @@ import {
   TIPO_DISTRITO,
   TIPO_IGLESIA,
   TIPO_UNION,
+  TIPO_ZONA,
   TIPOS_HIJO_CLUB,
   type OrganizacionTreeNode,
 } from '@/modules/organizaciones/types'
@@ -84,6 +85,7 @@ const orgTree = ref<OrganizacionTreeNode[]>([])
 const orgFilters = reactive({
   unionId: null as number | null,
   asociacionId: null as number | null,
+  zonaId: null as number | null,
   distritoId: null as number | null,
   iglesiaId: null as number | null,
   clubId: null as number | null,
@@ -103,6 +105,11 @@ const viewMode = ref<'search' | 'table'>(readViewMode())
 const perPage = computed(() => (viewMode.value === 'table' ? TABLE_PAGE_SIZE : SEARCH_PAGE_SIZE))
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let requestSequence = 0
+let pageActive = true
+
+function canRefreshUsers(): boolean {
+  return pageActive && !impersonating.value && can('users.view')
+}
 
 const statusOptions = [
   { label: t('common.all'), value: null },
@@ -119,20 +126,22 @@ const tipoClubOptions = [
 
 const CLUB_TIPOS = [TIPO_CLUB, ...TIPOS_HIJO_CLUB] as readonly number[]
 
-type OrgFilterLevel = 'union' | 'asociacion' | 'distrito' | 'iglesia' | 'club'
+type OrgFilterLevel = 'union' | 'asociacion' | 'zona' | 'distrito' | 'iglesia' | 'club'
 
 const LEVEL_RANK: Record<OrgFilterLevel, number> = {
   union: 1,
   asociacion: 2,
-  distrito: 3,
-  iglesia: 4,
-  club: 5,
+  zona: 3,
+  distrito: 4,
+  iglesia: 5,
+  club: 6,
 }
 
 function rankOfTipo(tipoId: number | null | undefined): number | null {
   if (!tipoId) return null
   if (tipoId === TIPO_UNION) return LEVEL_RANK.union
   if (tipoId === TIPO_ASOCIACION) return LEVEL_RANK.asociacion
+  if (tipoId === TIPO_ZONA) return LEVEL_RANK.zona
   if (tipoId === TIPO_DISTRITO) return LEVEL_RANK.distrito
   if (tipoId === TIPO_IGLESIA) return LEVEL_RANK.iglesia
   if (CLUB_TIPOS.includes(tipoId)) return LEVEL_RANK.club
@@ -204,7 +213,16 @@ const asociacionOptions = computed(() => {
   return parent ? optionsFromNodes(parent.children || [], [TIPO_ASOCIACION]) : []
 })
 
+const zonaOptions = computed(() => {
+  const parent = findOrgNode(orgTree.value, orgFilters.asociacionId)
+  return parent ? optionsFromNodes(parent.children || [], [TIPO_ZONA]) : []
+})
+
 const distritoOptions = computed(() => {
+  if (orgFilters.zonaId) {
+    const zona = findOrgNode(orgTree.value, orgFilters.zonaId)
+    return zona ? optionsFromNodes(zona.children || [], [TIPO_DISTRITO]) : []
+  }
   const parent = findOrgNode(orgTree.value, orgFilters.asociacionId)
   return parent ? optionsFromNodes(parent.children || [], [TIPO_DISTRITO]) : []
 })
@@ -249,6 +267,7 @@ function applyScopeLocks(): void {
   if (!id || !tipo) return
   if (tipo === TIPO_UNION) orgFilters.unionId = id
   else if (tipo === TIPO_ASOCIACION) orgFilters.asociacionId = id
+  else if (tipo === TIPO_ZONA) orgFilters.zonaId = id
   else if (tipo === TIPO_DISTRITO) orgFilters.distritoId = id
   else if (tipo === TIPO_IGLESIA) orgFilters.iglesiaId = id
   else if (CLUB_TIPOS.includes(tipo)) orgFilters.clubId = id
@@ -261,6 +280,7 @@ const selectedOrganizacionId = computed(() => {
   return (
     orgFilters.iglesiaId
     ?? orgFilters.distritoId
+    ?? orgFilters.zonaId
     ?? orgFilters.asociacionId
     ?? orgFilters.unionId
     ?? scopeOrgId.value
@@ -280,11 +300,18 @@ const showAsociacionFilter = computed(
     Boolean(orgFilters.unionId) &&
     asociacionOptions.value.length > 0,
 )
+const showZonaFilter = computed(
+  () =>
+    canUseOrgFilters.value &&
+    !isLevelImplicit('zona') &&
+    Boolean(orgFilters.asociacionId) &&
+    zonaOptions.value.length > 0,
+)
 const showDistritoFilter = computed(
   () =>
     canUseOrgFilters.value &&
     !isLevelImplicit('distrito') &&
-    Boolean(orgFilters.asociacionId) &&
+    Boolean(orgFilters.zonaId || orgFilters.asociacionId) &&
     distritoOptions.value.length > 0,
 )
 const showIglesiaFilter = computed(
@@ -309,14 +336,16 @@ const scopeLabel = computed(() => {
 
 function clearBelow(level: Exclude<OrgFilterLevel, 'club'>): void {
   const below: Record<Exclude<OrgFilterLevel, 'club'>, OrgFilterLevel[]> = {
-    union: ['asociacion', 'distrito', 'iglesia'],
-    asociacion: ['distrito', 'iglesia'],
+    union: ['asociacion', 'zona', 'distrito', 'iglesia'],
+    asociacion: ['zona', 'distrito', 'iglesia'],
+    zona: ['distrito', 'iglesia'],
     distrito: ['iglesia'],
     iglesia: [],
   }
   for (const next of below[level]) {
     if (isLevelImplicit(next)) continue
     if (next === 'asociacion') orgFilters.asociacionId = null
+    if (next === 'zona') orgFilters.zonaId = null
     if (next === 'distrito') orgFilters.distritoId = null
     if (next === 'iglesia') orgFilters.iglesiaId = null
   }
@@ -396,6 +425,7 @@ function identityOf(user: User): string {
 }
 
 async function loadTotal(): Promise<void> {
+  if (!canRefreshUsers()) return
   loadingTotal.value = true
   try {
     const result = await usersService.list({
@@ -405,8 +435,10 @@ async function loadTotal(): Promise<void> {
       tipo_club: activeTipoClub.value,
       role: activeRole.value,
     })
+    if (!canRefreshUsers()) return
     totalUsers.value = result.pagination?.total ?? result.items.length
   } catch (error) {
+    if (!canRefreshUsers()) return
     toast.add({
       severity: 'error',
       summary: t('common.error'),
@@ -429,6 +461,7 @@ function canLoginAs(user: User): boolean {
 }
 
 async function search(page = 1, showWarning = false): Promise<void> {
+  if (!canRefreshUsers()) return
   const term = query.value.trim()
   if (viewMode.value === 'search' && term.length < 2) {
     users.value = []
@@ -462,7 +495,7 @@ async function search(page = 1, showWarning = false): Promise<void> {
     pagination.value = result.pagination
     searched.value = true
   } catch (error) {
-    if (sequence !== requestSequence) return
+    if (sequence !== requestSequence || !canRefreshUsers()) return
     toast.add({
       severity: 'error',
       summary: t('common.error'),
@@ -539,8 +572,9 @@ async function confirmDelete(): Promise<void> {
 }
 
 async function confirmImpersonate(): Promise<void> {
-  if (!impersonateTarget.value) return
+  if (!impersonateTarget.value || impersonating.value) return
   impersonating.value = true
+  requestSequence += 1
   try {
     await auth.impersonate(impersonateTarget.value.id)
     impersonateTarget.value = null
@@ -550,28 +584,28 @@ async function confirmImpersonate(): Promise<void> {
       detail: t('users.impersonateSuccess'),
       life: 2500,
     })
-    await router.push({ name: 'dashboard' })
+    await router.replace({ name: 'dashboard' })
   } catch (error) {
+    impersonating.value = false
     toast.add({
       severity: 'error',
       summary: t('common.error'),
       detail: getApiErrorMessage(error),
       life: 4000,
     })
-  } finally {
-    impersonating.value = false
   }
 }
 
 watch(query, scheduleSearch)
 watch(statusFilter, () => {
+  if (!canRefreshUsers()) return
   if (viewMode.value === 'table' || query.value.trim().length >= 2) void search(1)
 })
 watch(tipoClub, () => {
   if (orgFilters.clubId && !clubOptions.value.some((club) => club.id === orgFilters.clubId)) {
     orgFilters.clubId = null
   }
-  if (filterTab.value !== 'clubes') return
+  if (!canRefreshUsers() || filterTab.value !== 'clubes') return
   if (viewMode.value === 'table' || query.value.trim().length >= 2) {
     void search(1)
     return
@@ -579,6 +613,7 @@ watch(tipoClub, () => {
   void loadTotal()
 })
 watch(roleFilter, () => {
+  if (!canRefreshUsers()) return
   if (viewMode.value === 'table' || query.value.trim().length >= 2) {
     void search(1)
     return
@@ -586,6 +621,7 @@ watch(roleFilter, () => {
   void loadTotal()
 })
 watch(filterTab, () => {
+  if (!canRefreshUsers()) return
   if (viewMode.value === 'table' || query.value.trim().length >= 2) {
     void search(1)
     return
@@ -593,6 +629,7 @@ watch(filterTab, () => {
   void loadTotal()
 })
 watch(selectedOrganizacionId, () => {
+  if (!canRefreshUsers()) return
   if (viewMode.value === 'table' || query.value.trim().length >= 2) {
     void search(1)
     return
@@ -605,6 +642,7 @@ watch(viewMode, (mode) => {
   } catch {
     /* ignore */
   }
+  if (!canRefreshUsers()) return
   if (mode === 'table') {
     void search(1)
     return
@@ -627,6 +665,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  pageActive = false
+  requestSequence += 1
   if (debounceTimer) clearTimeout(debounceTimer)
 })
 </script>
@@ -715,6 +755,18 @@ onBeforeUnmount(() => {
                     class="users-filter"
                     fluid
                     @update:model-value="clearBelow('asociacion')"
+                  />
+                  <Select
+                    v-if="showZonaFilter"
+                    v-model="orgFilters.zonaId"
+                    :options="zonaOptions"
+                    option-label="nombre"
+                    option-value="id"
+                    show-clear
+                    :placeholder="t('users.filterZona')"
+                    class="users-filter"
+                    fluid
+                    @update:model-value="clearBelow('zona')"
                   />
                   <Select
                     v-if="showDistritoFilter"

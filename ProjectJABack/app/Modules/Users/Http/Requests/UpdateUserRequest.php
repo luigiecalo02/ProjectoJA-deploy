@@ -39,6 +39,7 @@ class UpdateUserRequest extends FormRequest
             ],
             'password' => ['nullable', 'confirmed', Password::defaults()],
             'is_active' => ['sometimes', 'boolean'],
+            'email_verified' => ['sometimes', 'boolean'],
             'role_ids' => ['sometimes', 'array'],
             'role_ids.*' => ['integer', 'exists:roles,id'],
             'club_ids' => ['sometimes', 'array'],

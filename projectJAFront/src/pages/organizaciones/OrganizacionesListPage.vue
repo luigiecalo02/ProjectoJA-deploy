@@ -16,7 +16,13 @@ import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
 import { useOrganizacionesRealtime } from '@/composables/useOrganizacionesRealtime'
-import type { Organizacion, OrganizacionTreeNode, TipoOrganizacion } from '@/modules/organizaciones/types'
+import {
+  esTipoOrganizacionDeCatalogo,
+  ordenarTiposCatalogo,
+  type Organizacion,
+  type OrganizacionTreeNode,
+  type TipoOrganizacion,
+} from '@/modules/organizaciones/types'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -235,7 +241,9 @@ function removeNodeFromTree(id: number): void {
 }
 
 async function loadTipos(): Promise<void> {
-  tipos.value = await organizacionesService.tipos()
+  tipos.value = ordenarTiposCatalogo(
+    (await organizacionesService.tipos()).filter(esTipoOrganizacionDeCatalogo),
+  )
 }
 
 async function load(): Promise<void> {

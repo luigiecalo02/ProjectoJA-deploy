@@ -62,10 +62,15 @@ class UpdateEventRequest extends FormRequest
             'puntaje_maximo' => ['nullable', 'numeric', 'min:0'],
             'puntaje_desde_hijos' => ['sometimes', 'boolean'],
             'puntaje_por_participar' => ['sometimes', 'boolean'],
+            'criterios_compartidos' => ['sometimes', 'boolean'],
             'tiempo_estimado_minutos' => ['nullable', 'integer', 'min:1'],
             'requiere_puesto_entrega' => ['sometimes', 'boolean'],
             'requiere_tiempo_entrega' => ['sometimes', 'boolean'],
+            'criterio_tiempo' => ['nullable', 'string', 'in:menor,mayor'],
+            'modo_captura_tiempo' => ['nullable', 'string', 'in:cronometro,digitar'],
             'resultado_esperado' => ['nullable', 'integer', 'min:1'],
+            'resultado_esperado_etiqueta' => ['nullable', 'string', 'max:120'],
+            'mostrar_resultados_participantes' => ['sometimes', 'boolean'],
             'participantes_min' => ['nullable', 'integer', 'min:1'],
             'participantes_max' => ['nullable', 'integer', 'min:1'],
             'permite_inscribir_no_participantes' => ['sometimes', 'boolean'],
@@ -77,12 +82,17 @@ class UpdateEventRequest extends FormRequest
             'equipos_org_min' => ['nullable', 'integer', 'min:1'],
             'equipos_org_max' => ['nullable', 'integer', 'min:1'],
             'es_conjunto' => ['sometimes', 'boolean'],
-            'nivel_conjunto' => ['nullable', 'string', 'in:club,iglesia,distrito,asociacion'],
+            'nivel_conjunto' => ['nullable', 'string', Rule::in(Event::NIVELES_CONJUNTO)],
+            'rol_conjunto' => ['nullable', 'string', Rule::in(Event::ROLES_CONJUNTO)],
             'maneja_fecha_fin' => ['sometimes', 'boolean'],
             'permite_editar_despues_fin' => ['sometimes', 'boolean'],
             'maneja_penalizaciones' => ['sometimes', 'boolean'],
             'puntos_penalizacion' => ['nullable', 'numeric', 'min:0'],
             'reglas_penalizacion' => ['nullable', 'string'],
+            'premia_puestos' => ['sometimes', 'boolean'],
+            'puntos_puesto_1' => ['nullable', 'numeric', 'min:0'],
+            'puntos_puesto_2' => ['nullable', 'numeric', 'min:0'],
+            'puntos_puesto_3' => ['nullable', 'numeric', 'min:0'],
             'requiere_evidencia' => ['sometimes', 'boolean'],
             'tipos_evidencia' => ['nullable', 'array'],
             'tipos_evidencia.*' => ['string', 'in:link,pdf,imagen,audio,video'],
@@ -130,6 +140,7 @@ class UpdateEventRequest extends FormRequest
             'criterios.*.criterio_evaluacion_id' => ['nullable', 'integer', 'exists:criterio_evaluacion,id'],
             'criterios.*.puntos' => ['required_with:criterios', 'numeric', 'min:0'],
             'criterios.*.orden' => ['nullable', 'integer', 'min:0'],
+            'criterios.*.juez_id' => ['nullable', 'integer', 'exists:users,id'],
             'image_url' => ['nullable', 'string', 'max:2048'],
             'icono' => ['nullable', 'string', 'max:64'],
             'color' => ['nullable', 'string', 'max:32'],
@@ -162,6 +173,24 @@ class UpdateEventRequest extends FormRequest
                 $validator->errors()->add(
                     'cupo_minimo',
                     'El cupo mínimo no puede ser mayor que el cupo máximo.'
+                );
+            }
+
+            $genero = $this->input('participantes_genero', $event?->participantes_genero);
+            $payload = $this->all();
+            if (
+                $genero === 'mixto'
+                && Event::mixtoQuotasExceedTotalMax(
+                    array_key_exists('participantes_max', $payload) ? $this->input('participantes_max') : $event?->participantes_max,
+                    array_key_exists('participantes_min_m', $payload) ? $this->input('participantes_min_m') : $event?->participantes_min_m,
+                    array_key_exists('participantes_max_m', $payload) ? $this->input('participantes_max_m') : $event?->participantes_max_m,
+                    array_key_exists('participantes_min_f', $payload) ? $this->input('participantes_min_f') : $event?->participantes_min_f,
+                    array_key_exists('participantes_max_f', $payload) ? $this->input('participantes_max_f') : $event?->participantes_max_f,
+                )
+            ) {
+                $validator->errors()->add(
+                    'participantes_max',
+                    'Los cupos por sexo no pueden superar el máximo total de participantes.'
                 );
             }
         });

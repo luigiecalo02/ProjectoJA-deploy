@@ -126,13 +126,41 @@ export const TIPO_DISTRITO = 3
 export const TIPO_IGLESIA = 4
 export const TIPO_CLUB = 5
 /** IDs actuales en BD (pueden variar; el filtro de padre usa tipo_organizacion_padre_id). */
+/** IDs históricos: ya no son tipos de catálogo; se conservan para audiencia de eventos. */
 export const TIPO_AVENTUREROS = 6
 export const TIPO_CONQUISTADORES = 7
 export const TIPO_GUIAS_MAYORES = 8
+export const TIPO_ZONA = 9
 
 export const TIPOS_HIJO_CLUB = [TIPO_AVENTUREROS, TIPO_CONQUISTADORES, TIPO_GUIAS_MAYORES] as const
+
+export function esTipoOrganizacionDeCatalogo(tipo: { id: number; nombre?: string | null }): boolean {
+  if ((TIPOS_HIJO_CLUB as readonly number[]).includes(tipo.id)) return false
+  const nombre = (tipo.nombre || '').toLowerCase()
+  return !/(aventurer|conquistador|gu[ií]as?\s*mayor)/i.test(nombre)
+}
+
+/** Unión → Asociación → Zona → Distrito → Iglesia → Club */
+export const ORDEN_TIPO_CATALOGO = [
+  TIPO_UNION,
+  TIPO_ASOCIACION,
+  TIPO_ZONA,
+  TIPO_DISTRITO,
+  TIPO_IGLESIA,
+  TIPO_CLUB,
+] as const
+
+export function ordenTipoCatalogo(tipoId: number): number {
+  const index = (ORDEN_TIPO_CATALOGO as readonly number[]).indexOf(tipoId)
+  return index === -1 ? 99 : index
+}
+
+export function ordenarTiposCatalogo<T extends { id: number }>(tipos: T[]): T[] {
+  return [...tipos].sort((a, b) => ordenTipoCatalogo(a.id) - ordenTipoCatalogo(b.id))
+}
 export const TIPOS_HEREDAN_UBICACION = [
   TIPO_ASOCIACION,
+  TIPO_ZONA,
   TIPO_DISTRITO,
   TIPO_IGLESIA,
   TIPO_CLUB,

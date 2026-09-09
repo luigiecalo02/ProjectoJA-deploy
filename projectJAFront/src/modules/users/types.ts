@@ -16,6 +16,7 @@ export interface UserFormPayload {
   password?: string | null
   password_confirmation?: string | null
   is_active?: boolean
+  email_verified?: boolean
   role_ids?: number[]
   club_ids?: number[]
   avatar_url?: string | null

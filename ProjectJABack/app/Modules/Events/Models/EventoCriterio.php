@@ -2,6 +2,7 @@
 
 namespace App\Modules\Events\Models;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -14,6 +15,7 @@ class EventoCriterio extends Model
         'criterio_evaluacion_id',
         'puntos',
         'orden',
+        'juez_id',
     ];
 
     protected function casts(): array
@@ -21,6 +23,7 @@ class EventoCriterio extends Model
         return [
             'puntos' => 'decimal:2',
             'orden' => 'integer',
+            'juez_id' => 'integer',
         ];
     }
 
@@ -32,5 +35,10 @@ class EventoCriterio extends Model
     public function criterio(): BelongsTo
     {
         return $this->belongsTo(CriterioEvaluacion::class, 'criterio_evaluacion_id');
+    }
+
+    public function juez(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'juez_id');
     }
 }

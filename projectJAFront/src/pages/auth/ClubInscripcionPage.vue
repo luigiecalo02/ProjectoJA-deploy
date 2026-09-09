@@ -17,7 +17,7 @@ import {
   type PublicFormOptions,
   type UbicacionOption,
 } from '@/services/clubInscripcionService'
-import { TIPO_ASOCIACION, TIPO_DISTRITO, TIPO_IGLESIA, TIPO_UNION } from '@/modules/organizaciones/types'
+import { TIPO_ASOCIACION, TIPO_DISTRITO, TIPO_IGLESIA, TIPO_UNION, TIPO_ZONA } from '@/modules/organizaciones/types'
 import { evaluatePasswordStrength, PASSWORD_MAX_LENGTH } from '@/utils/passwordStrength'
 
 type Cargo = 'director' | 'subdirector' | 'secretaria' | 'tesorero'
@@ -42,6 +42,7 @@ const optionsReady = ref(false)
 
 const uniones = ref<CatalogOrg[]>([])
 const asociaciones = ref<CatalogOrg[]>([])
+const zonas = ref<CatalogOrg[]>([])
 const distritos = ref<CatalogOrg[]>([])
 const iglesias = ref<CatalogOrg[]>([])
 const clubes = ref<CatalogClub[]>([])
@@ -51,6 +52,7 @@ const ciudadesDistrito = ref<UbicacionOption[]>([])
 
 const form = reactive({
   asociacion_id: null as number | null,
+  zona_id: null as number | null,
   distrito_id: null as number | null,
   iglesia_id: null as number | null,
   club_id: null as number | null,
@@ -122,7 +124,10 @@ const passwordLevelLabel = computed(() => {
   return labels[passwordStrength.value.level]
 })
 const selectedAsociacion = computed(() => asociaciones.value.find((o) => o.id === form.asociacion_id) ?? null)
+const selectedZona = computed(() => zonas.value.find((o) => o.id === form.zona_id) ?? null)
 const selectedDistrito = computed(() => distritos.value.find((o) => o.id === form.distrito_id) ?? null)
+const showZonaField = computed(() => !form.solicitarAsociacion && (zonas.value.length > 0 || Boolean(form.asociacion_id)))
+const zonaRequerida = computed(() => !form.solicitarAsociacion && zonas.value.length > 0)
 const selectedClub = computed(() => clubes.value.find((o) => o.id === form.club_id) ?? null)
 const selectedUnion = computed(
   () => uniones.value.find((o) => o.id === form.solicitud_asociacion.union_id) ?? uniones.value[0] ?? null,
@@ -137,11 +142,23 @@ const departamentosAsociacion = computed(() =>
   departamentosUnion.value.filter((item) => coberturaAsociacionIds.value.includes(item.id)),
 )
 
+const coberturaZonaIds = computed(() => {
+  const ids = selectedZona.value?.departamento_ids ?? []
+  if (ids.length) return ids
+  return selectedZona.value?.departamento_id ? [selectedZona.value.departamento_id] : []
+})
+
 const coberturaDistritoIds = computed(() => {
   if (form.solicitarDistrito) return form.solicitud_distrito.departamento_ids
   const ids = selectedDistrito.value?.departamento_ids ?? []
   if (ids.length) return ids
-  return selectedDistrito.value?.departamento_id ? [selectedDistrito.value.departamento_id] : []
+  if (selectedDistrito.value?.departamento_id) return [selectedDistrito.value.departamento_id]
+  return coberturaZonaIds.value
+})
+
+const departamentosParaDistrito = computed(() => {
+  const ids = coberturaZonaIds.value.length ? coberturaZonaIds.value : coberturaAsociacionIds.value
+  return departamentosUnion.value.filter((item) => ids.includes(item.id))
 })
 
 const departamentosDistrito = computed(() =>
@@ -152,7 +169,10 @@ const coberturaCiudadIds = computed(() => {
   if (form.solicitarDistrito) return form.solicitud_distrito.ciudad_ids
   const ids = selectedDistrito.value?.ciudad_ids ?? []
   if (ids.length) return ids
-  return selectedDistrito.value?.ciudad_id ? [selectedDistrito.value.ciudad_id] : []
+  if (selectedDistrito.value?.ciudad_id) return [selectedDistrito.value.ciudad_id]
+  const zonaIds = selectedZona.value?.ciudad_ids ?? []
+  if (zonaIds.length) return zonaIds
+  return selectedZona.value?.ciudad_id ? [selectedZona.value.ciudad_id] : []
 })
 
 const ciudadesIglesia = computed(() => {
@@ -180,6 +200,8 @@ const asociacionOk = computed(() =>
   ),
 )
 
+const zonaOk = computed(() => !zonaRequerida.value || Boolean(form.zona_id))
+
 const distritoOk = computed(() =>
   Boolean(
     form.distrito_id || (
@@ -203,10 +225,11 @@ const iglesiaOk = computed(() =>
   ),
 )
 
-const canStep1 = computed(() => asociacionOk.value && distritoOk.value && iglesiaOk.value)
+const canStep1 = computed(() => asociacionOk.value && zonaOk.value && distritoOk.value && iglesiaOk.value)
 
 const step1ErrorMessage = computed(() => {
   if (!asociacionOk.value) return t('clubInscripcion.step1AsociacionError')
+  if (!zonaOk.value) return t('clubInscripcion.step1ZonaError')
   if (!distritoOk.value) return t('clubInscripcion.step1DistritoError')
   if (form.solicitarIglesia) {
     if (!form.solicitud_iglesia.nombre.trim()) return t('clubInscripcion.step1IglesiaNombreError')
@@ -256,6 +279,10 @@ async function loadAsociaciones(): Promise<void> {
   asociaciones.value = await clubInscripcionService.catalog(TIPO_ASOCIACION)
 }
 
+async function loadZonas(padreId: number): Promise<void> {
+  zonas.value = await clubInscripcionService.catalog(TIPO_ZONA, padreId)
+}
+
 async function loadDistritos(padreId: number): Promise<void> {
   distritos.value = await clubInscripcionService.catalog(TIPO_DISTRITO, padreId)
 }
@@ -290,6 +317,23 @@ onMounted(async () => {
 
 watch(
   () => form.asociacion_id,
+  async (id) => {
+    form.zona_id = null
+    form.distrito_id = null
+    form.iglesia_id = null
+    form.club_id = null
+    zonas.value = []
+    distritos.value = []
+    iglesias.value = []
+    clubes.value = []
+    if (!id) return
+    await loadZonas(id)
+    if (!zonas.value.length) await loadDistritos(id)
+  },
+)
+
+watch(
+  () => form.zona_id,
   async (id) => {
     form.distrito_id = null
     form.iglesia_id = null
@@ -399,9 +443,11 @@ async function toggleSolicitud(kind: 'asociacion' | 'distrito' | 'iglesia' | 'cl
   if (kind === 'asociacion' && flags.value.allow_request_asociacion) {
     form.solicitarAsociacion = !form.solicitarAsociacion
     form.asociacion_id = null
+    form.zona_id = null
     form.distrito_id = null
     form.iglesia_id = null
     form.club_id = null
+    zonas.value = []
     form.solicitud_asociacion.nombre = ''
     form.solicitud_asociacion.departamento_ids = []
     form.solicitarDistrito = form.solicitarAsociacion && flags.value.allow_request_distrito ? true : form.solicitarDistrito
@@ -471,6 +517,7 @@ async function submit(): Promise<void> {
   try {
     await clubInscripcionService.register({
       asociacion_id: form.solicitarAsociacion ? null : form.asociacion_id,
+      zona_id: form.solicitarAsociacion ? null : form.zona_id,
       distrito_id: form.solicitarDistrito ? null : form.distrito_id,
       iglesia_id: form.solicitarIglesia ? null : form.iglesia_id,
       club_id: form.solicitarClub ? null : form.club_id,
@@ -618,6 +665,22 @@ async function submit(): Promise<void> {
         </div>
       </div>
 
+      <div v-if="showZonaField" class="field">
+        <div class="field__head">
+          <label>{{ t('clubInscripcion.zona') }}</label>
+        </div>
+        <Select
+          v-model="form.zona_id"
+          :options="zonas"
+          option-label="nombre"
+          option-value="id"
+          filter
+          fluid
+          :disabled="!form.asociacion_id"
+          :placeholder="t('clubInscripcion.zonaPlaceholder')"
+        />
+      </div>
+
       <div class="field">
         <div class="field__head">
           <label>{{ t('clubInscripcion.distrito') }}</label>
@@ -638,7 +701,7 @@ async function submit(): Promise<void> {
           option-value="id"
           filter
           fluid
-          :disabled="!form.asociacion_id && !form.solicitarAsociacion"
+          :disabled="zonaRequerida ? !form.zona_id : (!form.asociacion_id && !form.solicitarAsociacion)"
           :placeholder="t('clubInscripcion.distritoPlaceholder')"
         />
         <div v-else class="solicitud">
@@ -646,13 +709,13 @@ async function submit(): Promise<void> {
           <InputText v-model="form.solicitud_distrito.nombre" :placeholder="t('clubInscripcion.distritoNombre')" fluid />
           <MultiSelect
             v-model="form.solicitud_distrito.departamento_ids"
-            :options="departamentosAsociacion"
+            :options="departamentosParaDistrito"
             option-label="label"
             option-value="id"
             display="chip"
             filter
             fluid
-            :disabled="!coberturaAsociacionIds.length"
+            :disabled="!departamentosParaDistrito.length"
             :placeholder="t('clubInscripcion.departamentos')"
           />
           <MultiSelect
