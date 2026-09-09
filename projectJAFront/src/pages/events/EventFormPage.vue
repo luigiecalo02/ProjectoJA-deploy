@@ -33,11 +33,6 @@ import { lugaresService } from '@/services/lugaresService'
 import { useAuthStore } from '@/stores/auth'
 import { usePageChrome } from '@/composables/usePageChrome'
 import type { OrganizacionTreeNode, TipoOrganizacion } from '@/modules/organizaciones/types'
-import {
-  TIPO_AVENTUREROS,
-  TIPO_CONQUISTADORES,
-  TIPO_GUIAS_MAYORES,
-} from '@/modules/organizaciones/types'
 import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
 import type { Club } from '@/modules/clubs/types'
 import type { CuentaBancaria } from '@/modules/settings/types'
@@ -474,13 +469,8 @@ function resolveClubTipoId(key: Exclude<ClubAudienceKey, 'libre'>): number | nul
     aventureros: (n) => n.includes('aventurero'),
     guias_mayores: (n) => n.includes('guía') || n.includes('guia'),
   }
-  const fallback: Record<Exclude<ClubAudienceKey, 'libre'>, number> = {
-    conquistadores: TIPO_CONQUISTADORES,
-    aventureros: TIPO_AVENTUREROS,
-    guias_mayores: TIPO_GUIAS_MAYORES,
-  }
   const found = tipoOptions.value.find((tipo) => matchers[key]((tipo.nombre || '').toLowerCase()))
-  return found?.id ?? fallback[key]
+  return found?.id ?? null
 }
 
 function syncTipoIdsFromAudience(): void {
@@ -512,10 +502,7 @@ function applyAudienceFromEvent(event: {
     clubAudience.value = keys.length ? [...new Set(keys)] : ['libre']
     return
   }
-  const fromIds = audienceFromTipoIds(form.tipo_organizacion_ids)
-  if (fromIds[0] !== 'libre' || form.tipo_organizacion_ids.length === 0) {
-    clubAudience.value = fromIds
-  }
+  clubAudience.value = audienceFromTipoIds(form.tipo_organizacion_ids)
 }
 
 function toggleAudience(key: ClubAudienceKey): void {
@@ -547,14 +534,8 @@ async function persistAudience(): Promise<void> {
       skipAudienceApply: true,
     })
     if (seq !== audiencePersistSeq) return
-    applyAudienceFromEvent(saved)
-    const serverLibre =
-      clubAudience.value.includes('libre') || clubAudience.value.length === 0
-    const localLibre = snapshot.includes('libre') || snapshot.length === 0
-    if (serverLibre && !localLibre) {
-      clubAudience.value = snapshot
-      syncTipoIdsFromAudience()
-    }
+    clubAudience.value = snapshot
+    syncTipoIdsFromAudience()
   } catch (error) {
     errorMessage.value = getApiErrorMessage(error)
   }

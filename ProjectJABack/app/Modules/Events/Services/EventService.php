@@ -845,17 +845,20 @@ final class EventService
             return [];
         }
 
-        $fromIds = [];
+        if ($keys !== []) {
+            $fromKeys = [];
+            foreach ($keys as $key) {
+                $fromKeys = array_merge($fromKeys, $this->tipoIdsFromAudiencia($key));
+            }
+
+            return array_values(array_unique($fromKeys));
+        }
+
         if (array_key_exists('tipo_organizacion_ids', $data)) {
-            $fromIds = $this->remapTipoOrganizacionIds($this->normalizeIds($data['tipo_organizacion_ids'] ?? []));
+            return $this->remapTipoOrganizacionIds($this->normalizeIds($data['tipo_organizacion_ids'] ?? []));
         }
 
-        $fromKeys = [];
-        foreach ($keys as $key) {
-            $fromKeys = array_merge($fromKeys, $this->tipoIdsFromAudiencia($key));
-        }
-
-        return array_values(array_unique(array_merge($fromIds, $fromKeys)));
+        return [];
     }
 
     /**
