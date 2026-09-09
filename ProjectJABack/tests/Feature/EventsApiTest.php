@@ -403,6 +403,40 @@ class EventsApiTest extends TestCase
         $this->assertFalse($event->isVisibleTo($conqUser));
     }
 
+    public function test_event_keeps_audience_from_audiencia_keys(): void
+    {
+        $asociacion = $this->createOrg('Asociación Keys', null, Organizacion::TIPO_ASOCIACION);
+
+        Sanctum::actingAs($this->admin());
+        $eventId = $this->postJson('/api/v1/events', [
+            'name' => 'Audiencia por claves',
+            'starts_at' => '2026-09-01 08:00:00',
+            'ends_at' => '2026-09-02 18:00:00',
+            'organizacion_id' => $asociacion->id,
+            'organizacion_ids' => [$asociacion->id],
+            'tipo_organizacion_ids' => [999991],
+            'audiencia_keys' => ['aventureros', 'conquistadores'],
+            'estado' => 'borrador',
+        ])->assertCreated()->json('data.id');
+
+        $nombres = Event::query()
+            ->with('tiposOrganizacion')
+            ->findOrFail($eventId)
+            ->tiposOrganizacion
+            ->pluck('nombre')
+            ->map(fn ($nombre) => mb_strtolower((string) $nombre))
+            ->all();
+
+        $this->assertTrue(collect($nombres)->contains(fn ($n) => str_contains($n, 'aventurer')));
+        $this->assertTrue(collect($nombres)->contains(fn ($n) => str_contains($n, 'conquistador')));
+
+        $this->putJson('/api/v1/events/'.$eventId, [
+            'audiencia_keys' => ['libre'],
+            'tipo_organizacion_ids' => [],
+        ])->assertOk()
+            ->assertJsonPath('data.tipo_organizacion_ids', []);
+    }
+
     public function test_judge_offline_pack_includes_only_on_site_calificable_children(): void
     {
         $admin = $this->admin();

@@ -348,6 +348,7 @@ final class EventService
             $data['organizacion_ids'],
             $data['tipo_organizacion_ids'],
             $data['audiencia'],
+            $data['audiencia_keys'],
             $data['role_ids'],
             $data['juez_ids'],
             $data['supervisor_ids'],
@@ -436,7 +437,8 @@ final class EventService
     {
         $hasOrgs = array_key_exists('organizacion_ids', $data);
         $hasTipos = array_key_exists('tipo_organizacion_ids', $data)
-            || array_key_exists('audiencia', $data);
+            || array_key_exists('audiencia', $data)
+            || array_key_exists('audiencia_keys', $data);
         $hasJueces = array_key_exists('juez_ids', $data);
         $hasSupervisores = array_key_exists('supervisor_ids', $data);
         $hasCriterios = array_key_exists('criterios', $data);
@@ -449,6 +451,7 @@ final class EventService
             $data['organizacion_ids'],
             $data['tipo_organizacion_ids'],
             $data['audiencia'],
+            $data['audiencia_keys'],
             $data['role_ids'],
             $data['juez_ids'],
             $data['supervisor_ids'],
@@ -837,15 +840,41 @@ final class EventService
      */
     private function resolveAudienceTipoIds(array $data): array
     {
+        $keys = $this->normalizeAudienciaKeys($data);
+        if (in_array('libre', $keys, true)) {
+            return [];
+        }
+
+        $fromIds = [];
         if (array_key_exists('tipo_organizacion_ids', $data)) {
-            return $this->remapTipoOrganizacionIds($this->normalizeIds($data['tipo_organizacion_ids'] ?? []));
+            $fromIds = $this->remapTipoOrganizacionIds($this->normalizeIds($data['tipo_organizacion_ids'] ?? []));
         }
 
-        if (array_key_exists('audiencia', $data) && is_string($data['audiencia'])) {
-            return $this->tipoIdsFromAudiencia($data['audiencia']);
+        $fromKeys = [];
+        foreach ($keys as $key) {
+            $fromKeys = array_merge($fromKeys, $this->tipoIdsFromAudiencia($key));
         }
 
-        return [];
+        return array_values(array_unique(array_merge($fromIds, $fromKeys)));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return list<string>
+     */
+    private function normalizeAudienciaKeys(array $data): array
+    {
+        $keys = [];
+        if (isset($data['audiencia_keys']) && is_array($data['audiencia_keys'])) {
+            $keys = $data['audiencia_keys'];
+        } elseif (isset($data['audiencia']) && is_string($data['audiencia'])) {
+            $keys = [$data['audiencia']];
+        }
+
+        return array_values(array_unique(array_filter(array_map(
+            static fn ($key) => strtolower(trim((string) $key)),
+            $keys,
+        ))));
     }
 
     /**
@@ -895,7 +924,26 @@ final class EventService
             return [(int) $fallback];
         }
 
-        return [];
+        $nombre = match ($key) {
+            'conquistadores' => 'Conquistadores',
+            'aventureros' => 'Aventureros',
+            'guias_mayores' => 'Guías Mayores',
+            default => null,
+        };
+        if ($nombre === null) {
+            return [];
+        }
+
+        $tipo = TipoOrganizacion::query()->firstOrCreate(
+            ['nombre' => $nombre],
+            [
+                'tipo_organizacion_padre_id' => Organizacion::TIPO_CLUB,
+                'descripcion' => 'Audiencia de eventos (no es tipo de organización)',
+                'estado' => false,
+            ],
+        );
+
+        return [(int) $tipo->id];
     }
 
     /**

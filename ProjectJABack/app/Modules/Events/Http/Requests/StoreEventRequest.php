@@ -54,6 +54,8 @@ class StoreEventRequest extends FormRequest
             'tipo_organizacion_ids' => ['sometimes', 'array'],
             'tipo_organizacion_ids.*' => ['integer'],
             'audiencia' => ['sometimes', 'nullable', 'string', 'in:libre,conquistadores,aventureros,guias_mayores'],
+            'audiencia_keys' => ['sometimes', 'array'],
+            'audiencia_keys.*' => ['string', 'in:libre,conquistadores,aventureros,guias_mayores'],
             'es_en_sitio' => ['sometimes', 'boolean'],
             'es_calificable' => ['sometimes', 'boolean'],
             'tiene_subeventos' => ['sometimes', 'boolean'],

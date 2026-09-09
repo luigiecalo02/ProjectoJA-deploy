@@ -872,6 +872,7 @@ export interface EventFormPayload {
   organizacion_ids?: number[]
   tipo_organizacion_ids?: number[]
   audiencia?: 'libre' | 'conquistadores' | 'aventureros' | 'guias_mayores' | null
+  audiencia_keys?: Array<'libre' | 'conquistadores' | 'aventureros' | 'guias_mayores'>
   es_en_sitio?: boolean
   es_calificable?: boolean
   tiene_subeventos?: boolean

@@ -512,7 +512,10 @@ function applyAudienceFromEvent(event: {
     clubAudience.value = keys.length ? [...new Set(keys)] : ['libre']
     return
   }
-  clubAudience.value = audienceFromTipoIds(form.tipo_organizacion_ids)
+  const fromIds = audienceFromTipoIds(form.tipo_organizacion_ids)
+  if (fromIds[0] !== 'libre' || form.tipo_organizacion_ids.length === 0) {
+    clubAudience.value = fromIds
+  }
 }
 
 function toggleAudience(key: ClubAudienceKey): void {
@@ -533,11 +536,25 @@ function toggleAudience(key: ClubAudienceKey): void {
   }
 }
 
+let audiencePersistSeq = 0
+
 async function persistAudience(): Promise<void> {
   if (!persistedId.value) return
+  const seq = ++audiencePersistSeq
+  const snapshot = [...clubAudience.value]
   try {
-    const saved = await persistEvent(form.estado === 'publicado' ? 'publicado' : 'borrador')
+    const saved = await persistEvent(form.estado === 'publicado' ? 'publicado' : 'borrador', {
+      skipAudienceApply: true,
+    })
+    if (seq !== audiencePersistSeq) return
     applyAudienceFromEvent(saved)
+    const serverLibre =
+      clubAudience.value.includes('libre') || clubAudience.value.length === 0
+    const localLibre = snapshot.includes('libre') || snapshot.length === 0
+    if (serverLibre && !localLibre) {
+      clubAudience.value = snapshot
+      syncTipoIdsFromAudience()
+    }
   } catch (error) {
     errorMessage.value = getApiErrorMessage(error)
   }
@@ -705,6 +722,7 @@ function buildPayload(estado: string): EventFormPayload {
           : [],
     tipo_organizacion_ids: [...form.tipo_organizacion_ids],
     audiencia: currentAudiencia(),
+    audiencia_keys: [...clubAudience.value],
     es_en_sitio: form.es_en_sitio,
     es_calificable: form.es_calificable,
     tiene_subeventos: form.tiene_subeventos,
@@ -817,7 +835,10 @@ async function uploadPendingBanner(id: number): Promise<void> {
   }
 }
 
-async function persistEvent(estado: string): Promise<ClubEvent> {
+async function persistEvent(
+  estado: string,
+  opts: { skipAudienceApply?: boolean } = {},
+): Promise<ClubEvent> {
   const payload = buildPayload(estado)
   const hadPendingMedia = Boolean(pendingImage.value || pendingBanner.value)
   let saved: ClubEvent
@@ -841,7 +862,7 @@ async function persistEvent(estado: string): Promise<ClubEvent> {
     saved = await eventsService.get(persistedId.value)
   }
   applyServerMedia(saved)
-  applyAudienceFromEvent(saved)
+  if (!opts.skipAudienceApply) applyAudienceFromEvent(saved)
   if (!form.starts_at && saved.starts_at) form.starts_at = dateOnly(saved.starts_at)
   if (!form.ends_at && saved.ends_at) form.ends_at = dateOnly(saved.ends_at)
   form.estado = saved.estado || estado
@@ -998,7 +1019,8 @@ async function loadOrgs(): Promise<void> {
   tipoOptions.value = tipos
   clubsCatalog.value = clubsPage.items
   if (form.tipo_organizacion_ids.length) {
-    clubAudience.value = audienceFromTipoIds(form.tipo_organizacion_ids)
+    const mapped = audienceFromTipoIds(form.tipo_organizacion_ids)
+    if (mapped[0] !== 'libre') clubAudience.value = mapped
   }
   applyHomeOrganization()
 }
