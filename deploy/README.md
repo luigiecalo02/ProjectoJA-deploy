@@ -38,8 +38,9 @@ docker compose run --rm --no-deps app php artisan key:generate --force
 docker compose exec app php artisan db:seed --class=RolePermissionSeeder --force
 ```
 
-Local: http://localhost:8080  
+Local: http://localhost:8080
 Salud API: http://localhost:8080/up
+Docs API: http://localhost:8080/docs/api
 
 ## 3. VPS a mano
 

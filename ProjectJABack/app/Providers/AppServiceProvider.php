@@ -45,6 +45,8 @@ class AppServiceProvider extends ServiceProvider
             ini_set('memory_limit', '512M');
         }
 
+        Gate::define('viewApiDocs', static fn (?User $user = null) => true);
+
         Gate::policy(User::class, UserPolicy::class);
         Gate::policy(Role::class, RolePolicy::class);
         Gate::policy(Event::class, EventPolicy::class);
