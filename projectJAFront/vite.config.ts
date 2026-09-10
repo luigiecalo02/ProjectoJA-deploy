@@ -59,7 +59,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         cleanupOutdatedCaches: true,
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/storage\//, /^\/app/],
+        navigateFallbackDenylist: [/^\/api\//, /^\/storage\//, /^\/app/, /^\/docs(?:\/|$)/, /^\/up$/],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
