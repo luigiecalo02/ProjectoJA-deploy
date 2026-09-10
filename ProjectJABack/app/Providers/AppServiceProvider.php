@@ -41,6 +41,10 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        if ($this->app->runningInConsole() || (request()?->is('docs/*') ?? false)) {
+            ini_set('memory_limit', '512M');
+        }
+
         Gate::policy(User::class, UserPolicy::class);
         Gate::policy(Role::class, RolePolicy::class);
         Gate::policy(Event::class, EventPolicy::class);
