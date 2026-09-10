@@ -215,6 +215,7 @@ function toJudgeTreeNode(node: ParticipationNode): JudgeTreeNode {
     name: node.name,
     image_url: node.image_url,
     puntaje_maximo: node.puntaje_maximo,
+    puntaje_obtenido: node.calificacion?.puntaje_obtenido ?? null,
     es_calificable: node.es_calificable,
     requiere_evidencia: node.requiere_evidencia,
     icono: node.icono || node.categoria_subevento?.icono || node.tipo_evento?.icono || 'pi pi-flag',
@@ -372,13 +373,9 @@ const showParticipantesTab = computed(() => {
   )
 })
 
-const showResultsToParticipants = computed(
-  () => selected.value?.mostrar_resultados_participantes !== false,
-)
-
 const directorDefaultTab = computed(() => {
+  if (selected.value?.calificacion) return 'resultado'
   if (showParticipantesTab.value) return 'participantes'
-  if (showResultsToParticipants.value && selected.value?.calificacion) return 'resultado'
   return 'info'
 })
 
@@ -1021,6 +1018,16 @@ watch(isMobile, (mobile) => {
               <p v-else class="chip-open">{{ t('events.notEnrolledYet') }}</p>
             </div>
           </div>
+          <div class="club-hero__score">
+            <span>{{ t('events.progressTotal') }}</span>
+            <strong>{{ data.progreso.puntos_total }}</strong>
+            <small>
+              / {{ data.progreso.puntos_total_max }} pts
+              <template v-if="data.progreso.puntos_total_max">
+                · {{ progressPct }}%
+              </template>
+            </small>
+          </div>
         </article>
 
         <article class="summary-card">
@@ -1178,7 +1185,7 @@ watch(isMobile, (mobile) => {
                   </span>
                 </div>
               </div>
-              <div v-if="showResultsToParticipants" class="score-box">
+              <div class="score-box">
                 <strong>
                   {{
                     selected.calificacion
@@ -1214,7 +1221,7 @@ watch(isMobile, (mobile) => {
               hide-head
               :default-tab="directorDefaultTab"
               :show-calificacion="false"
-              :show-resultado="showResultsToParticipants"
+              :show-resultado="true"
               :show-observaciones="true"
               :show-participantes="showParticipantesTab"
               observaciones-mode="director"
@@ -1597,7 +1604,7 @@ html.dark .participate-page {
 }
 
 .summary-card--club {
-  justify-content: flex-start;
+  justify-content: space-between;
   overflow: visible;
   isolation: isolate;
 }
@@ -1639,6 +1646,44 @@ html.dark .participate-page {
 
 .club-hero__copy {
   min-width: 0;
+}
+
+.club-hero__score {
+  display: grid;
+  justify-items: end;
+  align-content: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+  text-align: right;
+}
+
+.club-hero__score span {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--participate-muted);
+}
+
+.club-hero__score strong {
+  font-size: 1.55rem;
+  line-height: 1.1;
+  color: var(--participate-ink);
+}
+
+.club-hero__score small {
+  font-size: 0.72rem;
+  color: var(--participate-muted);
+}
+
+.summary-card--club.has-cover .club-hero__score span,
+.summary-card--club.has-cover .club-hero__score small {
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.summary-card--club.has-cover .club-hero__score strong {
+  color: #fff;
+  text-shadow: 0 1px 12px rgba(7, 18, 42, 0.55);
 }
 
 .club-hero__logo {

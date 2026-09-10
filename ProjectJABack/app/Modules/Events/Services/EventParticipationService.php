@@ -240,7 +240,6 @@ final class EventParticipationService
             ->groupBy('evento_id')
             ->pluck('total', 'evento_id');
         $tree = $this->mapNode($root, $calificaciones, $evidencias, true, $locked, $inscritos);
-        $this->hideParticipantScores($tree);
         $progreso = $this->buildProgress($root, $calificaciones);
 
         $clubLogo = Club::query()
@@ -692,42 +691,6 @@ final class EventParticipationService
     }
 
     /**
-     * @param  array<string, mixed>  $node
-     */
-    private function hideParticipantScores(array &$node): void
-    {
-        if (($node['mostrar_resultados_participantes'] ?? true) === false && is_array($node['calificacion'] ?? null)) {
-            $cal = $node['calificacion'];
-            $cal['puntaje_obtenido'] = null;
-            $cal['detalles'] = [];
-            $cal['puesto_entrega'] = null;
-            $cal['tiempo_entrega'] = null;
-            $cal['resultado_obtenido'] = null;
-            if (! empty($cal['aportes']) && is_array($cal['aportes'])) {
-                $cal['aportes'] = array_map(static function ($aporte) {
-                    if (is_array($aporte)) {
-                        $aporte['puntaje_obtenido'] = null;
-                        $aporte['puesto_entrega'] = null;
-                        $aporte['tiempo_entrega'] = null;
-                        $aporte['resultado_obtenido'] = null;
-                    }
-
-                    return $aporte;
-                }, $cal['aportes']);
-            }
-            $node['calificacion'] = $cal;
-        }
-
-        foreach ($node['hijos'] ?? [] as $index => $hijo) {
-            if (! is_array($hijo)) {
-                continue;
-            }
-            $this->hideParticipantScores($hijo);
-            $node['hijos'][$index] = $hijo;
-        }
-    }
-
-    /**
      * @return array<string, mixed>
      */
     private function calificacionNodePayload(EventoCalificacion $cal): array
@@ -890,12 +853,10 @@ final class EventParticipationService
             }
 
             if ($hijo->es_calificable && $hijo->puntaje_maximo !== null) {
-                if ($hijo->mostrar_resultados_participantes !== false) {
-                    $subMax += (float) $hijo->puntaje_maximo;
-                    $cal = $calificaciones->get((int) $hijo->id);
-                    if (is_array($cal)) {
-                        $subPts += (float) ($cal['puntaje_obtenido'] ?? 0);
-                    }
+                $subMax += (float) $hijo->puntaje_maximo;
+                $cal = $calificaciones->get((int) $hijo->id);
+                if (is_array($cal)) {
+                    $subPts += (float) ($cal['puntaje_obtenido'] ?? 0);
                 }
             }
 

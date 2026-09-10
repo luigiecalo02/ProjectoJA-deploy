@@ -34,6 +34,19 @@ function iconFor(node: JudgeTreeNode): string {
   if (!icon) return 'pi pi-flag'
   return icon.startsWith('pi ') ? icon : `pi ${icon}`
 }
+
+function scoreLabel(node: JudgeTreeNode): string | null {
+  if (node.puntaje_obtenido != null && node.puntaje_maximo != null) {
+    return `${node.puntaje_obtenido} / ${node.puntaje_maximo} pts`
+  }
+  if (node.puntaje_obtenido != null) {
+    return `${node.puntaje_obtenido} pts`
+  }
+  if (node.puntaje_maximo != null) {
+    return `${node.puntaje_maximo} pts`
+  }
+  return null
+}
 </script>
 
 <template>
@@ -85,8 +98,12 @@ function iconFor(node: JudgeTreeNode): string {
             >
               Solo lectura
             </span>
-            <span v-if="node.puntaje_maximo != null" class="judge-tree__pts">
-              {{ node.puntaje_maximo }} pts
+            <span
+              v-if="scoreLabel(node)"
+              class="judge-tree__pts"
+              :class="{ 'judge-tree__pts--got': node.puntaje_obtenido != null }"
+            >
+              {{ scoreLabel(node) }}
             </span>
           </div>
           <div v-else class="judge-tree__meta judge-tree__meta--simple">
@@ -96,8 +113,12 @@ function iconFor(node: JudgeTreeNode): string {
             >
               Solo lectura
             </span>
-            <span v-if="node.puntaje_maximo != null" class="judge-tree__pts">
-              {{ node.puntaje_maximo }} pts
+            <span
+              v-if="scoreLabel(node)"
+              class="judge-tree__pts"
+              :class="{ 'judge-tree__pts--got': node.puntaje_obtenido != null }"
+            >
+              {{ scoreLabel(node) }}
             </span>
           </div>
         </div>
@@ -336,6 +357,10 @@ function iconFor(node: JudgeTreeNode): string {
   font-size: 0.66rem;
   font-weight: 700;
   color: var(--pj-text-muted, #64748b);
+}
+
+.judge-tree__pts--got {
+  color: #15803d;
 }
 
 .judge-tree__status {

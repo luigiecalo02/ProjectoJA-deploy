@@ -446,6 +446,7 @@ export interface JudgeTreeNode {
   name: string
   image_url?: string | null
   puntaje_maximo?: number | null
+  puntaje_obtenido?: number | null
   es_calificable?: boolean
   requiere_evidencia?: boolean
   puede_calificar?: boolean
