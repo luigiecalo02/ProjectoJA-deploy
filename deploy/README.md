@@ -17,6 +17,7 @@ Edite `.env`:
 ```env
 APP_URL=https://tudominio.com
 FRONTEND_URL=https://tudominio.com
+CORS_ALLOWED_ORIGINS=https://tudominio.com,https://tu-dominio-clubes.com
 SANCTUM_STATEFUL_DOMAINS=tudominio.com
 REVERB_HOST=tudominio.com
 REVERB_PORT=443
