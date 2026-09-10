@@ -26,6 +26,7 @@ use App\Modules\Settings\Services\MailSettingsService;
 use App\Modules\Users\Models\Role;
 use App\Modules\Users\Policies\RolePolicy;
 use App\Modules\Users\Policies\UserPolicy;
+use Dedoc\Scramble\Scramble;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
@@ -41,11 +42,14 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        if ($this->app->runningInConsole() || (request()?->is('docs/*') ?? false)) {
+        if ($this->app->runningInConsole() || (request()?->is('docs/*', 'api/docs', 'api/docs.json') ?? false)) {
             ini_set('memory_limit', '512M');
         }
 
         Gate::define('viewApiDocs', static fn (?User $user = null) => true);
+
+        Scramble::registerUiRoute('api/docs');
+        Scramble::registerJsonSpecificationRoute('api/docs.json');
 
         Gate::policy(User::class, UserPolicy::class);
         Gate::policy(Role::class, RolePolicy::class);

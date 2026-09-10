@@ -66,6 +66,12 @@ const routes: RouteRecordRaw[] = [
     meta: { guest: true },
   },
   {
+    path: '/docs/:pathMatch(.*)*',
+    name: 'api.docs',
+    component: () => import('@/pages/ApiDocsRedirectPage.vue'),
+    meta: { guest: true },
+  },
+  {
     path: '/seleccionar-contexto',
     component: () => import('@/layouts/ContextLayout.vue'),
     meta: { requiresAuth: true, contextSelection: true },
@@ -436,6 +442,7 @@ router.beforeEach(async (
     to.meta.guest
     && auth.isAuthenticated
     && to.name !== 'auth.callback'
+    && to.name !== 'api.docs'
     && to.name !== 'eventos.publicos'
     && to.name !== 'eventos.publicos.inscribir'
   ) {
