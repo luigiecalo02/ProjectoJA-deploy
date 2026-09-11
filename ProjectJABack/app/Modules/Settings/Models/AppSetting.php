@@ -3,8 +3,11 @@
 namespace App\Modules\Settings\Models;
 
 use App\Models\User;
+use App\Modules\Organizations\Models\Organizacion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Schema;
 
 class AppSetting extends Model
 {
@@ -30,6 +33,18 @@ class AppSetting extends Model
         'aventureros',
         'conquistadores',
         'guias_mayores',
+    ];
+
+    public const CLUBES_ASSET_LOGO = 'logo';
+
+    public const CLUBES_ASSET_BACKGROUND = 'background';
+
+    public const CLUBES_ASSET_BANNER = 'banner';
+
+    public const CLUBES_ASSET_KEYS = [
+        self::CLUBES_ASSET_LOGO,
+        self::CLUBES_ASSET_BACKGROUND,
+        self::CLUBES_ASSET_BANNER,
     ];
 
     public const LOGO_ANIMATIONS = ['float', 'pulse', 'spin', 'bounce', 'none'];
@@ -66,6 +81,7 @@ class AppSetting extends Model
     ];
 
     protected $fillable = [
+        'organizacion_id',
         'login_hero_path',
         'login_logos_path',
         'pattern_light_path',
@@ -73,6 +89,7 @@ class AppSetting extends Model
         'loader_presets',
         'mail',
         'public_form',
+        'clubes',
         'updated_by',
     ];
 
@@ -82,6 +99,7 @@ class AppSetting extends Model
             'loader_presets' => 'array',
             'mail' => 'array',
             'public_form' => 'array',
+            'clubes' => 'array',
         ];
     }
 
@@ -213,9 +231,153 @@ class AppSetting extends Model
         return $this->belongsTo(User::class, 'updated_by');
     }
 
-    public static function current(): self
+    public function organizacion(): BelongsTo
     {
-        return static::query()->firstOrCreate(['id' => self::SINGLETON_ID]);
+        return $this->belongsTo(Organizacion::class, 'organizacion_id');
+    }
+
+    public static function current(?int $organizacionId = null): self
+    {
+        if (! self::hasOrganizacionColumn()) {
+            return static::query()->firstOrCreate(['id' => self::SINGLETON_ID]);
+        }
+
+        $organizacionId ??= self::resolveOrganizacionId();
+
+        if ($organizacionId) {
+            return static::forOrganizacion($organizacionId);
+        }
+
+        return static::platform();
+    }
+
+    public static function platform(): self
+    {
+        if (! self::hasOrganizacionColumn()) {
+            return static::query()->firstOrCreate(['id' => self::SINGLETON_ID]);
+        }
+
+        $row = static::query()->whereNull('organizacion_id')->first();
+        if ($row) {
+            return $row;
+        }
+
+        $legacy = static::query()->find(self::SINGLETON_ID);
+        if ($legacy && $legacy->organizacion_id === null) {
+            return $legacy;
+        }
+
+        return static::query()->create([
+            'organizacion_id' => null,
+            'clubes' => self::defaultClubesConfig(),
+        ]);
+    }
+
+    public static function forOrganizacion(int $organizacionId): self
+    {
+        $row = static::query()->where('organizacion_id', $organizacionId)->first();
+        if ($row) {
+            return $row;
+        }
+
+        $platform = static::platform();
+
+        try {
+            return static::query()->create([
+                'organizacion_id' => $organizacionId,
+                'login_hero_path' => $platform->login_hero_path,
+                'login_logos_path' => $platform->login_logos_path,
+                'pattern_light_path' => $platform->pattern_light_path,
+                'pattern_dark_path' => $platform->pattern_dark_path,
+                'loader_presets' => $platform->loader_presets,
+                'public_form' => $platform->public_form,
+                'clubes' => self::defaultClubesConfig(),
+            ]);
+        } catch (QueryException $exception) {
+            $row = static::query()->where('organizacion_id', $organizacionId)->first();
+            if ($row) {
+                return $row;
+            }
+
+            throw $exception;
+        }
+    }
+
+    public static function resolveOrganizacionId(): ?int
+    {
+        $user = auth()->user();
+        if (! $user) {
+            return null;
+        }
+
+        $id = $user->active_organizacion_id ?? null;
+
+        return $id ? (int) $id : null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function defaultClubesConfig(): array
+    {
+        return [
+            'source' => 'clubes',
+            'scene_theme' => 'night',
+            'kicker' => 'Club de Conquistadores',
+            'title' => 'CONQUISTADORES',
+            'subtitle' => 'Conectados con la misión',
+            'motto' => 'Una misión, un propósito',
+            'values' => 'Disciplina · Servicio · Amor',
+            'logo_path' => null,
+            'background_path' => null,
+            'banner_path' => null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $data
+     * @return array<string, mixed>
+     */
+    public static function normalizeClubesConfig(?array $data): array
+    {
+        $defaults = self::defaultClubesConfig();
+
+        return [
+            'source' => 'clubes',
+            'scene_theme' => ($data['scene_theme'] ?? '') === 'day' ? 'day' : 'night',
+            'kicker' => mb_substr(trim((string) ($data['kicker'] ?? $defaults['kicker'])), 0, 80),
+            'title' => mb_substr(trim((string) ($data['title'] ?? $defaults['title'])), 0, 80),
+            'subtitle' => mb_substr(trim((string) ($data['subtitle'] ?? $defaults['subtitle'])), 0, 160),
+            'motto' => mb_substr(trim((string) ($data['motto'] ?? $defaults['motto'])), 0, 120),
+            'values' => mb_substr(trim((string) ($data['values'] ?? $defaults['values'])), 0, 160),
+            'logo_path' => self::normalizeClubesAssetPath($data['logo_path'] ?? null),
+            'background_path' => self::normalizeClubesAssetPath($data['background_path'] ?? null),
+            'banner_path' => self::normalizeClubesAssetPath($data['banner_path'] ?? null),
+        ];
+    }
+
+    public static function isClubesAssetKey(string $key): bool
+    {
+        return in_array($key, self::CLUBES_ASSET_KEYS, true);
+    }
+
+    public static function normalizeClubesAssetPath(mixed $path): ?string
+    {
+        if (! is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        $normalized = str_replace('\\', '/', ltrim($path, '/'));
+        if (! str_starts_with($normalized, 'brand/') || str_contains($normalized, '..')) {
+            return null;
+        }
+
+        return $normalized;
+    }
+
+    private static function hasOrganizacionColumn(): bool
+    {
+        return Schema::hasColumn((new static)->getTable(), 'organizacion_id');
     }
 
     public static function isAssetKey(string $key): bool
@@ -243,6 +405,11 @@ class AppSetting extends Model
                 'logo_animation' => 'float',
                 'ring_animation' => 'spin',
                 'speed' => 'normal',
+                'kicker' => 'Club de Conquistadores',
+                'title' => 'CONQUISTADORES',
+                'subtitle' => 'Conectados con la misión',
+                'motto' => 'Una misión, un propósito',
+                'values' => 'Disciplina · Servicio · Amor',
             ],
             'aventureros' => [
                 'logo_path' => null,
@@ -253,6 +420,11 @@ class AppSetting extends Model
                 'logo_animation' => 'float',
                 'ring_animation' => 'spin',
                 'speed' => 'normal',
+                'kicker' => 'Club de Aventureros',
+                'title' => 'AVENTUREROS',
+                'subtitle' => 'Creciendo con Jesús',
+                'motto' => 'Porque te amo, te enseño el camino',
+                'values' => 'Amor · Servicio · Gratitud',
             ],
             'guias_mayores' => [
                 'logo_path' => null,
@@ -263,6 +435,11 @@ class AppSetting extends Model
                 'logo_animation' => 'float',
                 'ring_animation' => 'spin',
                 'speed' => 'normal',
+                'kicker' => 'Guías Mayores',
+                'title' => 'GUÍAS MAYORES',
+                'subtitle' => 'Liderazgo y servicio',
+                'motto' => 'El amor de Cristo nos constriñe',
+                'values' => 'Servicio · Liderazgo · Misión',
             ],
             'neutral' => [
                 'logo_path' => null,
@@ -273,6 +450,11 @@ class AppSetting extends Model
                 'logo_animation' => 'float',
                 'ring_animation' => 'spin',
                 'speed' => 'normal',
+                'kicker' => 'Clubes',
+                'title' => 'CLUBES',
+                'subtitle' => 'Conectados con la misión',
+                'motto' => 'Una misión, un propósito',
+                'values' => 'Disciplina · Servicio · Amor',
             ],
         ];
     }

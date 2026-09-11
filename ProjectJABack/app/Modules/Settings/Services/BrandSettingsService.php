@@ -115,6 +115,12 @@ final class BrandSettingsService
             'speed' => $data['speed'] ?? $old['speed'],
         ];
 
+        foreach (['kicker', 'title', 'subtitle', 'motto', 'values'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $presets[$key][$field] = mb_substr(trim((string) $data[$field]), 0, 160);
+            }
+        }
+
         $settings->update([
             'loader_presets' => $this->withHeroFit($settings, null, $presets),
             'updated_by' => $actor->id,
@@ -209,6 +215,11 @@ final class BrandSettingsService
                 'logo_animation' => $preset['logo_animation'],
                 'ring_animation' => $preset['ring_animation'],
                 'speed' => $preset['speed'],
+                'kicker' => $preset['kicker'] ?? '',
+                'title' => $preset['title'] ?? '',
+                'subtitle' => $preset['subtitle'] ?? '',
+                'motto' => $preset['motto'] ?? '',
+                'values' => $preset['values'] ?? '',
             ];
         }
 

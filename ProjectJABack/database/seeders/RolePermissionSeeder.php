@@ -347,10 +347,33 @@ class RolePermissionSeeder extends Seeder
             'integrantes.view',
             'integrantes.create',
             'integrantes.update',
+            'settings.view',
+            'settings.update',
         ])->pluck('id');
 
         $director->permissions()->sync($directorPermissions);
-        $subdirector->permissions()->sync($directorPermissions);
+        $subdirector->permissions()->sync(
+            Permission::query()->whereIn('name', [
+                'dashboard.view',
+                'events.view',
+                'seguros_consulta.view',
+                'productos_servicios.view',
+                'clubs.view',
+                'clubs.update',
+                'clubs.manage_members',
+                'clubs.manage_directors',
+                'mi_club.view',
+                'mi_club.update',
+                'mi_club.manage_members',
+                'mi_club.manage_directors',
+                'personas.view',
+                'personas.create',
+                'personas.update',
+                'integrantes.view',
+                'integrantes.create',
+                'integrantes.update',
+            ])->pluck('id')
+        );
 
         $secretario->permissions()->sync(
             Permission::query()->whereIn('name', [

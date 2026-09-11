@@ -15,7 +15,7 @@ final class MailSettingsService
      */
     public function publicConfig(): array
     {
-        $mail = AppSetting::current()->mail ?? [];
+        $mail = AppSetting::platform()->mail ?? [];
 
         $password = $this->decryptPassword($mail['password'] ?? null);
 
@@ -34,7 +34,7 @@ final class MailSettingsService
 
     public function isConfigured(): bool
     {
-        $mail = AppSetting::current()->mail ?? [];
+        $mail = AppSetting::platform()->mail ?? [];
 
         return filled($mail['host'] ?? null)
             && filled($mail['from_address'] ?? null)
@@ -48,7 +48,7 @@ final class MailSettingsService
      */
     public function update(array $data, User $actor): array
     {
-        $settings = AppSetting::current();
+        $settings = AppSetting::platform();
         $current = $settings->mail ?? [];
 
         $password = $data['password'] ?? null;
@@ -125,7 +125,7 @@ final class MailSettingsService
      */
     private function decrypted(): ?array
     {
-        $mail = AppSetting::current()->mail ?? [];
+        $mail = AppSetting::platform()->mail ?? [];
         if (! $this->isConfigured()) {
             return null;
         }

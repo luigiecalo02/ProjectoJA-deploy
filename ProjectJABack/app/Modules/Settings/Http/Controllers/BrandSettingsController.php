@@ -134,6 +134,11 @@ final class BrandSettingsController
             'logo_animation' => ['required', 'in:'.implode(',', AppSetting::LOGO_ANIMATIONS)],
             'ring_animation' => ['required', 'in:'.implode(',', AppSetting::RING_ANIMATIONS)],
             'speed' => ['required', 'in:'.implode(',', AppSetting::LOADER_SPEEDS)],
+            'kicker' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'title' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'subtitle' => ['sometimes', 'nullable', 'string', 'max:160'],
+            'motto' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'values' => ['sometimes', 'nullable', 'string', 'max:160'],
         ]);
 
         $settings = $this->brandSettingsService->updateLoader($key, $data, $request->user());

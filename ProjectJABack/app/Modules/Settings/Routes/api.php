@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Settings\Http\Controllers\BrandSettingsController;
+use App\Modules\Settings\Http\Controllers\ClubesSettingsController;
 use App\Modules\Settings\Http\Controllers\CuentaBancariaController;
 use App\Modules\Settings\Http\Controllers\MailSettingsController;
 use App\Modules\Settings\Http\Controllers\PublicFormSettingsController;
@@ -9,8 +10,13 @@ use Illuminate\Support\Facades\Route;
 Route::get('settings/brand', [BrandSettingsController::class, 'show']);
 Route::get('settings/brand/file/{path}', [BrandSettingsController::class, 'file'])
     ->where('path', '.*');
+Route::get('settings/clubes/public', [ClubesSettingsController::class, 'publicShow']);
 
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('settings/clubes', [ClubesSettingsController::class, 'show']);
+    Route::put('settings/clubes', [ClubesSettingsController::class, 'update']);
+    Route::post('settings/clubes/assets/{asset}', [ClubesSettingsController::class, 'uploadAsset']);
+    Route::delete('settings/clubes/assets/{asset}', [ClubesSettingsController::class, 'resetAsset']);
     Route::get('settings/mail', [MailSettingsController::class, 'show']);
     Route::put('settings/mail', [MailSettingsController::class, 'update']);
     Route::post('settings/mail/test', [MailSettingsController::class, 'test']);

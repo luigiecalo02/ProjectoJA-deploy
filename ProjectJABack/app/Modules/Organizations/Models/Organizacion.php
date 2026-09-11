@@ -3,6 +3,7 @@
 namespace App\Modules\Organizations\Models;
 
 use App\Modules\Clubs\Models\Club;
+use App\Modules\Settings\Models\AppSetting;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -220,5 +221,10 @@ class Organizacion extends Model
     public function club(): HasOne
     {
         return $this->hasOne(Club::class, 'organizacion_id');
+    }
+
+    public function appSetting(): HasOne
+    {
+        return $this->hasOne(AppSetting::class, 'organizacion_id');
     }
 }
