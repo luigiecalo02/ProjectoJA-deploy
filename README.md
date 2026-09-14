@@ -64,7 +64,7 @@ cd projectJAFront
 npm run dev
 ```
 
-- Front: http://localhost:5173  
+- Front: http://localhost:5174  
 - API: http://127.0.0.1:8000  
 - BD MySQL: `ProjetJA`  
 - Firebase Storage: proyecto `projectja-2d55d`

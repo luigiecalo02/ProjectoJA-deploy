@@ -144,7 +144,7 @@ final class AuthController
         $socialUser = Socialite::driver($provider)->stateless()->user();
         $result = $this->authService->loginWithSocial($provider, $socialUser);
 
-        $front = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:5173')), '/');
+        $front = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:5174')), '/');
         $token = urlencode($result['token']);
 
         return redirect()->away("{$front}/auth/callback?token={$token}");

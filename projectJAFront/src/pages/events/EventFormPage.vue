@@ -31,6 +31,7 @@ import { getApiErrorMessage, resolveFileUrl } from '@/services/api'
 import { cuentasBancariasService } from '@/services/cuentasBancariasService'
 import { lugaresService } from '@/services/lugaresService'
 import { useAuthStore } from '@/stores/auth'
+import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
 import type { OrganizacionTreeNode, TipoOrganizacion } from '@/modules/organizaciones/types'
 import { audienceKeyFromTipo } from '@/modules/events/audienceTipo'
@@ -46,6 +47,7 @@ import type {
   EventoDescuentoDirectiva,
   EventoVisibilidad,
   ProductoServicio,
+  TipoEvento,
   TipoSeguro,
 } from '@/modules/events/types'
 import { dateOnly, toApiDateOrEmpty as toApiDate } from '@/modules/events/dateUtils'
@@ -84,6 +86,10 @@ const {
   dismiss: dismissJuezConflicts,
 } = useJuezPropagate()
 const auth = useAuthStore()
+const { can } = usePermission()
+const orgCreateOnly = computed(
+  () => can('events.create_organization') && !can('events.create'),
+)
 
 const loading = ref(false)
 const stepLoading = ref(false)
@@ -192,6 +198,7 @@ const form = reactive({
   organizacion_id: null as number | null,
   organizacion_ids: [] as number[],
   tipo_organizacion_ids: [] as number[],
+  tipo_evento_id: null as number | null,
   es_en_sitio: true,
   es_calificable: false,
   tiene_subeventos: false,
@@ -239,6 +246,7 @@ const selectedCuentaBancaria = computed(
   () => cuentasBancarias.value.find((item) => item.id === form.cuenta_bancaria_id) ?? null,
 )
 const lugares = ref<Lugar[]>([])
+const tiposEvento = ref<TipoEvento[]>([])
 const lugarOptions = computed(() =>
   lugares.value.map((item) => ({ label: item.nombre, value: item.id })),
 )
@@ -310,11 +318,16 @@ const clubAudienceOptions = computed(() => [
   { key: 'guias_mayores' as const, label: t('events.audienceGuias'), css: 'badge--guias' },
 ])
 
-const visibilityOptions = computed(() => [
-  { label: t('events.visibilityPublic'), value: 'publico' as const },
-  { label: t('events.visibilityOrganization'), value: 'organizacion' as const },
-  { label: t('events.visibilityPrivate'), value: 'privado' as const },
-])
+const visibilityOptions = computed(() => {
+  if (orgCreateOnly.value) {
+    return [{ label: t('events.visibilityOrganization'), value: 'organizacion' as const }]
+  }
+  return [
+    { label: t('events.visibilityPublic'), value: 'publico' as const },
+    { label: t('events.visibilityOrganization'), value: 'organizacion' as const },
+    { label: t('events.visibilityPrivate'), value: 'privado' as const },
+  ]
+})
 
 const audienceLabel = computed(() => {
   if (clubAudience.value.includes('libre') || !clubAudience.value.length) {
@@ -555,6 +568,13 @@ function audienceFromTipoIds(ids: number[]): ClubAudienceKey[] {
 function applyHomeOrganization(): void {
   const homeId = auth.contexto?.organizacion_id ?? null
   if (!homeId) return
+  if (orgCreateOnly.value) {
+    form.visibilidad = 'organizacion'
+    form.organizacion_id = homeId
+    form.organizacion_ids = [homeId]
+    form.tipo_organizacion_ids = []
+    return
+  }
   if (form.organizacion_id == null) form.organizacion_id = homeId
   if (form.organizacion_ids.length === 0) form.organizacion_ids = [homeId]
 }
@@ -692,16 +712,21 @@ function buildPayload(estado: string): EventFormPayload {
     ends_at: dates.ends_at,
     is_active: form.is_active,
     estado,
-    visibilidad: form.visibilidad,
-    organizacion_id: form.organizacion_id ?? auth.contexto?.organizacion_id ?? null,
-    tipo_evento_id: null,
-    organizacion_ids:
-      form.organizacion_ids.length > 0
+    visibilidad: orgCreateOnly.value ? 'organizacion' : form.visibilidad,
+    organizacion_id: orgCreateOnly.value
+      ? auth.contexto?.organizacion_id ?? form.organizacion_id
+      : form.organizacion_id ?? auth.contexto?.organizacion_id ?? null,
+    tipo_evento_id: form.tipo_evento_id,
+    organizacion_ids: orgCreateOnly.value
+      ? auth.contexto?.organizacion_id
+        ? [auth.contexto.organizacion_id]
+        : []
+      : form.organizacion_ids.length > 0
         ? [...form.organizacion_ids]
         : auth.contexto?.organizacion_id
           ? [auth.contexto.organizacion_id]
           : [],
-    tipo_organizacion_ids: [...form.tipo_organizacion_ids],
+    tipo_organizacion_ids: orgCreateOnly.value ? [] : [...form.tipo_organizacion_ids],
     audiencia: currentAudiencia(),
     audiencia_keys: [...clubAudience.value],
     es_en_sitio: form.es_en_sitio,
@@ -985,8 +1010,12 @@ function ensureCatalog(key: CatalogKey, loader: () => Promise<void>): Promise<vo
 }
 
 async function loadLugares(): Promise<void> {
-  const page = await lugaresService.list({ per_page: 200, estado: 'activo' })
+  const [page, tipos] = await Promise.all([
+    lugaresService.list({ per_page: 200, estado: 'activo' }),
+    eventsService.tipos().catch(() => [] as TipoEvento[]),
+  ])
   lugares.value = page.items
+  tiposEvento.value = tipos
 }
 
 async function loadOrgs(): Promise<void> {
@@ -1168,6 +1197,7 @@ async function loadEvent(): Promise<void> {
   form.is_active = event.is_active
   form.estado = event.estado || 'borrador'
   form.visibilidad = event.visibilidad ?? 'organizacion'
+  form.tipo_evento_id = event.tipo_evento_id ?? null
   form.organizacion_id = event.organizacion_id ?? null
   form.organizacion_ids = [...(event.organizacion_ids || [])]
   applyAudienceFromEvent(event)
@@ -1352,6 +1382,21 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="field">
+            <label for="tipo_evento_id">{{ t('events.tipoEvento') }}</label>
+            <Select
+              input-id="tipo_evento_id"
+              v-model="form.tipo_evento_id"
+              :options="tiposEvento"
+              option-label="nombre"
+              option-value="id"
+              :placeholder="t('events.tipoEventoPlaceholder')"
+              show-clear
+              class="w-full tipo-evento-select"
+            />
+            <small class="pj-muted">{{ t('events.tipoEventoHint') }}</small>
+          </div>
+
+          <div class="field">
             <div class="field__label-row">
               <label for="descripcion">{{ t('events.wizard.shortDescription') }}</label>
               <span class="char-count" :class="{ 'is-limit': descCount >= descMax }">
@@ -1459,13 +1504,14 @@ onBeforeUnmount(() => {
             <i class="pi pi-eye" />
             <h2>{{ t('events.visibilityTitle') }}</h2>
           </div>
-          <p class="step-lead">{{ t('events.visibilityLead') }}</p>
+          <p class="step-lead">{{ t(orgCreateOnly ? 'events.orgCreateOnlyLead' : 'events.visibilityLead') }}</p>
           <div class="field">
             <Select
               v-model="form.visibilidad"
               :options="visibilityOptions"
               option-label="label"
               option-value="value"
+              :disabled="orgCreateOnly"
               class="w-full"
             />
             <small class="pj-muted">
@@ -1473,7 +1519,11 @@ onBeforeUnmount(() => {
             </small>
           </div>
         </section>
+        <Message v-if="orgCreateOnly" severity="info" :closable="false">
+          {{ t('events.orgCreateOnlyHint') }}
+        </Message>
         <EventOrganizationsStep
+          v-else
           :organizacion-id="form.organizacion_id"
           :organizacion-ids="form.organizacion_ids"
           :org-options="orgOptions"
@@ -2706,6 +2756,11 @@ onBeforeUnmount(() => {
   .date-place-grid.is-offsite .date-pair {
     display: contents;
   }
+}
+
+.tipo-evento-select,
+.tipo-evento-select :deep(.p-select-label) {
+  color: var(--p-form-field-color, #071e48);
 }
 
 .w-full {

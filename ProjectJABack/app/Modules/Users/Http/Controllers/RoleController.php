@@ -3,6 +3,7 @@
 namespace App\Modules\Users\Http\Controllers;
 
 use App\Modules\Shared\Http\Responses\ApiResponse;
+use App\Modules\Users\Models\Page;
 use App\Modules\Users\Models\Role;
 use App\Modules\Users\Services\RoleService;
 use Illuminate\Http\JsonResponse;
@@ -104,6 +105,8 @@ final class RoleController
             'route_name' => $page->route_name,
             'icon' => $page->icon,
             'description' => $page->description,
+            'front' => $page->front ?: Page::FRONT_PROJECT,
+            'is_system' => $page->isSystem(),
             'permissions' => $page->permissions->map(fn ($p) => [
                 'id' => $p->id,
                 'name' => $p->name,

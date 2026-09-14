@@ -20,13 +20,8 @@ return new class extends Migration
     public function up(): void
     {
         $asociacion = $this->asociacion();
-        if (! $asociacion) {
-            throw new \RuntimeException(
-                'No existe la Asociación "'.self::ASOCIACION.'". Créala antes de correr esta migración.'
-            );
-        }
-        if (! DB::table('tipo_organizacion')->where('id', self::TIPO_ZONA)->exists()) {
-            throw new \RuntimeException('Falta el tipo de organización Zona (id 9).');
+        if (! $asociacion || ! DB::table('tipo_organizacion')->where('id', self::TIPO_ZONA)->exists()) {
+            return;
         }
 
         $now = now();

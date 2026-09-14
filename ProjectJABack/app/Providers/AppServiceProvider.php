@@ -28,6 +28,7 @@ use App\Modules\Users\Policies\RolePolicy;
 use App\Modules\Users\Policies\UserPolicy;
 use Dedoc\Scramble\Scramble;
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
@@ -48,6 +49,20 @@ class AppServiceProvider extends ServiceProvider
 
         Gate::define('viewApiDocs', static fn (?User $user = null) => true);
 
+        Scramble::configure()->withoutEagerLoadAnalysis();
+        Scramble::routes(function (Route $route): bool {
+            $uri = $route->uri();
+            if (! str_starts_with($uri, 'api/v1')) {
+                return false;
+            }
+
+            // Event trees (padre/hijos) make Scramble recurse until it runs out of memory.
+            if (str_contains($uri, 'events') || str_contains($uri, 'eventos')) {
+                return false;
+            }
+
+            return true;
+        });
         Scramble::registerUiRoute('api/docs');
         Scramble::registerJsonSpecificationRoute('api/docs.json');
 

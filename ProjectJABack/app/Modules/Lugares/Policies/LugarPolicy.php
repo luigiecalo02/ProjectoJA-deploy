@@ -36,6 +36,7 @@ final class LugarPolicy
     {
         return $actor->hasPermission('lugares.view')
             || $actor->hasPermission('events.create')
+            || $actor->hasPermission('events.create_organization')
             || $actor->hasPermission('events.update')
             || $actor->hasPermission('terrenos.view')
             || $actor->hasPermission('cabanas.view');

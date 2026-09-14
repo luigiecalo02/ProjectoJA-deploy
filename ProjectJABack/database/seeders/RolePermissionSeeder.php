@@ -77,11 +77,25 @@ class RolePermissionSeeder extends Seeder
                 'permissions' => [
                     ['action' => 'view', 'display_name' => 'Ver eventos', 'sort_order' => 1],
                     ['action' => 'create', 'display_name' => 'Crear eventos', 'sort_order' => 2],
+                    ['action' => 'create_organization', 'display_name' => 'Crear evento en mi organización', 'sort_order' => 8],
                     ['action' => 'update', 'display_name' => 'Actualizar eventos', 'sort_order' => 3],
                     ['action' => 'delete', 'display_name' => 'Eliminar eventos', 'sort_order' => 4],
                     ['action' => 'evaluate', 'display_name' => 'Evaluar eventos', 'sort_order' => 5],
                     ['action' => 'view_scores', 'display_name' => 'Ver puntajes', 'sort_order' => 6],
                     ['action' => 'change_status', 'display_name' => 'Cambiar estado de eventos', 'sort_order' => 7],
+                ],
+            ],
+            [
+                'key' => 'asistencia',
+                'name' => 'Asistencia',
+                'route_name' => 'asistencia',
+                'icon' => 'pi pi-check-square',
+                'sort_order' => 43,
+                'front' => Page::FRONT_CLUBES,
+                'description' => 'Registro de asistencia de integrantes a eventos del club',
+                'permissions' => [
+                    ['action' => 'view', 'display_name' => 'Ver asistencia', 'sort_order' => 1],
+                    ['action' => 'update', 'display_name' => 'Registrar asistencia', 'sort_order' => 2],
                 ],
             ],
             [
@@ -331,6 +345,7 @@ class RolePermissionSeeder extends Seeder
         $directorPermissions = Permission::query()->whereIn('name', [
             'dashboard.view',
             'events.view',
+            'events.create_organization',
             'seguros_consulta.view',
             'productos_servicios.view',
             'clubs.view',
@@ -349,6 +364,8 @@ class RolePermissionSeeder extends Seeder
             'integrantes.update',
             'settings.view',
             'settings.update',
+            'asistencia.view',
+            'asistencia.update',
         ])->pluck('id');
 
         $director->permissions()->sync($directorPermissions);
@@ -372,6 +389,8 @@ class RolePermissionSeeder extends Seeder
                 'integrantes.view',
                 'integrantes.create',
                 'integrantes.update',
+                'asistencia.view',
+                'asistencia.update',
             ])->pluck('id')
         );
 
@@ -389,6 +408,8 @@ class RolePermissionSeeder extends Seeder
                 'integrantes.view',
                 'integrantes.create',
                 'integrantes.update',
+                'asistencia.view',
+                'asistencia.update',
             ])->pluck('id')
         );
 

@@ -9,6 +9,10 @@ return new class extends Migration
     {
         $now = now();
 
+        if (! DB::table('tipo_organizacion')->where('id', 2)->exists()) {
+            return;
+        }
+
         DB::table('tipo_organizacion')->updateOrInsert(
             ['id' => 9],
             [

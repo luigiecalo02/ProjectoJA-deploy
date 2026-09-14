@@ -34,7 +34,7 @@ final class EventController
 
         $paginator = $this->eventService->list(
             $request->user(),
-            $request->only(['q', 'is_active', 'estado', 'evento_padre_id', 'solo_raiz', 'tipo_evento_id', 'incluir_hijos']),
+            $request->only(['q', 'is_active', 'estado', 'evento_padre_id', 'solo_raiz', 'tipo_evento_id', 'incluir_hijos', 'proximos']),
             (int) $request->integer('per_page', 15),
         );
 
@@ -178,7 +178,8 @@ final class EventController
         $user = $request->user();
         abort_unless(
             $user->can('viewAny', Event::class)
-            || $user->hasPermission('events.create')
+            || $user->hasPermission(Event::PERMISSION_CREATE)
+            || $user->hasPermission(Event::PERMISSION_CREATE_ORGANIZATION)
             || $user->hasPermission('events.update'),
             Response::HTTP_FORBIDDEN,
         );
@@ -197,7 +198,8 @@ final class EventController
         $user = $request->user();
         abort_unless(
             $user->can('viewAny', Event::class)
-            || $user->hasPermission('events.create')
+            || $user->hasPermission(Event::PERMISSION_CREATE)
+            || $user->hasPermission(Event::PERMISSION_CREATE_ORGANIZATION)
             || $user->hasPermission('events.update'),
             Response::HTTP_FORBIDDEN,
         );

@@ -37,6 +37,10 @@ class Event extends Model
 
     public const VISIBILIDAD_ORGANIZACION = 'organizacion';
 
+    public const PERMISSION_CREATE = 'events.create';
+
+    public const PERMISSION_CREATE_ORGANIZATION = 'events.create_organization';
+
     /** @var list<string> */
     public const NIVELES_CONJUNTO = ['club', 'iglesia', 'distrito', 'zona', 'asociacion'];
 

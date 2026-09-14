@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Users\Http\Controllers\PageController;
 use App\Modules\Users\Http\Controllers\RoleController;
 use App\Modules\Users\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -7,6 +8,12 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('roles/catalog', [UserController::class, 'roleCatalog']);
     Route::get('roles/pages', [RoleController::class, 'pages']);
+    Route::get('menu', [PageController::class, 'menu']);
+    Route::get('pages', [PageController::class, 'index']);
+    Route::post('pages', [PageController::class, 'store']);
+    Route::put('pages/{page}', [PageController::class, 'update']);
+    Route::patch('pages/{page}', [PageController::class, 'update']);
+    Route::delete('pages/{page}', [PageController::class, 'destroy']);
     Route::get('roles', [RoleController::class, 'index']);
     Route::post('roles', [RoleController::class, 'store']);
     Route::get('roles/{role}', [RoleController::class, 'show']);

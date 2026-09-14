@@ -19,7 +19,9 @@ final class EventPolicy
     public function view(User $actor, Event $event): bool
     {
         if ($this->isCreator($actor, $event) && (
-            $actor->hasPermission('events.view') || $actor->hasPermission('events.create')
+            $actor->hasPermission('events.view')
+            || $actor->hasPermission(Event::PERMISSION_CREATE)
+            || $actor->hasPermission(Event::PERMISSION_CREATE_ORGANIZATION)
         )) {
             return true;
         }
@@ -37,13 +39,16 @@ final class EventPolicy
 
     public function create(User $actor): bool
     {
-        return $actor->hasPermission('events.create');
+        return $actor->hasPermission(Event::PERMISSION_CREATE)
+            || $actor->hasPermission(Event::PERMISSION_CREATE_ORGANIZATION);
     }
 
     public function update(User $actor, Event $event): bool
     {
         if ($this->isCreator($actor, $event) && (
-            $actor->hasPermission('events.update') || $actor->hasPermission('events.create')
+            $actor->hasPermission('events.update')
+            || $actor->hasPermission(Event::PERMISSION_CREATE)
+            || $actor->hasPermission(Event::PERMISSION_CREATE_ORGANIZATION)
         )) {
             return true;
         }

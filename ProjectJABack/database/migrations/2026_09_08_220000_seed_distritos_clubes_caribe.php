@@ -24,7 +24,7 @@ return new class extends Migration
             ->where('nombre', self::ASOCIACION)
             ->first();
         if (! $asociacion) {
-            throw new \RuntimeException('No existe la Asociación "'.self::ASOCIACION.'".');
+            return;
         }
 
         $now = now();

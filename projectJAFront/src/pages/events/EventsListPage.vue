@@ -37,7 +37,9 @@ const toast = useToast()
 const { can, canCatalog } = usePermission()
 const auth = useAuthStore()
 const fieldMode = useFieldModeStore()
-const canCreateEvent = computed(() => can('events.create') && fieldMode.online)
+const canCreateEvent = computed(
+  () => (can('events.create') || can('events.create_organization')) && fieldMode.online,
+)
 const canPrepareField = computed(() => can('events.evaluate'))
 const usingOfflinePack = ref(false)
 const packSummaries = ref<Record<number, FieldEventSummary>>({})
@@ -186,6 +188,11 @@ function canEnroll(event: ClubEvent): boolean {
     event.estado === 'publicado' &&
     !enrollmentClosed
   )
+}
+
+function canEditEvent(event: ClubEvent): boolean {
+  if (can('events.update')) return true
+  return can('events.create_organization') && event.created_by === auth.user?.id
 }
 
 function canReviewInscripciones(_event: ClubEvent): boolean {
@@ -691,7 +698,7 @@ function onPage(event: { page: number; rows: number }): void {
 
 function menuItemsFor(event: ClubEvent): MenuItem[] {
   const items: MenuItem[] = []
-  if (can('events.update')) {
+  if (canEditEvent(event)) {
     items.push({
       label: t('common.edit'),
       icon: 'pi pi-pencil',

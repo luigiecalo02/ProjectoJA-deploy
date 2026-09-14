@@ -101,6 +101,7 @@ final class OrganizacionController
         abort_unless(
             $user?->can('viewAny', Organizacion::class)
             || $user?->hasPermission('events.create')
+            || $user?->hasPermission('events.create_organization')
             || $user?->hasPermission('events.update'),
             Response::HTTP_FORBIDDEN
         );

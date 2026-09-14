@@ -96,6 +96,10 @@ return new class extends Migration
 
     private function dropColumnForeignKey(string $table, string $column): void
     {
+        if (Schema::getConnection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         $schema = Schema::getConnection()->getDatabaseName();
         $keys = DB::select(
             'SELECT CONSTRAINT_NAME AS name

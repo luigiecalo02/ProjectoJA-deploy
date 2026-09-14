@@ -20,7 +20,11 @@ final class EventVisibilityService
 
     public function isVisibleTo(Event $event, User $actor): bool
     {
-        if ($this->organizationAccess->bypassesOrganizationScope($actor)) {
+        if ($actor->isSuperAdmin() || $this->organizationAccess->bypassesOrganizationScope($actor)) {
+            return true;
+        }
+
+        if ($event->created_by !== null && (int) $event->created_by === (int) $actor->id) {
             return true;
         }
 
@@ -32,12 +36,12 @@ final class EventVisibilityService
             return true;
         }
 
-        if (! $this->isWithinOrganizationReach($event, $actor)) {
-            return false;
+        if ($event->visibilidad === Event::VISIBILIDAD_ORGANIZACION) {
+            return $this->belongsToReachOrganization($event, $actor);
         }
 
-        if ($event->visibilidad !== Event::VISIBILIDAD_PRIVADO) {
-            return true;
+        if (! $this->isWithinOrganizationReach($event, $actor)) {
+            return false;
         }
 
         [$jueces] = $event->resolveEffectiveJueces();
@@ -50,34 +54,35 @@ final class EventVisibilityService
 
     public function applyVisibleScope(Builder $query, User $actor): Builder
     {
-        if ($this->organizationAccess->bypassesOrganizationScope($actor)) {
+        if ($actor->isSuperAdmin() || $this->organizationAccess->bypassesOrganizationScope($actor)) {
             return $query;
         }
 
+        $reachIds = $this->membershipAndAncestorIds($actor);
         $organizationIds = $this->visibilityOrganizationIdsForActor($actor);
         $audience = $this->resolveAudienceScope($actor);
         $privateEventIds = $this->privateEventIdsForActor($actor);
 
         return $query->where(function (Builder $visibility) use (
+            $reachIds,
             $organizationIds,
             $audience,
-            $privateEventIds
+            $privateEventIds,
+            $actor
         ) {
             $visibility->where(function (Builder $public) use ($audience) {
                 $public->where('visibilidad', Event::VISIBILIDAD_PUBLICO);
                 $this->applyAudienceTypeFilter($public, $audience);
             });
 
-            if ($organizationIds === [] || ! $audience['allowed']) {
-                return;
+            if ($reachIds !== [] && $audience['allowed']) {
+                $visibility->orWhere(function (Builder $organization) use ($reachIds, $audience) {
+                    $organization->where('visibilidad', Event::VISIBILIDAD_ORGANIZACION);
+                    $this->applyOrganizationAndAudienceScope($organization, $reachIds, $audience);
+                });
             }
 
-            $visibility->orWhere(function (Builder $organization) use ($organizationIds, $audience) {
-                $organization->where('visibilidad', Event::VISIBILIDAD_ORGANIZACION);
-                $this->applyOrganizationAndAudienceScope($organization, $organizationIds, $audience);
-            });
-
-            if ($privateEventIds !== []) {
+            if ($organizationIds !== [] && $audience['allowed'] && $privateEventIds !== []) {
                 $visibility->orWhere(function (Builder $private) use (
                     $organizationIds,
                     $audience,
@@ -89,7 +94,47 @@ final class EventVisibilityService
                     $this->applyOrganizationAndAudienceScope($private, $organizationIds, $audience);
                 });
             }
+
+            $visibility->orWhere('events.created_by', $actor->id);
         });
+    }
+
+    private function belongsToReachOrganization(Event $event, User $actor): bool
+    {
+        $organizationIds = $this->membershipAndAncestorIds($actor);
+        if ($organizationIds === []) {
+            return false;
+        }
+
+        if ($event->organizacion_id
+            && in_array((int) $event->organizacion_id, $organizationIds, true)) {
+            return true;
+        }
+
+        return $event->organizaciones()
+            ->whereIn('organizacion.id', $organizationIds)
+            ->exists();
+    }
+
+    /**
+     * Membresías del actor más organizaciones padre (iglesia, distrito, asociación).
+     * No incluye hijas: un club ve eventos de su asociación, no al revés.
+     *
+     * @return list<int>
+     */
+    private function membershipAndAncestorIds(User $actor): array
+    {
+        $membershipIds = $this->organizationAccess->membershipOrganizationIds($actor);
+        if ($membershipIds === []) {
+            return [];
+        }
+
+        $ids = $membershipIds;
+        foreach ($membershipIds as $organizationId) {
+            $ids = array_merge($ids, $this->ancestorOrganizationIds((int) $organizationId));
+        }
+
+        return array_values(array_unique(array_map('intval', $ids)));
     }
 
     private function isWithinOrganizationReach(Event $event, User $actor): bool

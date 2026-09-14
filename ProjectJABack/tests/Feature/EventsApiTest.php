@@ -11,7 +11,9 @@ use App\Modules\Events\Models\EventoInscripcionMovimiento;
 use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
+use App\Modules\Organizations\Models\PersonaOrganizacionRol;
 use App\Modules\Organizations\Models\TipoOrganizacion;
+use App\Modules\Users\Models\Role;
 use Database\Seeders\OrganizacionCatalogSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\TipoEventoSeeder;
@@ -75,6 +77,138 @@ class EventsApiTest extends TestCase
             'evento_id' => $response->json('data.id'),
             'organizacion_id' => $union->id,
         ]);
+    }
+
+    public function test_director_creates_event_only_in_own_organization(): void
+    {
+        $mine = $this->createOrg('Club Director', null, Organizacion::TIPO_CLUB);
+        $other = $this->createOrg('Club Ajeno', null, Organizacion::TIPO_CLUB);
+        $director = $this->directorUser($mine, 'dir-create-org@test.local');
+
+        Sanctum::actingAs($director);
+        $this->postJson('/api/v1/events', [
+            'name' => 'Reunión de club',
+            'starts_at' => now()->addDay()->toDateTimeString(),
+            'ends_at' => now()->addDays(2)->toDateTimeString(),
+            'visibilidad' => Event::VISIBILIDAD_PUBLICO,
+            'organizacion_id' => $other->id,
+            'organizacion_ids' => [$other->id],
+        ])->assertCreated()
+            ->assertJsonPath('data.visibilidad', Event::VISIBILIDAD_ORGANIZACION)
+            ->assertJsonPath('data.organizacion_id', $mine->id)
+            ->assertJsonPath('data.organizacion_ids.0', $mine->id);
+    }
+
+    public function test_org_event_is_visible_only_to_related_users(): void
+    {
+        $mine = $this->createOrg('Club Visible', null, Organizacion::TIPO_CLUB);
+        $other = $this->createOrg('Club Oculto', null, Organizacion::TIPO_CLUB);
+        $director = $this->directorUser($mine, 'dir-org-vis@test.local');
+        $member = $this->directorUser($mine, 'miembro-org-vis@test.local');
+        $stranger = $this->directorUser($other, 'dir-org-hid@test.local');
+
+        Sanctum::actingAs($director);
+        $eventId = $this->postJson('/api/v1/events', [
+            'name' => 'Actividad de club',
+            'starts_at' => now()->addDay()->toDateTimeString(),
+            'ends_at' => now()->addDays(2)->toDateTimeString(),
+            'visibilidad' => Event::VISIBILIDAD_ORGANIZACION,
+            'estado' => Event::ESTADO_PUBLICADO,
+        ])->assertCreated()
+            ->assertJsonPath('data.visibilidad', Event::VISIBILIDAD_ORGANIZACION)
+            ->assertJsonPath('data.organizacion_id', $mine->id)
+            ->json('data.id');
+
+        $parent = $this->createOrg('Asociación Padre', null, Organizacion::TIPO_ASOCIACION);
+        $mine->forceFill(['organizacion_padre_id' => $parent->id])->save();
+        $parentUser = $this->directorUser($parent, 'dir-asoc-padre@test.local');
+
+        $event = Event::query()->findOrFail($eventId);
+        $this->assertTrue($event->isVisibleTo($member));
+        $this->assertFalse($event->isVisibleTo($stranger));
+        $this->assertFalse($event->isVisibleTo($parentUser));
+        $this->assertTrue($event->isVisibleTo($this->admin()));
+
+        Sanctum::actingAs($member);
+        $mineIds = collect($this->getJson('/api/v1/events?solo_raiz=1')->assertOk()->json('data'))->pluck('id');
+        $this->assertContains($eventId, $mineIds->all());
+
+        Sanctum::actingAs($stranger);
+        $otherIds = collect($this->getJson('/api/v1/events?solo_raiz=1')->assertOk()->json('data'))->pluck('id');
+        $this->assertNotContains($eventId, $otherIds->all());
+
+        Sanctum::actingAs($parentUser);
+        $parentIds = collect($this->getJson('/api/v1/events?solo_raiz=1')->assertOk()->json('data'))->pluck('id');
+        $this->assertNotContains($eventId, $parentIds->all());
+    }
+
+    public function test_club_user_sees_public_libre_and_parent_organization_events(): void
+    {
+        $asociacion = $this->createOrg('Asociación Alcance', null, Organizacion::TIPO_ASOCIACION);
+        $iglesia = $this->createOrg('Iglesia Alcance', $asociacion->id, Organizacion::TIPO_IGLESIA);
+        $club = $this->createOrg('Club Alcance', $iglesia->id, Organizacion::TIPO_CLUB);
+        $otroClub = $this->createOrg('Club Hermano', $iglesia->id, Organizacion::TIPO_CLUB);
+        $director = $this->directorUser($club, 'dir-alcance@test.local');
+
+        Sanctum::actingAs($this->admin());
+        $libreId = $this->postJson('/api/v1/events', [
+            'name' => 'Camporee libre',
+            'starts_at' => now()->addDay()->toDateTimeString(),
+            'ends_at' => now()->addDays(2)->toDateTimeString(),
+            'organizacion_id' => $asociacion->id,
+            'organizacion_ids' => [$asociacion->id],
+            'audiencia_keys' => ['libre'],
+            'visibilidad' => Event::VISIBILIDAD_PUBLICO,
+            'estado' => Event::ESTADO_PUBLICADO,
+        ])->assertCreated()->json('data.id');
+
+        $alcanceId = $this->postJson('/api/v1/events', [
+            'name' => 'Reunión de asociación',
+            'starts_at' => now()->addDays(3)->toDateTimeString(),
+            'ends_at' => now()->addDays(4)->toDateTimeString(),
+            'organizacion_id' => $asociacion->id,
+            'organizacion_ids' => [$asociacion->id],
+            'audiencia_keys' => ['libre'],
+            'visibilidad' => Event::VISIBILIDAD_ORGANIZACION,
+            'estado' => Event::ESTADO_PUBLICADO,
+        ])->assertCreated()->json('data.id');
+
+        Sanctum::actingAs($this->directorUser($otroClub, 'dir-hermano@test.local'));
+        $hermanoId = $this->postJson('/api/v1/events', [
+            'name' => 'Actividad del otro club',
+            'starts_at' => now()->addDays(5)->toDateTimeString(),
+            'ends_at' => now()->addDays(6)->toDateTimeString(),
+            'visibilidad' => Event::VISIBILIDAD_ORGANIZACION,
+            'estado' => Event::ESTADO_PUBLICADO,
+        ])->assertCreated()->json('data.id');
+
+        $libre = Event::query()->findOrFail($libreId);
+        $alcance = Event::query()->findOrFail($alcanceId);
+        $hermano = Event::query()->findOrFail($hermanoId);
+
+        $this->assertTrue($libre->isVisibleTo($director));
+        $this->assertTrue($alcance->isVisibleTo($director));
+        $this->assertFalse($hermano->isVisibleTo($director));
+
+        Sanctum::actingAs($director);
+        $ids = collect($this->getJson('/api/v1/events?solo_raiz=1&proximos=1&per_page=30')->assertOk()->json('data'))
+            ->pluck('id')
+            ->all();
+
+        $this->assertContains($libreId, $ids);
+        $this->assertContains($alcanceId, $ids);
+        $this->assertNotContains($hermanoId, $ids);
+    }
+
+    public function test_user_without_create_permission_cannot_create_event(): void
+    {
+        Sanctum::actingAs(User::factory()->create(['email' => 'sin-create@test.local']));
+
+        $this->postJson('/api/v1/events', [
+            'name' => 'No permitido',
+            'starts_at' => now()->addDay()->toDateTimeString(),
+            'ends_at' => now()->addDays(2)->toDateTimeString(),
+        ])->assertForbidden();
     }
 
     public function test_admin_can_upload_event_image(): void
@@ -269,7 +403,13 @@ class EventsApiTest extends TestCase
 
         $this->getJson('/api/v1/events/tipos')
             ->assertOk()
-            ->assertJsonFragment(['slug' => 'eventos-deportivos']);
+            ->assertJsonFragment(['slug' => 'eventos-deportivos'])
+            ->assertJsonFragment(['slug' => 'camporee'])
+            ->assertJsonFragment(['slug' => 'congreso'])
+            ->assertJsonFragment(['slug' => 'actividad'])
+            ->assertJsonFragment(['slug' => 'clase'])
+            ->assertJsonFragment(['slug' => 'investidura'])
+            ->assertJsonFragment(['slug' => 'campamento']);
     }
 
     public function test_cupo_minimo_cannot_exceed_maximo(): void
@@ -321,6 +461,7 @@ class EventsApiTest extends TestCase
             'organizacion_id' => $asociacion->id,
             'organizacion_ids' => [$asociacion->id],
             'tipo_organizacion_ids' => [(int) $tipoAventureros],
+            'visibilidad' => Event::VISIBILIDAD_PUBLICO,
             'estado' => 'publicado',
             'is_active' => true,
         ])->assertCreated()->json('data.id');
@@ -914,6 +1055,40 @@ class EventsApiTest extends TestCase
         $admin->forceFill(['active_organizacion_id' => $organizacionId])->save();
         $admin->clearPermissionCache();
         Sanctum::actingAs($admin->fresh());
+    }
+
+    private function directorUser(Organizacion $org, string $email): User
+    {
+        $persona = Persona::query()->create([
+            'tipo_identificacion' => 'CC',
+            'identificacion' => 'ID'.random_int(100000, 999999).uniqid(),
+            'nombre1' => 'Director',
+            'apellido1' => 'Club',
+            'correo' => $email,
+        ]);
+        $membership = PersonaOrganizacion::query()->create([
+            'persona_id' => $persona->id,
+            'organizacion_id' => $org->id,
+            'fecha_inicio' => now()->toDateString(),
+            'estado' => true,
+        ]);
+        $roleId = (int) Role::query()->where('name', 'director')->value('id');
+        PersonaOrganizacionRol::query()->create([
+            'persona_organizacion_id' => $membership->id,
+            'rol_id' => $roleId,
+        ]);
+
+        $user = User::factory()->create([
+            'email' => $email,
+            'persona_id' => $persona->id,
+        ]);
+        $user->forceFill([
+            'active_organizacion_id' => $org->id,
+            'active_rol_id' => $roleId,
+        ])->save();
+        $user->clearPermissionCache();
+
+        return $user->fresh();
     }
 
     private function personaInClub(int $organizacionId): Persona

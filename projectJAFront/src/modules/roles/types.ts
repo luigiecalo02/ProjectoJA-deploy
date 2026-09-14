@@ -5,6 +5,8 @@ export interface RolePermission {
   action?: string
 }
 
+export type PageFront = 'project' | 'clubes' | 'ambos'
+
 export interface RolePage {
   id: number
   key: string
@@ -12,7 +14,28 @@ export interface RolePage {
   route_name: string | null
   icon: string | null
   description: string | null
+  front: PageFront
+  is_system?: boolean
   permissions: RolePermission[]
+}
+
+export interface MenuPage {
+  id: number
+  key: string
+  name: string
+  route_name: string | null
+  icon: string | null
+  sort_order: number
+  front: PageFront
+}
+
+export interface PageFormPayload {
+  key: string
+  name: string
+  route_name?: string | null
+  icon?: string | null
+  front: PageFront
+  description?: string | null
 }
 
 export interface ManagedRole {

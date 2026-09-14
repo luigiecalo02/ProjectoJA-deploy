@@ -190,13 +190,21 @@ const routes: RouteRecordRaw[] = [
         path: 'events/create',
         name: 'events.create',
         component: () => import('@/pages/events/EventFormPage.vue'),
-        meta: { permission: 'events.create', titleKey: 'events.wizard.createTitle', backTo: { name: 'events' } },
+        meta: {
+          permissionsAny: ['events.create', 'events.create_organization'],
+          titleKey: 'events.wizard.createTitle',
+          backTo: { name: 'events' },
+        },
       },
       {
         path: 'events/:id/edit',
         name: 'events.edit',
         component: () => import('@/pages/events/EventFormPage.vue'),
-        meta: { permission: 'events.update', titleKey: 'events.edit', backTo: { name: 'events' } },
+        meta: {
+          permissionsAny: ['events.update', 'events.create', 'events.create_organization'],
+          titleKey: 'events.edit',
+          backTo: { name: 'events' },
+        },
       },
       {
         path: 'events/:id/participate',

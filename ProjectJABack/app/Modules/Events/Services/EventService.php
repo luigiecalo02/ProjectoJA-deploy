@@ -95,6 +95,16 @@ final class EventService
             $this->eagerLoadHijosTree($query, 6);
         }
 
+        $proximos = filter_var($filters['proximos'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($proximos) {
+            $query
+                ->where(function (Builder $inner) {
+                    $inner->whereNull('ends_at')
+                        ->orWhere('ends_at', '>=', now()->startOfDay());
+                })
+                ->whereNotIn('estado', [Event::ESTADO_CERRADO, Event::ESTADO_CANCELADO]);
+        }
+
         if (! empty($filters['evento_padre_id'])) {
             return $query
                 ->orderBy('orden')
@@ -103,7 +113,8 @@ final class EventService
         }
 
         return $query
-            ->orderByDesc('starts_at')
+            ->when($proximos, fn (Builder $inner) => $inner->orderBy('starts_at'))
+            ->when(! $proximos, fn (Builder $inner) => $inner->orderByDesc('starts_at'))
             ->paginate($perPage);
     }
 
@@ -358,7 +369,9 @@ final class EventService
 
         $this->assertValidDates((string) $data['starts_at'], (string) $data['ends_at']);
         $this->assertHierarchyAndSiteDates($data, null);
+        $this->constrainToOwnOrganization($actor, $data, $orgIds, $tipoIds);
         $this->applyHomeOrganization($actor, $data, $orgIds);
+        $this->assertOrganizationBoundForVisibility($data, $orgIds);
         $this->assertActorCanAssignOrganizations($actor, $data['organizacion_id'] ?? null, $orgIds);
         if (is_array($juezIds)) {
             $this->assertUsersHaveRole($juezIds, 'juez', 'juez_ids');
@@ -435,6 +448,17 @@ final class EventService
 
     public function update(Event $event, User $actor, array $data): Event
     {
+        if ($this->actorCreatesOnlyInOwnOrganization($actor)) {
+            unset(
+                $data['visibilidad'],
+                $data['organizacion_id'],
+                $data['organizacion_ids'],
+                $data['tipo_organizacion_ids'],
+                $data['audiencia'],
+                $data['audiencia_keys'],
+            );
+        }
+
         $hasOrgs = array_key_exists('organizacion_ids', $data);
         $hasTipos = array_key_exists('tipo_organizacion_ids', $data)
             || array_key_exists('audiencia', $data)
@@ -753,6 +777,7 @@ final class EventService
         ]);
 
         $old = [$column => $event->{$column}];
+        $event->offsetUnset('juez_conflicts');
         $event->update([$column => $url]);
         $this->auditLogger->log('events', $auditAction, $old, [$column => $url], $event);
 
@@ -1092,6 +1117,62 @@ final class EventService
         }
 
         return array_values(array_unique($ids));
+    }
+
+    private function actorCreatesOnlyInOwnOrganization(User $actor): bool
+    {
+        return $actor->hasPermission(Event::PERMISSION_CREATE_ORGANIZATION)
+            && ! $actor->hasPermission(Event::PERMISSION_CREATE);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  list<int>  $orgIds
+     * @param  list<int>  $tipoIds
+     */
+    private function constrainToOwnOrganization(User $actor, array &$data, array &$orgIds, array &$tipoIds): void
+    {
+        if (! $this->actorCreatesOnlyInOwnOrganization($actor)) {
+            return;
+        }
+
+        $homeId = $this->orgAccess->homeOrganizationId($actor);
+        if ($homeId === null) {
+            throw ValidationException::withMessages([
+                'organizacion_id' => ['Debes tener una organización activa para crear el evento.'],
+            ]);
+        }
+
+        $data['organizacion_id'] = $homeId;
+        $data['visibilidad'] = Event::VISIBILIDAD_ORGANIZACION;
+        $orgIds = [$homeId];
+        $tipoIds = [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  list<int>  $orgIds
+     */
+    private function assertOrganizationBoundForVisibility(array &$data, array &$orgIds): void
+    {
+        $visibilidad = $data['visibilidad'] ?? Event::VISIBILIDAD_ORGANIZACION;
+        if ($visibilidad !== Event::VISIBILIDAD_ORGANIZACION) {
+            return;
+        }
+
+        if (empty($data['organizacion_id']) && $orgIds !== []) {
+            $data['organizacion_id'] = $orgIds[0];
+        }
+
+        if ($orgIds === [] && ! empty($data['organizacion_id'])) {
+            $orgIds = [(int) $data['organizacion_id']];
+        }
+
+        if (empty($data['organizacion_id']) && $orgIds === []) {
+            throw ValidationException::withMessages([
+                'organizacion_id' => ['Un evento solo para la organización debe quedar ligado a una organización.'],
+            ]);
+        }
     }
 
     /**

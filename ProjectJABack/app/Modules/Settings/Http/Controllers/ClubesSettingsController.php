@@ -2,6 +2,7 @@
 
 namespace App\Modules\Settings\Http\Controllers;
 
+use App\Modules\Events\Models\Event;
 use App\Modules\Settings\Services\ClubesSettingsService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -38,6 +39,8 @@ final class ClubesSettingsController
             'subtitle' => ['required', 'string', 'max:160'],
             'motto' => ['required', 'string', 'max:120'],
             'values' => ['required', 'string', 'max:160'],
+            'color_principal' => ['nullable', 'string', 'max:20', 'regex:/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/'],
+            'color_secundario' => ['nullable', 'string', 'max:20', 'regex:/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/'],
         ]);
 
         return ApiResponse::success(
@@ -65,5 +68,68 @@ final class ClubesSettingsController
             $this->clubesSettings->resetAsset($asset, $request->user()),
             'Imagen restaurada',
         );
+    }
+
+    public function storeEvent(Request $request): JsonResponse
+    {
+        abort_unless(
+            $request->header('X-Clubes-Client') === 'clubes',
+            403,
+            'Este evento solo se puede crear desde el front de Clubes.',
+        );
+
+        $data = $this->validateEvent($request);
+
+        return ApiResponse::success(
+            $this->clubesSettings->createEvent(
+                $request->user(),
+                $data,
+                $request->file('logo'),
+                $request->file('banner'),
+            ),
+            'Evento creado',
+            201,
+        );
+    }
+
+    public function updateEvent(Request $request, Event $event): JsonResponse
+    {
+        abort_unless(
+            $request->header('X-Clubes-Client') === 'clubes',
+            403,
+            'Este evento solo se puede actualizar desde el front de Clubes.',
+        );
+
+        $data = $this->validateEvent($request);
+
+        return ApiResponse::success(
+            $this->clubesSettings->updateEvent(
+                $request->user(),
+                $event,
+                $data,
+                $request->file('logo'),
+                $request->file('banner'),
+            ),
+            'Evento actualizado',
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validateEvent(Request $request): array
+    {
+        return $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'descripcion' => ['nullable', 'string'],
+            'lugar' => ['nullable', 'string', 'max:255'],
+            'starts_at' => ['required', 'date'],
+            'ends_at' => ['required', 'date', 'after_or_equal:starts_at'],
+            'tipo_evento_id' => ['nullable', 'integer', 'exists:tipo_evento,id'],
+            'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'banner' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
+            'remove_logo' => ['sometimes', 'boolean'],
+            'remove_banner' => ['sometimes', 'boolean'],
+        ]);
     }
 }

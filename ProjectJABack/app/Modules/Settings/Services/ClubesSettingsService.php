@@ -3,6 +3,9 @@
 namespace App\Modules\Settings\Services;
 
 use App\Models\User;
+use App\Modules\Clubs\Models\Club;
+use App\Modules\Events\Models\Event;
+use App\Modules\Events\Services\EventService;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Settings\Models\AppSetting;
 use App\Modules\Shared\Models\StoredFile;
@@ -18,6 +21,7 @@ final class ClubesSettingsService
         private readonly BrandSettingsService $brandSettings,
         private readonly ImageOptimizer $imageOptimizer,
         private readonly AuditLogger $auditLogger,
+        private readonly EventService $eventService,
     ) {}
 
     /**
@@ -177,11 +181,158 @@ final class ClubesSettingsService
             'logo_path' => $current['logo_path'] ?? null,
             'background_path' => $current['background_path'] ?? null,
             'banner_path' => $current['banner_path'] ?? null,
+            'color_principal' => $data['color_principal'] ?? $current['color_principal'] ?? null,
+            'color_secundario' => $data['color_secundario'] ?? $current['color_secundario'] ?? null,
         ]);
         $settings->updated_by = $actor->id;
         $settings->save();
+        $this->syncClubColors($settings);
 
         return $this->payload($settings, false);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function createEvent(
+        User $actor,
+        array $data,
+        ?UploadedFile $logo = null,
+        ?UploadedFile $banner = null,
+    ): array {
+        $organizacionId = $this->assertCanWriteClubEvent($actor);
+
+        $event = $this->eventService->create($actor, [
+            'name' => $data['name'],
+            'descripcion' => $data['descripcion'] ?? null,
+            'lugar' => $data['lugar'] ?? null,
+            'starts_at' => $data['starts_at'],
+            'ends_at' => $data['ends_at'],
+            'tipo_evento_id' => $data['tipo_evento_id'] ?? null,
+            'organizacion_id' => $organizacionId,
+            'organizacion_ids' => [$organizacionId],
+            'estado' => Event::ESTADO_PUBLICADO,
+            'visibilidad' => Event::VISIBILIDAD_ORGANIZACION,
+            'permite_inscripcion_club' => true,
+            'permite_inscripcion_organizacion' => true,
+            'permite_inscribir_no_participantes' => true,
+            'es_calificable' => false,
+        ]);
+
+        if ($logo) {
+            $event = $this->eventService->storeImage($event, $logo, $actor);
+        }
+        if ($banner) {
+            $event = $this->eventService->storeBanner($event, $banner, $actor);
+        }
+
+        return $this->eventPayload($event);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function updateEvent(
+        User $actor,
+        Event $event,
+        array $data,
+        ?UploadedFile $logo = null,
+        ?UploadedFile $banner = null,
+    ): array {
+        $organizacionId = $this->assertCanWriteClubEvent($actor);
+        abort_unless(
+            (int) $event->organizacion_id === $organizacionId,
+            Response::HTTP_FORBIDDEN,
+            'Este evento no pertenece a tu club.',
+        );
+
+        $payload = [
+            'name' => $data['name'],
+            'descripcion' => $data['descripcion'] ?? null,
+            'lugar' => $data['lugar'] ?? null,
+            'starts_at' => $data['starts_at'],
+            'ends_at' => $data['ends_at'],
+            'tipo_evento_id' => $data['tipo_evento_id'] ?? null,
+        ];
+        if (! $logo && ! empty($data['remove_logo'])) {
+            $payload['image_url'] = null;
+        }
+        if (! $banner && ! empty($data['remove_banner'])) {
+            $payload['banner_url'] = null;
+        }
+
+        $event = $this->eventService->update($event, $actor, $payload);
+
+        if ($logo) {
+            $event = $this->eventService->storeImage($event, $logo, $actor);
+        }
+        if ($banner) {
+            $event = $this->eventService->storeBanner($event, $banner, $actor);
+        }
+
+        return $this->eventPayload($event, (int) ($event->inscritos_count ?? 0));
+    }
+
+    private function assertCanWriteClubEvent(User $actor): int
+    {
+        abort_unless(
+            $this->actorIsDirectiva($actor)
+            || $actor->hasPermission(Event::PERMISSION_CREATE)
+            || $actor->hasPermission(Event::PERMISSION_CREATE_ORGANIZATION)
+            || $actor->hasPermission('events.view')
+            || $actor->hasPermission('events.update'),
+            Response::HTTP_FORBIDDEN,
+            'No tienes permiso para gestionar eventos desde este front.',
+        );
+
+        $organizacionId = AppSetting::resolveOrganizacionId();
+        abort_unless($organizacionId, Response::HTTP_FORBIDDEN, 'Debes tener una organización activa.');
+
+        return (int) $organizacionId;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function eventPayload(Event $event, int $inscritosCount = 0): array
+    {
+        $event->loadMissing(['organizacion:id,nombre,codigo', 'tipoEvento:id,nombre,slug,color,icono']);
+
+        return [
+            'id' => $event->id,
+            'name' => $event->name,
+            'descripcion' => $event->descripcion,
+            'lugar' => $event->lugar,
+            'starts_at' => $event->starts_at?->toIso8601String(),
+            'ends_at' => $event->ends_at?->toIso8601String(),
+            'estado' => $event->estado,
+            'visibilidad' => $event->visibilidad,
+            'image_url' => $event->image_url,
+            'banner_url' => $event->banner_url,
+            'es_calificable' => (bool) $event->es_calificable,
+            'permite_inscripcion_club' => (bool) $event->permite_inscripcion_club,
+            'permite_inscripcion_organizacion' => (bool) $event->permite_inscripcion_organizacion,
+            'permite_inscribir_no_participantes' => (bool) $event->permite_inscribir_no_participantes,
+            'organizacion' => $event->organizacion
+                ? [
+                    'id' => $event->organizacion->id,
+                    'nombre' => $event->organizacion->nombre,
+                    'codigo' => $event->organizacion->codigo,
+                ]
+                : null,
+            'tipo_evento' => $event->tipoEvento
+                ? [
+                    'id' => $event->tipoEvento->id,
+                    'nombre' => $event->tipoEvento->nombre,
+                    'slug' => $event->tipoEvento->slug,
+                    'color' => $event->tipoEvento->color,
+                    'icono' => $event->tipoEvento->icono,
+                ]
+                : null,
+            'inscritos_count' => $inscritosCount,
+        ];
     }
 
     private function actorIsDirector(?User $actor): bool
@@ -191,6 +342,20 @@ final class ClubesSettingsService
         }
 
         return in_array('director', $actor->roleNames(), true);
+    }
+
+    private function actorIsDirectiva(?User $actor): bool
+    {
+        if (! $actor || ! AppSetting::resolveOrganizacionId()) {
+            return false;
+        }
+
+        return count(array_intersect($actor->roleNames(), [
+            'director',
+            'subdirector',
+            'secretario',
+            'tesorero',
+        ])) > 0;
     }
 
     private function currentIfPresent(): ?AppSetting
@@ -306,6 +471,19 @@ final class ClubesSettingsService
         return $this->payload($settings, false);
     }
 
+    private function syncClubColors(AppSetting $settings): void
+    {
+        if (! $settings->organizacion_id) {
+            return;
+        }
+
+        $clubes = is_array($settings->clubes) ? $settings->clubes : [];
+        Club::query()->where('organizacion_id', $settings->organizacion_id)->update([
+            'color_principal' => $clubes['color_principal'] ?? null,
+            'color_secundario' => $clubes['color_secundario'] ?? null,
+        ]);
+    }
+
     private function assertCanManage(User $actor): void
     {
         abort_unless(
@@ -331,6 +509,8 @@ final class ClubesSettingsService
             'subtitle' => $normalized['subtitle'],
             'motto' => $normalized['motto'],
             'values' => $normalized['values'],
+            'color_principal' => $normalized['color_principal'],
+            'color_secundario' => $normalized['color_secundario'],
             'logo_url' => $this->fileUrl(is_string($normalized['logo_path'] ?? null) ? $normalized['logo_path'] : null),
             'background_url' => $this->fileUrl(is_string($normalized['background_path'] ?? null) ? $normalized['background_path'] : null),
             'banner_url' => $this->fileUrl(is_string($normalized['banner_path'] ?? null) ? $normalized['banner_path'] : null),

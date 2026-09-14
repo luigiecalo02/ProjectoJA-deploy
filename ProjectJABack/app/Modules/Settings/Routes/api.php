@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Settings\Http\Controllers\BrandSettingsController;
+use App\Modules\Settings\Http\Controllers\ClubesAttendanceController;
 use App\Modules\Settings\Http\Controllers\ClubesSettingsController;
 use App\Modules\Settings\Http\Controllers\CuentaBancariaController;
 use App\Modules\Settings\Http\Controllers\MailSettingsController;
@@ -17,6 +18,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('settings/clubes', [ClubesSettingsController::class, 'update']);
     Route::post('settings/clubes/assets/{asset}', [ClubesSettingsController::class, 'uploadAsset']);
     Route::delete('settings/clubes/assets/{asset}', [ClubesSettingsController::class, 'resetAsset']);
+    Route::post('settings/clubes/events', [ClubesSettingsController::class, 'storeEvent']);
+    Route::post('settings/clubes/events/{event}', [ClubesSettingsController::class, 'updateEvent']);
+    Route::get('settings/clubes/asistencia/eventos', [ClubesAttendanceController::class, 'events']);
+    Route::get('settings/clubes/asistencia/resumen', [ClubesAttendanceController::class, 'ranking']);
+    Route::get('settings/clubes/asistencia/{event}', [ClubesAttendanceController::class, 'show']);
+    Route::put('settings/clubes/asistencia/{event}', [ClubesAttendanceController::class, 'sync']);
     Route::get('settings/mail', [MailSettingsController::class, 'show']);
     Route::put('settings/mail', [MailSettingsController::class, 'update']);
     Route::post('settings/mail/test', [MailSettingsController::class, 'test']);

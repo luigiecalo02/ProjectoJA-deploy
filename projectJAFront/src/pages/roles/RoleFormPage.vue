@@ -8,13 +8,21 @@ import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Checkbox from 'primevue/checkbox'
 import Select from 'primevue/select'
+import Dialog from 'primevue/dialog'
+import Tabs from 'primevue/tabs'
+import TabList from 'primevue/tablist'
+import Tab from 'primevue/tab'
+import TabPanels from 'primevue/tabpanels'
+import TabPanel from 'primevue/tabpanel'
+import Tag from 'primevue/tag'
 import Message from 'primevue/message'
 import PageLoader from '@/components/PageLoader.vue'
 import { rolesService } from '@/services/rolesService'
+import { pagesService } from '@/services/pagesService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
-import type { RolePage } from '@/modules/roles/types'
+import type { PageFront, RolePage } from '@/modules/roles/types'
 import { primeIconOptions } from '@/utils/primeIcons'
 
 const { t } = useI18n()
@@ -31,6 +39,32 @@ const saving = ref(false)
 const pages = ref<RolePage[]>([])
 const isSuper = ref(false)
 const formError = ref('')
+const activeFrontTab = ref<'project' | 'clubes'>('project')
+const creatingPage = ref(false)
+const pageDialogVisible = ref(false)
+const pageForm = reactive({
+  name: '',
+  key: '',
+  route_name: '',
+  icon: null as string | null,
+  front: 'project' as PageFront,
+})
+
+const frontOptions = computed(() => [
+  { label: t('roles.frontProject'), value: 'project' as const },
+  { label: t('roles.frontClubes'), value: 'clubes' as const },
+  { label: t('roles.frontAmbos'), value: 'ambos' as const },
+])
+
+const canManagePages = computed(() => can('roles.update') && !isSuper.value)
+
+const visiblePages = computed(() =>
+  pages.value.filter((page) => {
+    const front = page.front || 'project'
+    if (front === 'ambos') return true
+    return front === activeFrontTab.value
+  }),
+)
 
 const form = reactive({
   display_name: '',
@@ -67,6 +101,63 @@ function togglePage(page: RolePage, checked: boolean): void {
   }
 }
 
+function frontLabel(front: PageFront): string {
+  if (front === 'clubes') return t('roles.frontClubes')
+  if (front === 'ambos') return t('roles.frontAmbos')
+  return t('roles.frontProject')
+}
+
+function openNewPage(): void {
+  pageForm.name = ''
+  pageForm.key = ''
+  pageForm.route_name = ''
+  pageForm.icon = null
+  pageForm.front = activeFrontTab.value
+  pageDialogVisible.value = true
+}
+
+async function saveNewPage(): Promise<void> {
+  if (!canManagePages.value) return
+  creatingPage.value = true
+  try {
+    const created = await pagesService.create({
+      name: pageForm.name.trim(),
+      key: pageForm.key.trim(),
+      route_name: pageForm.route_name.trim() || null,
+      icon: pageForm.icon,
+      front: pageForm.front,
+    })
+    pages.value = [...pages.value, created]
+    pageDialogVisible.value = false
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('roles.pageCreated'),
+      life: 2500,
+    })
+  } catch (error) {
+    formError.value = getApiErrorMessage(error)
+  } finally {
+    creatingPage.value = false
+  }
+}
+
+async function changePageFront(page: RolePage, front: PageFront): Promise<void> {
+  if (!canManagePages.value || page.front === front) return
+  try {
+    const updated = await pagesService.updateFront(page.id, front)
+    pages.value = pages.value.map((item) => (item.id === page.id ? { ...item, ...updated } : item))
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('roles.frontUpdated'),
+      life: 2000,
+    })
+  } catch (error) {
+    formError.value = getApiErrorMessage(error)
+  }
+}
+
 function togglePermission(id: number, checked: boolean): void {
   if (checked) {
     if (!form.permission_ids.includes(id)) {
@@ -85,7 +176,7 @@ async function load(): Promise<void> {
       rolesService.pages(),
       isEdit.value ? rolesService.get(roleId.value) : Promise.resolve(null),
     ])
-    pages.value = pagesData
+    pages.value = pagesData.map((page) => ({ ...page, front: page.front || 'project' }))
 
     if (role) {
       form.display_name = role.display_name
@@ -249,13 +340,34 @@ onMounted(() => {
 
       <div class="permissions-block">
         <div class="permissions-block__head">
-          <h2>{{ t('roles.pagesTitle') }}</h2>
-          <p class="pj-muted">{{ t('roles.pagesHint') }}</p>
+          <div>
+            <h2>{{ t('roles.pagesTitle') }}</h2>
+            <p class="pj-muted">{{ t('roles.pagesHint') }}</p>
+          </div>
+          <Button
+            v-if="canManagePages"
+            type="button"
+            :label="t('roles.newPage')"
+            icon="pi pi-plus"
+            outlined
+            @click="openNewPage"
+          />
         </div>
 
-        <div v-if="!pages.length" class="pj-muted">{{ t('roles.noPages') }}</div>
+        <Tabs v-model:value="activeFrontTab" class="front-tabs">
+          <TabList>
+            <Tab value="project">{{ t('roles.tabProject') }}</Tab>
+            <Tab value="clubes">{{ t('roles.tabClubes') }}</Tab>
+          </TabList>
+          <TabPanels>
+            <TabPanel value="project" />
+            <TabPanel value="clubes" />
+          </TabPanels>
+        </Tabs>
 
-        <article v-for="page in pages" :key="page.id" class="page-card">
+        <div v-if="!visiblePages.length" class="pj-muted empty-tab">{{ t('roles.emptyTab') }}</div>
+
+        <article v-for="page in visiblePages" :key="page.id" class="page-card">
           <header class="page-card__header">
             <div class="page-card__title">
               <i v-if="page.icon" :class="page.icon" />
@@ -263,6 +375,7 @@ onMounted(() => {
                 <strong>{{ page.name }}</strong>
                 <span class="pj-muted">{{ page.key }}</span>
               </div>
+              <Tag :value="frontLabel(page.front)" severity="secondary" />
             </div>
             <div class="page-card__select-all" v-if="canEditPermissions && !isSuper">
               <Checkbox
@@ -277,6 +390,19 @@ onMounted(() => {
           </header>
 
           <p v-if="page.description" class="page-card__desc">{{ page.description }}</p>
+
+          <div v-if="canManagePages" class="page-card__front">
+            <label :for="`front-${page.id}`">{{ t('roles.pageFront') }}</label>
+            <Select
+              :input-id="`front-${page.id}`"
+              :model-value="page.front"
+              :options="frontOptions"
+              option-label="label"
+              option-value="value"
+              class="front-select"
+              @update:model-value="(value: PageFront) => changePageFront(page, value)"
+            />
+          </div>
 
           <div class="page-card__perms">
             <label
@@ -299,6 +425,74 @@ onMounted(() => {
           </div>
         </article>
       </div>
+
+      <Dialog
+        v-model:visible="pageDialogVisible"
+        modal
+        :header="t('roles.newPageTitle')"
+        class="page-dialog"
+      >
+        <div class="field">
+          <label for="page-name">{{ t('roles.pageName') }}</label>
+          <InputText id="page-name" v-model="pageForm.name" class="w-full" />
+        </div>
+        <div class="field">
+          <label for="page-key">{{ t('roles.pageKey') }}</label>
+          <InputText id="page-key" v-model="pageForm.key" class="w-full" />
+        </div>
+        <div class="field">
+          <label for="page-route">{{ t('roles.pageRoute') }}</label>
+          <InputText id="page-route" v-model="pageForm.route_name" class="w-full" />
+        </div>
+        <div class="field">
+          <label for="page-icon">{{ t('roles.icon') }}</label>
+          <Select
+            id="page-icon"
+            v-model="pageForm.icon"
+            :options="primeIconOptions"
+            option-label="label"
+            option-value="value"
+            :placeholder="t('roles.iconPlaceholder')"
+            filter
+            show-clear
+            class="w-full icon-select"
+          >
+            <template #value="{ value, placeholder }">
+              <span v-if="value" class="icon-select__value">
+                <i :class="value" aria-hidden="true" />
+                <span>{{ value.replace(/^pi pi-/, '') }}</span>
+              </span>
+              <span v-else class="pj-muted">{{ placeholder }}</span>
+            </template>
+            <template #option="{ option }">
+              <span class="icon-select__option">
+                <i :class="option.value" aria-hidden="true" />
+                <span>{{ option.label }}</span>
+              </span>
+            </template>
+          </Select>
+        </div>
+        <div class="field">
+          <label for="page-front">{{ t('roles.pageFront') }}</label>
+          <Select
+            id="page-front"
+            v-model="pageForm.front"
+            :options="frontOptions"
+            option-label="label"
+            option-value="value"
+            class="w-full front-select"
+          />
+        </div>
+        <template #footer>
+          <Button :label="t('common.cancel')" text @click="pageDialogVisible = false" />
+          <Button
+            :label="t('common.create')"
+            :loading="creatingPage"
+            :disabled="!pageForm.name.trim() || !pageForm.key.trim()"
+            @click="saveNewPage"
+          />
+        </template>
+      </Dialog>
 
       <div class="form-actions">
         <Button type="button" :label="t('common.cancel')" text @click="router.push({ name: 'roles' })" />
@@ -357,9 +551,52 @@ onMounted(() => {
   width: 100%;
 }
 
+.permissions-block__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .permissions-block__head h2 {
   margin: 0 0 0.25rem;
   font-size: 1.1rem;
+}
+
+.front-tabs {
+  margin-top: 0.75rem;
+}
+
+.front-tabs :deep(.p-tabpanels) {
+  display: none;
+}
+
+.empty-tab {
+  margin-top: 0.85rem;
+}
+
+.page-card__front {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.85rem;
+  max-width: 16rem;
+}
+
+.front-select,
+.front-select :deep(.p-select-label),
+.page-dialog :deep(.p-inputtext),
+.page-dialog :deep(.p-select-label) {
+  color: var(--p-form-field-color, #071e48);
+}
+
+.page-dialog {
+  width: min(28rem, 94vw);
+}
+
+.page-dialog .field {
+  margin-bottom: 0.85rem;
 }
 
 .page-card {

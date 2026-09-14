@@ -15,6 +15,7 @@ import { usePermission } from '@/composables/usePermission'
 import { useFieldModeStore } from '@/stores/fieldMode'
 import FieldModeBanner from '@/components/fieldMode/FieldModeBanner.vue'
 import { brandConfig } from '@/config/brand'
+import { pagesService } from '@/services/pagesService'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -24,6 +25,7 @@ const theme = useThemeStore()
 const brand = useBrandStore()
 const { can } = usePermission()
 const fieldMode = useFieldModeStore()
+const menuRouteNames = ref<Set<string> | null>(null)
 
 const drawerOpen = ref(false)
 const loggingOut = ref(false)
@@ -110,37 +112,42 @@ function toggleChromeMenu(event: Event): void {
   chromeMenu.value?.toggle(event)
 }
 
+function inProjectMenu(routeName: string): boolean {
+  if (!menuRouteNames.value) return true
+  return menuRouteNames.value.has(routeName)
+}
+
 const navItems = computed(() => {
   const items = [
-    { to: { name: 'dashboard' }, label: t('nav.dashboard'), icon: 'pi pi-home', show: can('dashboard.view') },
-    { to: { name: 'users' }, label: t('nav.users'), icon: 'pi pi-users', show: can('users.view') },
-    { to: { name: 'roles' }, label: t('nav.roles'), icon: 'pi pi-shield', show: can('roles.view') },
-    { to: { name: 'settings.platform' }, label: t('nav.settingsBrand'), icon: 'pi pi-cog', show: can('settings.view') },
-    { to: { name: 'clubs' }, label: t('nav.clubs'), icon: 'pi pi-building', show: can('clubs.view') },
-    { to: { name: 'mi-club' }, label: t('nav.miClub'), icon: 'pi pi-flag', show: can('mi_club.view') },
-    { to: { name: 'organizaciones' }, label: t('nav.organizaciones'), icon: 'pi pi-sitemap', show: can('organizaciones.view') },
-    { to: { name: 'personas' }, label: t('nav.personas'), icon: 'pi pi-id-card', show: can('personas.view') },
-    { to: { name: 'integrantes' }, label: t('nav.integrantes'), icon: 'pi pi-users', show: can('integrantes.view') },
-    { to: { name: 'events' }, label: t('nav.events'), icon: 'pi pi-calendar', show: can('events.view') },
+    { to: { name: 'dashboard' }, label: t('nav.dashboard'), icon: 'pi pi-home', show: can('dashboard.view') && inProjectMenu('dashboard') },
+    { to: { name: 'users' }, label: t('nav.users'), icon: 'pi pi-users', show: can('users.view') && inProjectMenu('users') },
+    { to: { name: 'roles' }, label: t('nav.roles'), icon: 'pi pi-shield', show: can('roles.view') && inProjectMenu('roles') },
+    { to: { name: 'settings.platform' }, label: t('nav.settingsBrand'), icon: 'pi pi-cog', show: can('settings.view') && inProjectMenu('settings.platform') },
+    { to: { name: 'clubs' }, label: t('nav.clubs'), icon: 'pi pi-building', show: can('clubs.view') && inProjectMenu('clubs') },
+    { to: { name: 'mi-club' }, label: t('nav.miClub'), icon: 'pi pi-flag', show: can('mi_club.view') && inProjectMenu('mi-club') },
+    { to: { name: 'organizaciones' }, label: t('nav.organizaciones'), icon: 'pi pi-sitemap', show: can('organizaciones.view') && inProjectMenu('organizaciones') },
+    { to: { name: 'personas' }, label: t('nav.personas'), icon: 'pi pi-id-card', show: can('personas.view') && inProjectMenu('personas') },
+    { to: { name: 'integrantes' }, label: t('nav.integrantes'), icon: 'pi pi-users', show: can('integrantes.view') && inProjectMenu('integrantes') },
+    { to: { name: 'events' }, label: t('nav.events'), icon: 'pi pi-calendar', show: can('events.view') && inProjectMenu('events') },
     {
       to: { name: 'eventsCatalogos' },
       label: t('nav.eventsCatalogos'),
       icon: 'pi pi-tags',
-      show: can('events.update'),
+      show: can('events.update') && inProjectMenu('events'),
     },
     {
       to: { name: 'segurosConsulta' },
       label: t('nav.segurosConsulta'),
       icon: 'pi pi-shield',
-      show: can('seguros_consulta.view'),
+      show: can('seguros_consulta.view') && inProjectMenu('segurosConsulta'),
     },
     {
       to: { name: 'productosServicios' },
       label: t('nav.productosServicios'),
       icon: 'pi pi-box',
-      show: can('productos_servicios.view'),
+      show: can('productos_servicios.view') && inProjectMenu('productosServicios'),
     },
-    { to: { name: 'lugares' }, label: t('nav.lugares'), icon: 'pi pi-map-marker', show: can('lugares.view') },
+    { to: { name: 'lugares' }, label: t('nav.lugares'), icon: 'pi pi-map-marker', show: can('lugares.view') && inProjectMenu('lugares') },
   ]
   return items.filter((item) => item.show)
 })
@@ -218,11 +225,38 @@ function openContextSwitch(): void {
   void changeContext()
 }
 
+async function loadProjectMenu(): Promise<void> {
+  if (!auth.isAuthenticated) {
+    menuRouteNames.value = null
+    return
+  }
+  try {
+    const items = await pagesService.menu()
+    menuRouteNames.value = new Set(
+      items.map((item) => item.route_name).filter((name): name is string => Boolean(name)),
+    )
+  } catch {
+    menuRouteNames.value = null
+  }
+}
+
+watch(
+  () => [
+    auth.isAuthenticated,
+    auth.contexto?.rol_id,
+    auth.contexto?.organizacion_id,
+  ],
+  () => {
+    void loadProjectMenu()
+  },
+)
+
 onMounted(() => {
   mobileMedia = window.matchMedia('(max-width: 899px)')
   syncMobileChrome(mobileMedia)
   mobileMedia.addEventListener('change', syncMobileChrome)
   void fieldMode.init()
+  void loadProjectMenu()
 })
 
 onBeforeUnmount(() => {

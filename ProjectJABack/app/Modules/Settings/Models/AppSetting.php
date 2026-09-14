@@ -331,6 +331,8 @@ class AppSetting extends Model
             'logo_path' => null,
             'background_path' => null,
             'banner_path' => null,
+            'color_principal' => null,
+            'color_secundario' => null,
         ];
     }
 
@@ -353,7 +355,29 @@ class AppSetting extends Model
             'logo_path' => self::normalizeClubesAssetPath($data['logo_path'] ?? null),
             'background_path' => self::normalizeClubesAssetPath($data['background_path'] ?? null),
             'banner_path' => self::normalizeClubesAssetPath($data['banner_path'] ?? null),
+            'color_principal' => self::normalizeHexColor($data['color_principal'] ?? null),
+            'color_secundario' => self::normalizeHexColor($data['color_secundario'] ?? null),
         ];
+    }
+
+    public static function normalizeHexColor(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+        if (preg_match('/^#([0-9a-fA-F]{3})$/', $value, $match) === 1) {
+            $digits = $match[1];
+
+            return strtolower('#'.$digits[0].$digits[0].$digits[1].$digits[1].$digits[2].$digits[2]);
+        }
+
+        if (preg_match('/^#([0-9a-fA-F]{6})$/', $value) === 1) {
+            return strtolower($value);
+        }
+
+        return null;
     }
 
     public static function isClubesAssetKey(string $key): bool
