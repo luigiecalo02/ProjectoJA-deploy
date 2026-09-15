@@ -2,6 +2,7 @@
 
 namespace App\Modules\Settings\Http\Controllers;
 
+use App\Models\User;
 use App\Modules\Settings\Services\MailSettingsService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -14,14 +15,14 @@ final class MailSettingsController
 
     public function show(Request $request): JsonResponse
     {
-        abort_unless($request->user()?->hasPermission('settings.view'), Response::HTTP_FORBIDDEN);
+        $this->assertCanView($request);
 
         return ApiResponse::success($this->mailSettings->publicConfig());
     }
 
     public function update(Request $request): JsonResponse
     {
-        abort_unless($request->user()?->hasPermission('settings.update'), Response::HTTP_FORBIDDEN);
+        $this->assertCanUpdate($request);
 
         $data = $request->validate([
             'host' => ['required', 'string', 'max:255'],
@@ -38,7 +39,7 @@ final class MailSettingsController
 
     public function test(Request $request): JsonResponse
     {
-        abort_unless($request->user()?->hasPermission('settings.update'), Response::HTTP_FORBIDDEN);
+        $this->assertCanUpdate($request);
 
         $data = $request->validate([
             'to' => ['required', 'email', 'max:255'],
@@ -47,5 +48,31 @@ final class MailSettingsController
         $this->mailSettings->sendTest($data['to']);
 
         return ApiResponse::success(null, 'Correo de prueba enviado');
+    }
+
+    private function assertCanView(Request $request): void
+    {
+        $user = $request->user();
+        abort_unless($user, Response::HTTP_FORBIDDEN);
+        if ($user->hasPermission('settings.view') || $user->hasPermission('settings.update')) {
+            return;
+        }
+        abort_unless($this->clubesDirector($request, $user), Response::HTTP_FORBIDDEN);
+    }
+
+    private function assertCanUpdate(Request $request): void
+    {
+        $user = $request->user();
+        abort_unless($user, Response::HTTP_FORBIDDEN);
+        if ($user->hasPermission('settings.update')) {
+            return;
+        }
+        abort_unless($this->clubesDirector($request, $user), Response::HTTP_FORBIDDEN);
+    }
+
+    private function clubesDirector(Request $request, User $user): bool
+    {
+        return $request->header('X-Clubes-Client') === 'clubes'
+            && in_array('director', $user->roleNames(), true);
     }
 }

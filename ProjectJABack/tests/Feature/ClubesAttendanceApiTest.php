@@ -57,6 +57,17 @@ class ClubesAttendanceApiTest extends TestCase
             'persona_id' => $member->id,
             'estado' => EventoAsistencia::ESTADO_PRESENTE,
         ]);
+
+        $ranking = $this->getJson('/api/v1/settings/clubes/asistencia/resumen', [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.eventos', 1)
+            ->json('data.integrantes');
+
+        $this->assertSame($director->persona_id, $ranking[0]['persona_id']);
+        $this->assertSame(0, $ranking[0]['porcentaje']);
+        $this->assertSame($member->id, $ranking[array_key_last($ranking)]['persona_id']);
+        $this->assertSame(100, $ranking[array_key_last($ranking)]['porcentaje']);
     }
 
     public function test_tesorero_cannot_view_attendance(): void

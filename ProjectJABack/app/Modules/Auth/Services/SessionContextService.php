@@ -20,6 +20,7 @@ final class SessionContextService
     public function __construct(
         private readonly OrganizationAccessService $orgAccess,
         private readonly PublicFileService $publicFiles,
+        private readonly ClubesTenantAccess $clubesTenant,
     ) {}
 
     /**
@@ -110,7 +111,7 @@ final class SessionContextService
             }
         }
 
-        return $options;
+        return $this->clubesTenant->filterOptions($user, $options);
     }
 
     /**
@@ -147,23 +148,40 @@ final class SessionContextService
 
     /**
      * Si solo hay una opción y no hay contexto, lo fija automáticamente.
+     * En Clubes también elige la org del enlace o la única org del tenant.
      */
-    public function ensureContext(User $user): User
+    public function ensureContext(User $user, ?int $preferredOrganizacionId = null): User
     {
         if ($this->current($user) !== null) {
             return $user;
         }
 
         $options = $this->options($user);
-        if (count($options) === 1) {
-            return $this->setContext(
-                $user,
-                $options[0]['organizacion_id'] ?? null,
-                (int) $options[0]['rol_id'],
-            );
+        $preferred = $preferredOrganizacionId ?: $this->preferredOrganizacionIdFromRequest();
+        $chosen = $this->autoOption($options, $preferred);
+        if (! $chosen) {
+            return $user;
         }
 
-        return $user;
+        return $this->setContext(
+            $user,
+            $chosen['organizacion_id'] ?? null,
+            (int) $chosen['rol_id'],
+        );
+    }
+
+    public function pinOrganization(User $user, int $organizacionId): User
+    {
+        $chosen = $this->autoOption($this->options($user), $organizacionId);
+        if (! $chosen) {
+            return $user;
+        }
+
+        return $this->setContext(
+            $user,
+            $chosen['organizacion_id'] ?? null,
+            (int) $chosen['rol_id'],
+        );
     }
 
     public function setContext(User $user, ?int $organizacionId, int $rolId): User
@@ -215,6 +233,97 @@ final class SessionContextService
         $user->clearPermissionCache();
 
         return $user->fresh();
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $options
+     * @return array<string, mixed>|null
+     */
+    private function autoOption(array $options, ?int $preferredOrganizacionId): ?array
+    {
+        if ($options === []) {
+            return null;
+        }
+
+        if (count($options) === 1) {
+            return $options[0];
+        }
+
+        $scoped = $preferredOrganizacionId
+            ? array_values(array_filter(
+                $options,
+                static fn (array $option): bool => (int) ($option['organizacion_id'] ?? 0) === $preferredOrganizacionId,
+            ))
+            : $options;
+
+        if ($scoped === []) {
+            $scoped = $options;
+        }
+
+        if (count($scoped) === 1) {
+            return $scoped[0];
+        }
+
+        $orgIds = array_unique(array_map(
+            static fn (array $option): int => (int) ($option['organizacion_id'] ?? 0),
+            $scoped,
+        ));
+        if (count($orgIds) === 1) {
+            return $this->bestOption($scoped);
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $options
+     * @return array<string, mixed>|null
+     */
+    private function bestOption(array $options): ?array
+    {
+        $rank = [
+            'director' => 100,
+            'subdirector' => 90,
+            'secretario' => 80,
+            'tesorero' => 70,
+            'miembro' => 50,
+            'invitado' => 10,
+        ];
+
+        $best = null;
+        $bestScore = -1;
+        foreach ($options as $option) {
+            $score = $rank[$option['rol_name'] ?? ''] ?? 40;
+            if (! empty($option['is_club'])) {
+                $score += 5;
+            }
+            if ($score > $bestScore) {
+                $best = $option;
+                $bestScore = $score;
+            }
+        }
+
+        return $best;
+    }
+
+    private function preferredOrganizacionIdFromRequest(): ?int
+    {
+        $request = request();
+        if (! $this->isClubesRequest()) {
+            return null;
+        }
+
+        $fromInput = (int) $request->input('organizacion_id');
+
+        return $fromInput > 0 ? $fromInput : null;
+    }
+
+    private function isClubesRequest(): bool
+    {
+        $request = request();
+
+        return $request instanceof \Illuminate\Http\Request
+            && $request->header('X-Clubes-Client') === 'clubes';
     }
 
     /**

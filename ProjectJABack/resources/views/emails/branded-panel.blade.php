@@ -3,10 +3,12 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ $title ?? 'ProjectJA' }}</title>
+    <title>{{ $title ?? ($brandName ?? 'ProjectJA') }}</title>
 </head>
 <body style="margin:0;padding:0;background:#dce6f4;font-family:Georgia,'Times New Roman',serif;">
 @php
+    $brandName = $brandName ?? 'ProjectJA';
+    $footer = $footer ?? 'ProjectJA · Clubes de Conquistadores, Aventureros y Guías Mayores';
     $heroCid = (! empty($heroPath) && is_file($heroPath)) ? $message->embed($heroPath) : null;
     $patternCid = (! empty($patternPath) && is_file($patternPath)) ? $message->embed($patternPath) : null;
     $logoCid = (! empty($logoPath) && is_file($logoPath)) ? $message->embed($logoPath) : null;
@@ -18,10 +20,10 @@
                 <tr>
                     <td style="background:#0b2f6b;height:168px;">
                         @if ($heroCid)
-                            <img src="{{ $heroCid }}" alt="ProjectJA" width="600" style="display:block;width:100%;max-height:200px;object-fit:cover;border:0;">
+                            <img src="{{ $heroCid }}" alt="{{ $brandName }}" width="600" style="display:block;width:100%;max-height:200px;object-fit:cover;border:0;">
                         @else
                             <div style="padding:48px 28px;color:#ffcc00;font-family:Arial,Helvetica,sans-serif;">
-                                <p style="margin:0 0 6px;font-size:13px;letter-spacing:2px;text-transform:uppercase;">ProjectJA</p>
+                                <p style="margin:0 0 6px;font-size:13px;letter-spacing:2px;text-transform:uppercase;">{{ $brandName }}</p>
                                 <h1 style="margin:0;font-size:28px;line-height:1.15;">{{ $line1 }} {{ $line2 }}</h1>
                             </div>
                         @endif
@@ -41,7 +43,7 @@
                             <tr>
                                 <td align="center" style="padding-bottom:18px;">
                                     @if ($logoCid)
-                                        <img src="{{ $logoCid }}" alt="ProjectJA" width="96" style="display:block;width:96px;height:auto;border:0;">
+                                        <img src="{{ $logoCid }}" alt="{{ $brandName }}" width="96" style="display:block;width:96px;height:auto;border:0;">
                                     @endif
                                 </td>
                             </tr>
@@ -68,7 +70,7 @@
                                     <p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:#4b5b76;">{{ $after }}</p>
                                     <p style="margin:0;font-size:15px;line-height:1.6;color:#0b2f6b;">
                                         Saludos,<br>
-                                        <strong>ProjectJA</strong>
+                                        <strong>{{ $brandName }}</strong>
                                     </p>
                                 </td>
                             </tr>
@@ -84,7 +86,7 @@
                 </tr>
                 <tr>
                     <td style="background:#0b2f6b;padding:14px 24px;text-align:center;font-family:Arial,Helvetica,sans-serif;color:#ffcc00;font-size:12px;">
-                        ProjectJA · Clubes de Conquistadores, Aventureros y Guías Mayores
+                        {{ $footer }}
                     </td>
                 </tr>
             </table>

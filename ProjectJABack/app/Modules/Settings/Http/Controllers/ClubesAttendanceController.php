@@ -19,6 +19,13 @@ final class ClubesAttendanceController
         return ApiResponse::success($this->attendance->listEvents($request->user()));
     }
 
+    public function ranking(Request $request): JsonResponse
+    {
+        $this->assertClubesClient($request);
+
+        return ApiResponse::success($this->attendance->ranking($request->user()));
+    }
+
     public function show(Request $request, Event $event): JsonResponse
     {
         $this->assertClubesClient($request);

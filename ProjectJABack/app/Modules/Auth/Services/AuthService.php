@@ -10,7 +10,10 @@ use Laravel\Socialite\Contracts\User as SocialiteUser;
 
 final class AuthService
 {
-    public function __construct(private readonly AuditLogger $auditLogger) {}
+    public function __construct(
+        private readonly AuditLogger $auditLogger,
+        private readonly ClubesTenantAccess $clubesTenant,
+    ) {}
 
     /**
      * @return array{user: User, token: string}
@@ -36,6 +39,8 @@ final class AuthService
                 'email' => ['La cuenta está desactivada.'],
             ]);
         }
+
+        $this->clubesTenant->assertUserMayEnter($user);
 
         $user->tokens()->delete();
         $token = $user->createToken('api')->plainTextToken;
@@ -89,6 +94,8 @@ final class AuthService
                 'email' => ['La cuenta está desactivada.'],
             ]);
         }
+
+        $this->clubesTenant->assertUserMayEnter($user);
 
         $user->tokens()->delete();
         $token = $user->createToken('api')->plainTextToken;

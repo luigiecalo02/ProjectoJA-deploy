@@ -3,10 +3,12 @@
 namespace App\Modules\Auth\Services;
 
 use App\Models\User;
+use App\Modules\Auth\Services\ClubesTenantAccess;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoInscripcion;
 use App\Modules\Settings\Services\MailSettingsService;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
@@ -27,7 +29,7 @@ final class AccountMailService
     /**
      * @return array{email: string, email_masked: string, sent: bool}
      */
-    public function requestPasswordReset(?string $email, ?string $identificacion): array
+    public function requestPasswordReset(?string $email, ?string $identificacion, ?int $organizacionId = null): array
     {
         $user = $this->findUserForRecovery($email, $identificacion);
         if (! $user) {
@@ -36,15 +38,27 @@ final class AccountMailService
             ]);
         }
 
-        $this->ensureConfigured();
-        $this->mailSettings->apply();
+        $tenant = app(ClubesTenantAccess::class);
+        $fromUser = $tenant->organizationIdForUser($user);
+        if ($fromUser) {
+            $organizacionId = $fromUser;
+        } elseif ($organizacionId) {
+            $tenant->assertInTenant($organizacionId);
+        } else {
+            $organizacionId = $tenant->rootId();
+        }
 
-        $status = Password::sendResetLink(['email' => $user->email]);
-        if ($status !== Password::RESET_LINK_SENT) {
+        $this->ensureConfigured($organizacionId);
+        $this->mailSettings->applyForOrganization($organizacionId);
+
+        $broker = Password::broker();
+        if ($broker->getRepository()->recentlyCreatedToken($user)) {
             throw ValidationException::withMessages([
-                'email' => ['No se pudo enviar el correo de recuperación.'],
+                'email' => ['Espera un momento antes de pedir otro enlace.'],
             ]);
         }
+
+        $user->sendPasswordResetNotification($broker->createToken($user));
 
         return [
             'email' => $user->email,
@@ -53,15 +67,35 @@ final class AccountMailService
         ];
     }
 
-    public function resetPassword(array $data): void
+    /**
+     * @return array{token: string, user: User}|null
+     */
+    public function resetPassword(array $data): ?array
     {
         $this->mailSettings->apply();
+        $issued = null;
 
         $status = Password::reset(
-            $data,
-            function (User $user, string $password) {
+            [
+                'email' => $data['email'],
+                'token' => $data['token'],
+                'password' => $data['password'],
+                'password_confirmation' => $data['password_confirmation'] ?? $data['password'],
+            ],
+            function (User $user, string $password) use (&$issued): void {
                 $user->forceFill(['password' => $password])->save();
                 $user->tokens()->delete();
+                $fresh = $user->fresh() ?? $user;
+                $orgId = app(ClubesTenantAccess::class)->organizationIdForUser($fresh);
+                if ($orgId) {
+                    $fresh = app(SessionContextService::class)->pinOrganization($fresh, $orgId);
+                }
+                if (request()?->header('X-Clubes-Client') === 'clubes') {
+                    $issued = [
+                        'token' => $fresh->createToken('api')->plainTextToken,
+                        'user' => $fresh,
+                    ];
+                }
             }
         );
 
@@ -70,30 +104,47 @@ final class AccountMailService
                 'email' => ['El enlace no es válido o ya expiró.'],
             ]);
         }
+
+        return $issued;
     }
 
-    public function sendVerification(User $user): void
+    public function sendVerification(User $user, ?int $organizacionId = null): bool
     {
         if ($user->email_verified_at) {
-            return;
-        }
-        if (! $this->mailSettings->isConfigured()) {
-            return;
+            return false;
         }
 
-        $this->mailSettings->apply();
+        $organizacionId = $this->resolveMailOrganizationId($user, $organizacionId);
+        if ($organizacionId) {
+            if (! $this->mailSettings->isConfiguredFor($organizacionId)) {
+                return false;
+            }
+            $this->mailSettings->applyForOrganization($organizacionId);
+        } else {
+            if (! $this->mailSettings->isConfigured()) {
+                return false;
+            }
+            $this->mailSettings->apply();
+        }
+
+        $layout = $this->brandedMail->layout($organizacionId);
+        $brand = $layout['brandName'] ?? 'ProjectJA';
         $url = $this->verificationUrl($user);
         Mail::send('emails.branded-panel', [
-            ...$this->brandedMail->layout(),
+            ...$layout,
             'title' => 'Confirma tu cuenta',
             'userName' => $user->name ?: 'amigo',
-            'intro' => 'Recibes este correo para confirmar tu cuenta de ProjectJA. Pulsa el botón para activarla. Si no lo haces, la cuenta permanecerá inactiva.',
+            'intro' => $this->isClubesClient()
+                ? 'Confirma tu correo para activar tu cuenta. Mientras no lo hagas, permanecerá inactiva.'
+                : 'Recibes este correo para confirmar tu cuenta de ProjectJA. Pulsa el botón para activarla. Si no lo haces, la cuenta permanecerá inactiva.',
             'buttonLabel' => 'Confirmar cuenta',
             'url' => $url,
             'after' => 'Si no creaste esta cuenta, no es necesario realizar ninguna otra acción. Si no encuentras este correo, revisa la bandeja de spam.',
-        ], function ($message) use ($user) {
-            $message->to($user->email)->subject('ProjectJA · Confirma tu cuenta');
+        ], function ($message) use ($user, $brand) {
+            $message->to($user->email)->subject($brand.' · Confirma tu cuenta');
         });
+
+        return true;
     }
 
     public function trySendVerification(User $user): void
@@ -347,29 +398,68 @@ final class AccountMailService
 
     private function markVerified(User $user): void
     {
-        $activate = $user->clubs()->where('clubes.is_active', true)->exists();
-
         $user->forceFill([
             'email_verified_at' => now(),
             'email_verification_code_hash' => null,
             'email_verification_expires_at' => null,
         ]);
-        if ($activate) {
+        if ($this->shouldActivateOnVerify($user)) {
             $user->is_active = true;
         }
         $user->save();
     }
 
-    private function verificationUrl(User $user): string
+    private function shouldActivateOnVerify(User $user): bool
     {
-        $front = rtrim((string) config('app.frontend_url'), '/');
+        if ($user->clubs()->where('clubes.is_active', true)->exists()) {
+            return true;
+        }
 
-        return $front.'/confirmar-cuenta?id='.$user->id.'&hash='.sha1($user->email);
+        return $this->isClubesClient() && filled($user->active_organizacion_id);
     }
 
-    private function ensureConfigured(): void
+    private function verificationUrl(User $user): string
     {
-        if (! $this->mailSettings->isConfigured()) {
+        return $this->frontUrl().'/confirmar-cuenta?id='.$user->id.'&hash='.sha1($user->email);
+    }
+
+    private function frontUrl(): string
+    {
+        $request = request();
+        if ($request instanceof Request && $this->isClubesClient()) {
+            $origin = $request->headers->get('Origin');
+            if (is_string($origin) && $origin !== '') {
+                return rtrim($origin, '/');
+            }
+        }
+
+        return rtrim((string) config('app.frontend_url'), '/');
+    }
+
+    private function resolveMailOrganizationId(User $user, ?int $organizacionId): ?int
+    {
+        if (! $this->isClubesClient()) {
+            return $organizacionId;
+        }
+
+        return $organizacionId
+            ?: app(ClubesTenantAccess::class)->organizationIdForUser($user);
+    }
+
+    private function isClubesClient(): bool
+    {
+        $request = request();
+
+        return $request instanceof Request
+            && $request->header('X-Clubes-Client') === 'clubes';
+    }
+
+    private function ensureConfigured(?int $organizacionId = null): void
+    {
+        $ready = $organizacionId
+            ? $this->mailSettings->isConfiguredFor($organizacionId)
+            : $this->mailSettings->isConfigured();
+        if (! $ready) {
             throw ValidationException::withMessages([
                 'email' => ['El envío de correo no está configurado. Avísale al administrador.'],
             ]);

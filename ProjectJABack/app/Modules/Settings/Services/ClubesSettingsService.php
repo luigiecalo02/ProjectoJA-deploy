@@ -57,6 +57,56 @@ final class ClubesSettingsService
     }
 
     /**
+     * Logo y banner de Clubes para el correo, subiendo por padres si esa org no los tiene.
+     *
+     * @return array{
+     *     kicker: string,
+     *     title: string,
+     *     subtitle: string,
+     *     motto: string,
+     *     logo_path: ?string,
+     *     banner_path: ?string
+     * }
+     */
+    public function mailBranding(int $organizacionId): array
+    {
+        $current = Organizacion::query()->find($organizacionId);
+        $copy = null;
+        $logoPath = null;
+        $bannerPath = null;
+
+        while ($current) {
+            $row = AppSetting::query()->where('organizacion_id', $current->id)->first();
+            $clubes = is_array($row?->clubes) && $row->clubes !== []
+                ? AppSetting::normalizeClubesConfig($row->clubes)
+                : null;
+
+            if ($clubes) {
+                $copy ??= $clubes;
+                $logoPath ??= is_string($clubes['logo_path'] ?? null) ? $clubes['logo_path'] : null;
+                $bannerPath ??= is_string($clubes['banner_path'] ?? null) ? $clubes['banner_path'] : null;
+            }
+
+            if ($copy && $logoPath && $bannerPath) {
+                break;
+            }
+
+            $current = $current->padre;
+        }
+
+        $copy ??= AppSetting::defaultClubesConfig();
+
+        return [
+            'kicker' => (string) $copy['kicker'],
+            'title' => (string) $copy['title'],
+            'subtitle' => (string) $copy['subtitle'],
+            'motto' => (string) $copy['motto'],
+            'logo_path' => $logoPath,
+            'banner_path' => $bannerPath,
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function loaderPresetFor(?Organizacion $org): array

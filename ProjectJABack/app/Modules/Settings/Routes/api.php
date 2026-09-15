@@ -3,6 +3,7 @@
 use App\Modules\Settings\Http\Controllers\BrandSettingsController;
 use App\Modules\Settings\Http\Controllers\ClubesAttendanceController;
 use App\Modules\Settings\Http\Controllers\ClubesSettingsController;
+use App\Modules\Settings\Http\Controllers\ClubesSignupController;
 use App\Modules\Settings\Http\Controllers\CuentaBancariaController;
 use App\Modules\Settings\Http\Controllers\MailSettingsController;
 use App\Modules\Settings\Http\Controllers\PublicFormSettingsController;
@@ -12,9 +13,19 @@ Route::get('settings/brand', [BrandSettingsController::class, 'show']);
 Route::get('settings/brand/file/{path}', [BrandSettingsController::class, 'file'])
     ->where('path', '.*');
 Route::get('settings/clubes/public', [ClubesSettingsController::class, 'publicShow']);
+Route::get('settings/clubes/public/organizaciones', [ClubesSignupController::class, 'organizaciones']);
+Route::post('settings/clubes/public/register', [ClubesSignupController::class, 'register'])
+    ->middleware('throttle:5,1');
+Route::get('settings/clubes/public/activate', [ClubesSignupController::class, 'inviteShow'])
+    ->middleware('throttle:20,1');
+Route::post('settings/clubes/public/activate/lookup', [ClubesSignupController::class, 'inviteLookup'])
+    ->middleware('throttle:10,1');
+Route::post('settings/clubes/public/activate', [ClubesSignupController::class, 'inviteActivate'])
+    ->middleware('throttle:5,1');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('settings/clubes', [ClubesSettingsController::class, 'show']);
+    Route::post('settings/clubes/invite-link', [ClubesSignupController::class, 'createInvite']);
     Route::put('settings/clubes', [ClubesSettingsController::class, 'update']);
     Route::post('settings/clubes/assets/{asset}', [ClubesSettingsController::class, 'uploadAsset']);
     Route::delete('settings/clubes/assets/{asset}', [ClubesSettingsController::class, 'resetAsset']);

@@ -120,6 +120,16 @@ class Organizacion extends Model
         return $this->estado_aprobacion === self::APROBACION_PENDIENTE;
     }
 
+    public function isClubTipo(): bool
+    {
+        return in_array((int) $this->tipo_organizacion_id, [
+            self::TIPO_CLUB,
+            self::TIPO_AVENTUREROS,
+            self::TIPO_CONQUISTADORES,
+            self::TIPO_GUIAS_MAYORES,
+        ], true);
+    }
+
     /**
      * @return list<int>
      */

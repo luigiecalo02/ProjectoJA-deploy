@@ -309,6 +309,13 @@ class RolePermissionSeeder extends Seeder
                 'is_super' => false,
                 'sort_order' => 10,
             ],
+            [
+                'name' => 'miembro',
+                'display_name' => 'Miembro',
+                'description' => 'Integrante del club con acceso a su organización',
+                'is_super' => false,
+                'sort_order' => 11,
+            ],
         ];
 
         foreach ($systemRoles as $roleData) {
@@ -335,6 +342,7 @@ class RolePermissionSeeder extends Seeder
         $tesorero = Role::query()->where('name', 'tesorero')->firstOrFail();
         $pastor = Role::query()->where('name', 'pastor')->firstOrFail();
         $invitado = Role::query()->where('name', 'invitado')->firstOrFail();
+        $miembro = Role::query()->where('name', 'miembro')->firstOrFail();
         $juez = Role::query()->where('name', 'juez')->firstOrFail();
         $supervisor = Role::query()->where('name', 'supervisor')->firstOrFail();
 
@@ -454,6 +462,16 @@ class RolePermissionSeeder extends Seeder
             ])->pluck('id')
         );
 
+        $miembro->permissions()->sync(
+            Permission::query()->whereIn('name', [
+                'dashboard.view',
+                'events.view',
+                'mi_club.view',
+                'asistencia.view',
+                'seguros_consulta.view',
+            ])->pluck('id')
+        );
+
         $juez->permissions()->sync(
             Permission::query()->whereIn('name', [
                 'dashboard.view',
@@ -534,6 +552,7 @@ class RolePermissionSeeder extends Seeder
                 'secretario',
                 'tesorero',
                 'invitado',
+                'miembro',
             ])
             ->update(['is_system' => false]);
     }

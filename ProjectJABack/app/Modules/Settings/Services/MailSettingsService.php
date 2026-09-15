@@ -3,6 +3,8 @@
 namespace App\Modules\Settings\Services;
 
 use App\Models\User;
+use App\Modules\Auth\Services\ClubesTenantAccess;
+use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Settings\Models\AppSetting;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Mail;
@@ -10,13 +12,38 @@ use Illuminate\Validation\ValidationException;
 
 final class MailSettingsService
 {
+    private ?int $sourceOrgId = null;
+
+    public function __construct(private readonly ClubesTenantAccess $tenant) {}
+
+    public function applyForOrganization(?int $organizacionId): void
+    {
+        $previous = $this->sourceOrgId;
+        $this->sourceOrgId = $organizacionId;
+        try {
+            $this->apply();
+        } finally {
+            $this->sourceOrgId = $previous;
+        }
+    }
+
+    public function isConfiguredFor(?int $organizacionId): bool
+    {
+        $previous = $this->sourceOrgId;
+        $this->sourceOrgId = $organizacionId;
+        try {
+            return $this->isConfigured();
+        } finally {
+            $this->sourceOrgId = $previous;
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */
     public function publicConfig(): array
     {
-        $mail = AppSetting::platform()->mail ?? [];
-
+        $mail = $this->mailArray();
         $password = $this->decryptPassword($mail['password'] ?? null);
 
         return [
@@ -26,7 +53,7 @@ final class MailSettingsService
             'username' => $mail['username'] ?? '',
             'from_address' => $mail['from_address'] ?? '',
             'from_name' => $mail['from_name'] ?? config('app.name'),
-            'password' => $password ?? '',
+            'password' => '',
             'password_set' => $password !== null,
             'configured' => $this->isConfigured(),
         ];
@@ -34,12 +61,7 @@ final class MailSettingsService
 
     public function isConfigured(): bool
     {
-        $mail = AppSetting::platform()->mail ?? [];
-
-        return filled($mail['host'] ?? null)
-            && filled($mail['from_address'] ?? null)
-            && filled($mail['username'] ?? null)
-            && filled($mail['password'] ?? null);
+        return $this->rowIsConfigured($this->mailArray());
     }
 
     /**
@@ -48,7 +70,7 @@ final class MailSettingsService
      */
     public function update(array $data, User $actor): array
     {
-        $settings = AppSetting::platform();
+        $settings = $this->writableSettings();
         $current = $settings->mail ?? [];
 
         $password = $data['password'] ?? null;
@@ -125,8 +147,8 @@ final class MailSettingsService
      */
     private function decrypted(): ?array
     {
-        $mail = AppSetting::platform()->mail ?? [];
-        if (! $this->isConfigured()) {
+        $mail = $this->mailArray();
+        if (! $this->rowIsConfigured($mail)) {
             return null;
         }
 
@@ -144,5 +166,43 @@ final class MailSettingsService
             'from_address' => (string) $mail['from_address'],
             'from_name' => (string) ($mail['from_name'] ?? config('app.name')),
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mailArray(): array
+    {
+        $orgId = $this->sourceOrgId ?? $this->tenant->rootId() ?: AppSetting::resolveOrganizacionId();
+        $current = $orgId ? Organizacion::query()->find($orgId) : null;
+
+        while ($current) {
+            $row = AppSetting::query()->where('organizacion_id', $current->id)->first();
+            $mail = is_array($row?->mail) ? $row->mail : [];
+            if ($this->rowIsConfigured($mail)) {
+                return $mail;
+            }
+            $current = $current->padre;
+        }
+
+        return AppSetting::platform()->mail ?? [];
+    }
+
+    private function writableSettings(): AppSetting
+    {
+        $orgId = $this->tenant->rootId() ?: AppSetting::resolveOrganizacionId();
+
+        return $orgId ? AppSetting::forOrganizacion($orgId) : AppSetting::platform();
+    }
+
+    /**
+     * @param  array<string, mixed>  $mail
+     */
+    private function rowIsConfigured(array $mail): bool
+    {
+        return filled($mail['host'] ?? null)
+            && filled($mail['from_address'] ?? null)
+            && filled($mail['username'] ?? null)
+            && filled($mail['password'] ?? null);
     }
 }

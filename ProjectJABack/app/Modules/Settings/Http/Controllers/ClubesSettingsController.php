@@ -2,6 +2,7 @@
 
 namespace App\Modules\Settings\Http\Controllers;
 
+use App\Modules\Auth\Services\ClubesTenantAccess;
 use App\Modules\Events\Models\Event;
 use App\Modules\Settings\Services\ClubesSettingsService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
@@ -10,7 +11,10 @@ use Illuminate\Http\Request;
 
 final class ClubesSettingsController
 {
-    public function __construct(private readonly ClubesSettingsService $clubesSettings) {}
+    public function __construct(
+        private readonly ClubesSettingsService $clubesSettings,
+        private readonly ClubesTenantAccess $tenant,
+    ) {}
 
     public function publicShow(Request $request): JsonResponse
     {
@@ -18,10 +22,16 @@ final class ClubesSettingsController
             'organizacion_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
+        $orgId = isset($data['organizacion_id'])
+            ? (int) $data['organizacion_id']
+            : $this->tenant->rootId($request);
+
+        if ($orgId) {
+            $this->tenant->assertInTenant($orgId, $request);
+        }
+
         return ApiResponse::success(
-            $this->clubesSettings->publicBranding(
-                isset($data['organizacion_id']) ? (int) $data['organizacion_id'] : null
-            )
+            $this->clubesSettings->publicBranding($orgId)
         )->header('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
 

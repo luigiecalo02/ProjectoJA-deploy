@@ -17,11 +17,13 @@ final class AccountMailController
         $data = $request->validate([
             'email' => ['required_without:identificacion', 'nullable', 'email', 'max:255'],
             'identificacion' => ['required_without:email', 'nullable', 'string', 'max:80'],
+            'organizacion_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
         $result = $this->accountMail->requestPasswordReset(
             $data['email'] ?? null,
             $data['identificacion'] ?? null,
+            isset($data['organizacion_id']) ? (int) $data['organizacion_id'] : null,
         );
 
         return ApiResponse::success($result, 'Enviamos el enlace de recuperación a '.$result['email'].'. Si no lo encuentras, revisa la bandeja de spam.');
@@ -33,11 +35,18 @@ final class AccountMailController
             'email' => ['required', 'email', 'max:255'],
             'token' => ['required', 'string'],
             'password' => ['required', 'confirmed', Password::defaults()],
+            'organizacion_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $this->accountMail->resetPassword($data);
+        $issued = $this->accountMail->resetPassword($data);
 
-        return ApiResponse::success(null, 'Contraseña actualizada. Ya puedes iniciar sesión.');
+        return ApiResponse::success(
+            $issued ? [
+                'token' => $issued['token'],
+                'token_type' => 'Bearer',
+            ] : null,
+            'Contraseña actualizada. Ya puedes iniciar sesión.',
+        );
     }
 
     public function verify(Request $request): JsonResponse
