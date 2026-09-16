@@ -10,13 +10,21 @@ use Illuminate\Validation\ValidationException;
 
 final class ClubesTenantAccess
 {
-    public function __construct(private readonly OrganizationAccessService $orgAccess) {}
+    public function __construct(
+        private readonly OrganizationAccessService $orgAccess,
+        private readonly ClubesHostMap $hosts,
+    ) {}
 
     public function rootId(?Request $request = null): ?int
     {
         $request ??= request();
         if (! $request instanceof Request || $request->header('X-Clubes-Client') !== 'clubes') {
             return null;
+        }
+
+        $fromHost = $this->hosts->idForRequest($request);
+        if ($fromHost !== null) {
+            return $fromHost;
         }
 
         $configured = (int) config('clubes.root_organizacion_id');
