@@ -220,8 +220,8 @@ onBeforeUnmount(() => {
   width: 3rem;
   height: 3rem;
   border-radius: 12px;
-  color: var(--p-primary-color);
-  background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+  color: var(--pj-primary);
+  background: var(--pj-primary-soft);
   font-size: 1.25rem;
 }
 

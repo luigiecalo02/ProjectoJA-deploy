@@ -272,11 +272,12 @@ onMounted(() => {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
+  align-self: center;
   width: 3rem;
   height: 3rem;
   border-radius: 12px;
-  color: var(--p-primary-color);
-  background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+  color: var(--pj-primary);
+  background: var(--pj-primary-soft);
   font-size: 1.25rem;
 }
 
@@ -321,8 +322,8 @@ onMounted(() => {
 .logo--empty {
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--pj-navy) 8%, transparent);
-  color: color-mix(in srgb, var(--pj-navy) 45%, transparent);
+  background: var(--pj-primary-soft);
+  color: var(--pj-primary);
 }
 
 .actions { display: flex; gap: 0.1rem; }

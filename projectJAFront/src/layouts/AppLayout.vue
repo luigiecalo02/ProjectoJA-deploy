@@ -860,6 +860,34 @@ html.dark .p-drawer.mobile-drawer .p-drawer-footer {
 
 .app-topbar__action {
   flex-shrink: 0;
+  color: #071e48;
+}
+
+.app-topbar__action :deep(.p-button-icon),
+.app-topbar__action :deep(.p-icon) {
+  color: inherit;
+}
+
+.app-shell--dark .app-topbar__action,
+.app-shell--dark .app-topbar__action :deep(.p-button-icon),
+.app-shell--dark .app-topbar__action :deep(.p-icon),
+.app-shell--dark .app-topbar .mobile-only.p-button-text,
+.app-shell--dark .app-topbar .page-chrome__back,
+.app-shell--dark .app-topbar .page-chrome__more {
+  color: #f4f8ff !important;
+}
+
+.app-shell--dark .app-topbar__action:hover,
+.app-shell--dark .app-topbar .mobile-only.p-button-text:hover,
+.app-shell--dark .app-topbar .page-chrome__back:hover,
+.app-shell--dark .app-topbar .page-chrome__more:hover {
+  background: color-mix(in srgb, #fff 16%, transparent) !important;
+  color: #fff !important;
+}
+
+.app-shell--dark .app-topbar__action:disabled,
+.app-shell--dark .app-topbar__action.p-disabled {
+  color: color-mix(in srgb, #f4f8ff 55%, transparent) !important;
 }
 
 .mobile-brand-logo {

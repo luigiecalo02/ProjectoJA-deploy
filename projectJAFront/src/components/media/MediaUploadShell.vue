@@ -97,6 +97,20 @@ withDefaults(
   background: #ede9fe;
   color: #7c3aed;
 }
+
+html.dark .is-profile .media-card__head i,
+html.dark .is-documents .media-card__head i {
+  background: color-mix(in srgb, var(--pj-sky) 22%, transparent);
+  color: #7dd3fc;
+}
+html.dark .is-cover .media-card__head i {
+  background: color-mix(in srgb, #34d399 22%, transparent);
+  color: #6ee7b7;
+}
+html.dark .is-gallery .media-card__head i {
+  background: color-mix(in srgb, #c084fc 22%, transparent);
+  color: #d8b4fe;
+}
 .is-profile .media-card__hint,
 .is-documents .media-card__hint {
   background: #eff6ff;

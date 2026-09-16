@@ -53,13 +53,28 @@ final class UserController
     public function update(UpdateUserRequest $request, User $user): JsonResponse
     {
         $data = $request->validated();
+        $actor = $request->user();
+        $managingOthers = $actor->id !== $user->id || $actor->hasPermission('users.update');
 
-        if (isset($data['role_ids']) && ! $request->user()->can('assignRoles', User::class)) {
+        if (isset($data['role_ids']) && ! $actor->can('assignRoles', User::class)) {
             unset($data['role_ids']);
         }
 
-        if (isset($data['club_ids']) && ! $request->user()->can('assignRoles', User::class) && ! $request->user()->can('update', $user)) {
+        if (isset($data['club_ids']) && ! $actor->can('assignRoles', User::class) && ! $managingOthers) {
             unset($data['club_ids']);
+        }
+
+        if (! $managingOthers) {
+            unset(
+                $data['is_active'],
+                $data['email_verified'],
+                $data['role_ids'],
+                $data['club_ids'],
+                $data['organizaciones'],
+                $data['organizacion_id'],
+                $data['organizacion_rol_id'],
+                $data['persona_id'],
+            );
         }
 
         $user = $this->userService->update($user, $data);
@@ -165,6 +180,9 @@ final class UserController
                 'apellido2' => $persona->apellido2,
                 'correo' => $persona->correo,
                 'telefono' => $persona->telefono,
+                'fecha_nacimiento' => optional($persona->fecha_nacimiento)?->format('Y-m-d'),
+                'sexo' => $persona->sexo,
+                'direccion_actual' => $persona->direccion_actual,
                 'full_name' => $persona->full_name,
             ] : null,
             'organizaciones' => $persona && $persona->relationLoaded('organizaciones')

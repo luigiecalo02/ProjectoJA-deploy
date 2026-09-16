@@ -195,28 +195,7 @@ function save(): void {
 }
 
 .hero-studio__tabs {
-  display: flex;
-  gap: 0.45rem;
-}
-
-.hero-studio__tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  border-radius: 999px;
-  padding: 0.45rem 0.9rem;
-  font-size: 0.84rem;
-  font-weight: 700;
-  color: #475569;
-  cursor: pointer;
-}
-
-.hero-studio__tab.is-active {
-  background: var(--pj-navy);
-  border-color: var(--pj-navy);
-  color: #fff;
+  margin-bottom: 0.35rem;
 }
 
 .hero-studio__preview {

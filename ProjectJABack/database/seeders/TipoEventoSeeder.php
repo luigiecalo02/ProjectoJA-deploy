@@ -83,6 +83,14 @@ class TipoEventoSeeder extends Seeder
                 'icono' => 'pi pi-compass',
                 'orden' => 9,
             ],
+            [
+                'nombre' => 'Actividad Económica',
+                'slug' => 'actividad-economica',
+                'descripcion' => 'Actividades de recaudo, ventas y gestión económica del club',
+                'color' => '#b45309',
+                'icono' => 'pi pi-wallet',
+                'orden' => 10,
+            ],
         ];
 
         foreach ($tipos as $tipo) {

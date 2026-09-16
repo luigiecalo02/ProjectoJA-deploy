@@ -3783,30 +3783,6 @@ onBeforeUnmount(() => {
   min-width: 8rem;
 }
 
-.sub-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
-  padding-bottom: 0.35rem;
-}
-
-.sub-tabs button {
-  border: 0;
-  background: transparent;
-  padding: 0.35rem 0.55rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--pj-text-muted);
-  cursor: pointer;
-  border-radius: 8px;
-}
-
-.sub-tabs button.is-active {
-  color: var(--pj-primary, #2563eb);
-  background: color-mix(in srgb, #2563eb 10%, transparent);
-}
-
 .sub-tabs--options button.has-config::after {
   content: '';
   display: inline-block;
@@ -3906,30 +3882,7 @@ onBeforeUnmount(() => {
 }
 
 .visual-toggle {
-  display: flex;
   margin-bottom: 0.45rem;
-  padding: 0.15rem;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--pj-navy) 6%, #fff);
-}
-
-.visual-toggle button {
-  flex: 1;
-  border: 0;
-  background: transparent;
-  border-radius: 7px;
-  padding: 0.32rem 0.4rem;
-  font: inherit;
-  font-size: 0.76rem;
-  font-weight: 650;
-  color: var(--pj-text-muted);
-  cursor: pointer;
-}
-
-.visual-toggle button.is-active {
-  background: #fff;
-  color: var(--pj-navy);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--pj-navy) 12%, transparent);
 }
 
 .sub-form__hero-fields {

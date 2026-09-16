@@ -195,8 +195,8 @@ function comprobanteEstadoLabel(estado: string): string {
   width: 2rem;
   height: 2rem;
   border-radius: 7px;
-  background: color-mix(in srgb, #2563eb 9%, transparent);
-  color: #2563eb;
+  background: var(--pj-primary-soft);
+  color: var(--pj-primary);
 }
 
 .comprobante-review__actions {

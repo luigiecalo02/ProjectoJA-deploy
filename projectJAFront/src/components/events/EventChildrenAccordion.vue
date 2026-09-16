@@ -257,8 +257,8 @@ function onOpen(node: ClubEvent): void {
   place-items: center;
   flex-shrink: 0;
   border: 1px solid transparent;
-  background: color-mix(in srgb, #0f766e 10%, #f1f5f9);
-  color: #0f766e;
+  background: var(--pj-primary-soft);
+  color: var(--pj-primary);
 }
 
 .depth-0 .evt-tree__thumb,

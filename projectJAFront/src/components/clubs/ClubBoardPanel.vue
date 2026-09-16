@@ -605,7 +605,7 @@ onMounted(() => {
               <Avatar
                 :label="assignments[p.key]!.persona.full_name.charAt(0).toUpperCase()"
                 shape="circle"
-                style="background: var(--pj-primary-soft); color: var(--pj-navy)"
+                style="background: var(--pj-primary-soft); color: var(--pj-primary)"
               />
               <div class="role-card__person-info">
                 <div class="role-card__name-row">
@@ -708,7 +708,7 @@ onMounted(() => {
                 <Avatar
                   :label="(data.full_name || '?').charAt(0).toUpperCase()"
                   shape="circle"
-                  style="background: var(--pj-primary-soft); color: var(--pj-navy)"
+                  style="background: var(--pj-primary-soft); color: var(--pj-primary)"
                 />
                 <div>
                   <strong>{{ data.full_name }}</strong>
@@ -943,8 +943,8 @@ onMounted(() => {
 .club-hero__logo--empty {
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--pj-navy) 8%, transparent);
-  color: var(--pj-navy);
+  background: var(--pj-primary-soft);
+  color: var(--pj-primary);
   font-size: 1.1rem;
 }
 
@@ -1020,6 +1020,23 @@ onMounted(() => {
 .role-card--secretaria .role-card__icon { background: #e6f7ef; color: #047857; }
 .role-card--tesorero .role-card__icon { background: #f1e9ff; color: #6d28d9; }
 
+html.dark .role-card--director .role-card__icon {
+  background: color-mix(in srgb, #fbbf24 22%, transparent);
+  color: #fcd34d;
+}
+html.dark .role-card--subdirector .role-card__icon {
+  background: color-mix(in srgb, #60a5fa 22%, transparent);
+  color: #93c5fd;
+}
+html.dark .role-card--secretaria .role-card__icon {
+  background: color-mix(in srgb, #34d399 22%, transparent);
+  color: #6ee7b7;
+}
+html.dark .role-card--tesorero .role-card__icon {
+  background: color-mix(in srgb, #c084fc 22%, transparent);
+  color: #d8b4fe;
+}
+
 .role-card__person {
   display: flex;
   gap: 0.5rem;
@@ -1089,8 +1106,7 @@ onMounted(() => {
 }
 
 .drawer-tabs {
-  display: flex;
-  gap: 0.4rem;
+  margin-bottom: 0.35rem;
 }
 
 .persona-cell {

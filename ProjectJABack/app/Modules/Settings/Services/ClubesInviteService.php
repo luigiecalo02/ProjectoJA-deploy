@@ -95,6 +95,8 @@ final class ClubesInviteService
             'organizacion_nombre' => $org->nombre,
             'persona' => $fields,
             'missing' => $missing,
+            'has_user' => User::withTrashed()->where('persona_id', $persona->id)->exists(),
+            'path' => $this->organizationPath($org),
         ];
     }
 
@@ -115,24 +117,31 @@ final class ClubesInviteService
             ]);
         }
 
-        if (User::withTrashed()->where('email', $email)->where(function ($query) use ($persona): void {
-            $query->whereNull('persona_id')->orWhere('persona_id', '!=', $persona->id);
-        })->exists()) {
+        $existingUser = User::withTrashed()->where('persona_id', $persona->id)->first();
+        $password = trim((string) ($data['password'] ?? ''));
+        if (! $existingUser && $password === '') {
             throw ValidationException::withMessages([
-                'correo' => ['Ya existe una cuenta con este correo.'],
+                'password' => ['La contraseña es obligatoria para crear la cuenta.'],
             ]);
         }
 
-        $user = DB::transaction(function () use ($data, $persona, $org, $role, $email): User {
+        $this->assertEmailAvailable($email, $persona, $existingUser);
+
+        $user = DB::transaction(function () use ($data, $persona, $org, $role, $email, $existingUser, $password): User {
             $persona->fill([
-                'nombre1' => filled($persona->nombre1) ? $persona->nombre1 : trim((string) ($data['nombre1'] ?? '')),
-                'nombre2' => filled($persona->nombre2) ? $persona->nombre2 : (filled($data['nombre2'] ?? null) ? trim((string) $data['nombre2']) : null),
-                'apellido1' => filled($persona->apellido1) ? $persona->apellido1 : trim((string) ($data['apellido1'] ?? '')),
-                'apellido2' => filled($persona->apellido2) ? $persona->apellido2 : (filled($data['apellido2'] ?? null) ? trim((string) $data['apellido2']) : null),
+                'tipo_identificacion' => filled($data['tipo_identificacion'] ?? null)
+                    ? strtoupper(trim((string) $data['tipo_identificacion']))
+                    : $persona->tipo_identificacion,
+                'nombre1' => trim((string) ($data['nombre1'] ?? $persona->nombre1 ?? '')),
+                'nombre2' => filled($data['nombre2'] ?? null) ? trim((string) $data['nombre2']) : $persona->nombre2,
+                'apellido1' => trim((string) ($data['apellido1'] ?? $persona->apellido1 ?? '')),
+                'apellido2' => filled($data['apellido2'] ?? null) ? trim((string) $data['apellido2']) : $persona->apellido2,
                 'correo' => $email,
-                'telefono' => filled($persona->telefono) ? $persona->telefono : (filled($data['telefono'] ?? null) ? trim((string) $data['telefono']) : null),
-                'sexo' => filled($persona->sexo) ? $persona->sexo : ($data['sexo'] ?? null),
-                'fecha_nacimiento' => $persona->fecha_nacimiento ?: ($data['fecha_nacimiento'] ?? null),
+                'telefono' => filled($data['telefono'] ?? null) ? trim((string) $data['telefono']) : $persona->telefono,
+                'sexo' => filled($data['sexo'] ?? null) ? $data['sexo'] : $persona->sexo,
+                'fecha_nacimiento' => filled($data['fecha_nacimiento'] ?? null)
+                    ? $data['fecha_nacimiento']
+                    : $persona->fecha_nacimiento,
             ]);
             if (! filled($persona->nombre1) || ! filled($persona->apellido1)) {
                 throw ValidationException::withMessages([
@@ -146,21 +155,43 @@ final class ClubesInviteService
                 ->where('organizacion_id', $org->id)
                 ->first();
 
-            PersonaOrganizacionRol::query()->firstOrCreate(
-                [
-                    'persona_organizacion_id' => $membership->id,
-                    'rol_id' => $role->id,
-                ],
-                [
-                    'created_at' => now(),
-                ],
-            );
+            if (! $existingUser && $membership) {
+                PersonaOrganizacionRol::query()->firstOrCreate(
+                    [
+                        'persona_organizacion_id' => $membership->id,
+                        'rol_id' => $role->id,
+                    ],
+                    [
+                        'created_at' => now(),
+                    ],
+                );
+            }
+
+            if ($existingUser) {
+                if ($existingUser->trashed()) {
+                    $existingUser->restore();
+                }
+
+                $existingUser->fill([
+                    'name' => $persona->fresh()?->full_name ?: $email,
+                    'email' => $email,
+                    'is_active' => true,
+                    'email_verified_at' => $existingUser->email_verified_at ?? now(),
+                    'active_organizacion_id' => $org->id,
+                ]);
+                if ($password !== '') {
+                    $existingUser->password = $password;
+                }
+                $existingUser->save();
+
+                return $this->sessionContext->pinOrganization($existingUser->fresh(), (int) $org->id);
+            }
 
             $user = User::query()->create([
                 'persona_id' => $persona->id,
                 'name' => $persona->fresh()?->full_name ?: $email,
                 'email' => $email,
-                'password' => $data['password'],
+                'password' => $password,
                 'is_active' => true,
                 'email_verified_at' => now(),
                 'active_organizacion_id' => $org->id,
@@ -253,13 +284,54 @@ final class ClubesInviteService
             ]);
         }
 
-        if (User::withTrashed()->where('persona_id', $persona->id)->exists()) {
+        return $persona;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function organizationPath(Organizacion $org): array
+    {
+        $nodes = [];
+        $cursor = $org;
+        $guard = 0;
+        while ($cursor && $guard < 16) {
+            $cursor->loadMissing(['tipo:id,nombre', 'padre']);
+            array_unshift($nodes, [
+                'id' => (int) $cursor->id,
+                'nombre' => $cursor->nombre,
+                'tipo_organizacion_id' => (int) $cursor->tipo_organizacion_id,
+                'tipo_nombre' => $cursor->tipo?->nombre ?: 'Organización',
+                'is_club' => $cursor->isClubTipo(),
+            ]);
+            $cursor = $cursor->padre;
+            $guard++;
+        }
+
+        return $nodes;
+    }
+
+    private function assertEmailAvailable(string $email, Persona $persona, ?User $existingUser): void
+    {
+        $takenByPersona = Persona::query()
+            ->where('correo', $email)
+            ->where('id', '!=', $persona->id)
+            ->exists();
+        if ($takenByPersona) {
             throw ValidationException::withMessages([
-                'identificacion' => ['Esta persona ya tiene una cuenta. Inicia sesión o recupera la contraseña.'],
+                'correo' => ['Ya existe una persona o un usuario con este correo.'],
             ]);
         }
 
-        return $persona;
+        $takenByUser = User::withTrashed()
+            ->where('email', $email)
+            ->when($existingUser, fn ($query) => $query->where('id', '!=', $existingUser->id))
+            ->exists();
+        if ($takenByUser) {
+            throw ValidationException::withMessages([
+                'correo' => ['Ya existe una cuenta con este correo.'],
+            ]);
+        }
     }
 
     private function memberRole(): Role

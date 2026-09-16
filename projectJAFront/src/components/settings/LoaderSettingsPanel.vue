@@ -352,26 +352,7 @@ async function resetAll(): Promise<void> {
 }
 
 .loader-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.loader-tabs__btn {
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  border-radius: 999px;
-  padding: 0.4rem 0.85rem;
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: #475569;
-  cursor: pointer;
-}
-
-.loader-tabs__btn.is-active {
-  background: var(--pj-navy);
-  border-color: var(--pj-navy);
-  color: #fff;
+  margin-bottom: 0.85rem;
 }
 
 .loader-editor {
@@ -482,8 +463,7 @@ html.dark .loader-fields label {
   color: #e2e8f0;
 }
 
-html.dark .loader-editor,
-html.dark .loader-tabs__btn {
+html.dark .loader-editor {
   background: color-mix(in srgb, var(--pj-navy, #0b2f6b) 18%, #111827);
   border-color: rgba(255, 255, 255, 0.08);
   color: #e2e8f0;

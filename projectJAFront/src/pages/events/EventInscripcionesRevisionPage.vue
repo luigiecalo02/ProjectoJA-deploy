@@ -881,45 +881,11 @@ onMounted(() => {
 }
 
 .review-tabs {
-  display: flex;
-  gap: 0.35rem;
   overflow-x: auto;
-  margin: 0 -1rem;
-  padding: 0 1rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
 }
 
-.review-tabs button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.7rem 0.85rem;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--pj-text-muted);
+.review-tabs > button {
   white-space: nowrap;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 650;
-}
-
-.review-tabs button:hover,
-.review-tabs button.is-active {
-  color: #0f766e;
-}
-
-.review-tabs button.is-active {
-  border-bottom-color: #0f766e;
-}
-
-.review-tabs button span {
-  min-width: 1.3rem;
-  padding: 0.1rem 0.35rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, currentColor 9%, transparent);
-  font-size: 0.68rem;
 }
 
 .tab-panel {
@@ -1241,8 +1207,8 @@ onMounted(() => {
   width: 2rem;
   height: 2rem;
   border-radius: 7px;
-  background: color-mix(in srgb, #2563eb 9%, transparent);
-  color: #2563eb;
+  background: var(--pj-primary-soft);
+  color: var(--pj-primary);
 }
 
 .movement-chip {

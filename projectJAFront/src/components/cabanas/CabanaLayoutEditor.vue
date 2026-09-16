@@ -2404,7 +2404,7 @@ function save(): void {
   border-radius: 10px;
   background: var(--pj-bg);
 }
-.prop-hero i { font-size: 1.2rem; color: var(--pj-navy); }
+.prop-hero i { font-size: 1.2rem; color: var(--pj-primary); }
 .prop-hero em {
   display: block;
   font-style: normal;

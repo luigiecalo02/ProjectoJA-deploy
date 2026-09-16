@@ -1386,6 +1386,12 @@ onMounted(() => {
   box-shadow: 0 10px 28px -20px rgba(15, 23, 42, 0.4);
 }
 
+html.dark .event-card-wrap {
+  background: linear-gradient(180deg, color-mix(in srgb, #0f766e 12%, var(--pj-bg-elevated)), var(--pj-bg-elevated));
+  border-color: #15202e;
+  box-shadow: 0 10px 28px -16px rgba(0, 0, 0, 0.55);
+}
+
 .event-card {
   display: grid;
   grid-template-columns: 7.5rem auto 1fr auto;
@@ -1395,6 +1401,10 @@ onMounted(() => {
   background: color-mix(in srgb, var(--pj-bg-elevated) 96%, transparent);
   border: 1px solid color-mix(in srgb, var(--pj-border) 65%, transparent);
   border-radius: 14px;
+}
+
+html.dark .event-card {
+  border-color: #15202e;
 }
 
 .event-card__media {

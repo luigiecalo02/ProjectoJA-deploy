@@ -504,8 +504,8 @@ onBeforeUnmount(() => {
   height: 2.4rem;
   overflow: hidden;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--p-primary-color) 12%, white);
-  color: var(--p-primary-color);
+  background: var(--pj-primary-soft);
+  color: var(--pj-primary);
 }
 .thumb img { width: 100%; height: 100%; object-fit: cover; }
 .thumb.has-photo { background: #e2e8f0; }
@@ -562,8 +562,8 @@ onBeforeUnmount(() => {
   width: 2.1rem;
   height: 2.1rem;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--p-primary-color) 12%, white);
-  color: var(--p-primary-color);
+  background: var(--pj-primary-soft);
+  color: var(--pj-primary);
 }
 .panel > header p, .next-card p { margin: .2rem 0 0; color: var(--pj-text-muted); font-size: .84rem; line-height: 1.4; }
 .panel label { display: grid; gap: .35rem; font-size: .86rem; font-weight: 600; }
@@ -585,10 +585,10 @@ onBeforeUnmount(() => {
 .status-card strong, .status-card small { display: block; }
 .status-card small { margin-top: .2rem; color: var(--pj-text-muted); font-size: .75rem; line-height: 1.35; }
 .status-card.active {
-  border-color: var(--p-primary-color);
-  background: color-mix(in srgb, var(--p-primary-color) 8%, white);
+  border-color: var(--pj-primary);
+  background: var(--pj-primary-soft);
 }
-.status-card.active i { color: var(--p-primary-color); }
+.status-card.active i { color: var(--pj-primary); }
 
 .stats-panel {
   grid-template-columns: repeat(3, minmax(0, 1fr)) auto;

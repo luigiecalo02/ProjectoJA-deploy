@@ -1103,11 +1103,12 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
+  align-self: center;
   width: 3rem;
   height: 3rem;
   border-radius: 12px;
-  color: var(--p-primary-color);
-  background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+  color: var(--pj-primary);
+  background: var(--pj-primary-soft);
   font-size: 1.25rem;
 }
 
@@ -1146,21 +1147,8 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-.users-filter-tabs :deep(.p-tablist-tab-list) {
-  gap: 0.25rem;
-}
-
 .users-filter-tabs :deep(.p-tab) {
   flex: 1 1 0;
-  justify-content: center;
-  gap: 0.35rem;
-  font-size: 0.78rem;
-  padding: 0.45rem 0.5rem;
-}
-
-.users-filter-tabs :deep(.p-tabpanels) {
-  padding: 0.65rem 0 0;
-  background: transparent;
 }
 
 .users-filter-stack {

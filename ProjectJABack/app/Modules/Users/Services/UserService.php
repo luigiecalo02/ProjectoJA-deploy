@@ -180,16 +180,13 @@ final class UserService
             }
 
             $user->loadMissing('persona');
-            if (! $user->persona_id) {
+            $persona = $user->persona;
+            if (! $persona) {
                 if ($personaId || (is_array($personaData) && $personaData !== [])) {
                     $persona = $this->attachPersonaToUser($user, $personaId, $personaData ?? []);
-                } else {
-                    throw ValidationException::withMessages([
-                        'persona_id' => ['El usuario debe estar asociado a una persona.'],
-                    ]);
                 }
-            } else {
-                $persona = $user->persona;
+            } elseif (is_array($personaData) && $personaData !== []) {
+                $persona = $this->applyPersonaData($persona, $personaData);
             }
 
             if ($organizaciones !== null && $persona) {
@@ -376,6 +373,55 @@ final class UserService
         $user->update(['persona_id' => $persona->id]);
 
         return $persona;
+    }
+
+    /**
+     * @param  array<string, mixed>  $personaData
+     */
+    private function applyPersonaData(Persona $persona, array $personaData): Persona
+    {
+        $payload = [];
+        foreach ([
+            'tipo_identificacion',
+            'identificacion',
+            'nombre1',
+            'nombre2',
+            'apellido1',
+            'apellido2',
+            'telefono',
+            'correo',
+            'direccion_actual',
+            'fecha_nacimiento',
+            'sexo',
+        ] as $field) {
+            if (! array_key_exists($field, $personaData)) {
+                continue;
+            }
+            $value = $personaData[$field];
+            if (is_string($value)) {
+                $value = trim($value);
+            }
+            $payload[$field] = $value === '' ? null : $value;
+        }
+
+        if (isset($payload['identificacion'])) {
+            $taken = Persona::query()
+                ->where('identificacion', $payload['identificacion'])
+                ->whereNull('deleted_at')
+                ->where('id', '!=', $persona->id)
+                ->exists();
+            if ($taken) {
+                throw ValidationException::withMessages([
+                    'persona.identificacion' => ['Ya existe una persona con este número de identificación.'],
+                ]);
+            }
+        }
+
+        if ($payload !== []) {
+            $persona->update($payload);
+        }
+
+        return $persona->fresh() ?? $persona;
     }
 
     /**

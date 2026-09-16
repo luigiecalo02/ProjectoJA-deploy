@@ -623,7 +623,7 @@ onMounted(() => void load())
 .cabana-card.selected { border-color: var(--p-primary-color); background: var(--pj-primary-soft); }
 .cabana-card strong, .cabana-card small { display: block; }
 .cabana-card small { margin-top: .18rem; color: var(--pj-text-muted); }
-.cabana-icon { display: grid; place-items: center; width: 2.6rem; height: 2.6rem; overflow: hidden; border-radius: 9px; background: color-mix(in srgb, var(--p-primary-color) 12%, white); color: var(--p-primary-color); }
+.cabana-icon { display: grid; place-items: center; width: 2.6rem; height: 2.6rem; overflow: hidden; border-radius: 9px; background: var(--pj-primary-soft); color: var(--pj-primary); }
 .cabana-icon img { width: 100%; height: 100%; object-fit: cover; }
 .cabana-icon.has-photo { background: #e2e8f0; }
 .capacity { white-space: nowrap; font-weight: 700; }

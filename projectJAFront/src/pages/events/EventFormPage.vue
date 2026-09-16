@@ -2604,8 +2604,8 @@ onBeforeUnmount(() => {
   width: 2rem;
   height: 2rem;
   border-radius: 8px;
-  color: var(--p-primary-color);
-  background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+  color: var(--pj-primary);
+  background: var(--pj-primary-soft);
 }
 
 .basic-config-section__head h3,
@@ -3049,27 +3049,7 @@ onBeforeUnmount(() => {
 }
 
 .config-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
   margin: 0.35rem 0 0.85rem;
-}
-
-.config-tabs button {
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  border-radius: 999px;
-  padding: 0.4rem 0.85rem;
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: #475569;
-  cursor: pointer;
-}
-
-.config-tabs button.is-active {
-  background: var(--pj-navy);
-  border-color: var(--pj-navy);
-  color: #fff;
 }
 
 .config-section {

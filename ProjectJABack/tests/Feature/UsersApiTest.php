@@ -180,6 +180,43 @@ class UsersApiTest extends TestCase
         $this->assertFalse($conquistadores->contains($aveUser->id));
     }
 
+    public function test_user_can_update_own_profile_and_password(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'lizzy@test.local',
+            'password' => 'Password1!',
+        ]);
+        $persona = Persona::query()->create([
+            'tipo_identificacion' => 'CC',
+            'identificacion' => 'ID-LIZZY',
+            'nombre1' => 'Lizzy',
+            'apellido1' => 'Club',
+            'correo' => $user->email,
+            'telefono' => '3000000000',
+        ]);
+        $user->forceFill(['persona_id' => $persona->id])->save();
+
+        Sanctum::actingAs($user);
+
+        $this->putJson("/api/v1/users/{$user->id}", [
+            'name' => 'Lizzy Nueva',
+            'email' => 'lizzy@test.local',
+            'password' => 'NuevaClave1!',
+            'password_confirmation' => 'NuevaClave1!',
+            'persona' => [
+                'tipo_identificacion' => 'CC',
+                'identificacion' => 'ID-LIZZY',
+                'nombre1' => 'Lizzy',
+                'apellido1' => 'Nueva',
+                'telefono' => '3001112233',
+            ],
+        ])->assertOk()
+            ->assertJsonPath('data.persona.telefono', '3001112233')
+            ->assertJsonPath('data.persona.apellido1', 'Nueva');
+
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check('NuevaClave1!', $user->fresh()->password));
+    }
+
     private function scopedAdmin(int $organizacionId): User
     {
         $user = User::factory()->create(['email' => 'district-admin@test.local']);

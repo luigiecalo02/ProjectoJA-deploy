@@ -97,19 +97,19 @@ final class ClubesSignupController
         $data = $request->validate([
             'token' => ['required', 'string'],
             'identificacion' => ['required', 'string', 'max:80'],
-            'nombre1' => ['nullable', 'string', 'max:80'],
+            'tipo_identificacion' => ['nullable', 'string', 'in:CC,TI,CE,PA'],
+            'nombre1' => ['required', 'string', 'max:80'],
             'nombre2' => ['nullable', 'string', 'max:80'],
-            'apellido1' => ['nullable', 'string', 'max:80'],
+            'apellido1' => ['required', 'string', 'max:80'],
             'apellido2' => ['nullable', 'string', 'max:80'],
-            'correo' => ['nullable', 'email', 'max:160'],
+            'correo' => ['required', 'email', 'max:160'],
             'telefono' => ['nullable', 'string', 'max:30'],
             'sexo' => ['nullable', 'in:M,F'],
             'fecha_nacimiento' => ['nullable', 'date'],
-            'password' => ['required', 'confirmed', Password::defaults()],
-            'password_confirmation' => ['required', 'string'],
+            'password' => ['nullable', 'confirmed', Password::defaults()],
+            'password_confirmation' => ['nullable', 'string'],
         ], [
             'password.confirmed' => 'Las contraseñas no coinciden.',
-            'password_confirmation.required' => 'Confirma la contraseña.',
         ]);
 
         $issued = $this->invite->activate($data);

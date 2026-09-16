@@ -302,7 +302,7 @@ watch(
               <Avatar
                 :label="(data.full_name || '?').charAt(0).toUpperCase()"
                 shape="circle"
-                style="background: var(--pj-primary-soft); color: var(--pj-navy)"
+                style="background: var(--pj-primary-soft); color: var(--pj-primary)"
               />
               <strong>{{ data.full_name }}</strong>
             </div>
@@ -379,7 +379,7 @@ watch(
                 <Avatar
                   :label="(data.full_name || '?').charAt(0).toUpperCase()"
                   shape="circle"
-                  style="background: var(--pj-primary-soft); color: var(--pj-navy)"
+                  style="background: var(--pj-primary-soft); color: var(--pj-primary)"
                 />
                 <div>
                   <strong>{{ data.full_name }}</strong>
@@ -512,8 +512,6 @@ watch(
 }
 
 .drawer-tabs {
-  display: flex;
-  gap: 0.4rem;
   margin-bottom: 0.65rem;
 }
 

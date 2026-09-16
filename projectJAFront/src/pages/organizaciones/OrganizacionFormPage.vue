@@ -1078,8 +1078,8 @@ useOrganizacionesRealtime((payload) => {
   border-radius: 10px;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--pj-navy) 10%, transparent);
-  color: var(--pj-navy);
+  background: var(--pj-primary-soft);
+  color: var(--pj-primary);
   font-size: 1.1rem;
   flex-shrink: 0;
 }

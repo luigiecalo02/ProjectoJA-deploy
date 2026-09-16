@@ -78,18 +78,4 @@ async function submit(): Promise<void> {
 .auth-simple { display: flex; flex-direction: column; gap: 0.7rem; }
 .auth-simple h1 { margin: 0; font-size: 1.35rem; }
 .auth-simple p { margin: 0; color: var(--pj-text-muted); }
-.lookup-toggle { display: flex; gap: 0.4rem; }
-.lookup-toggle button {
-  flex: 1;
-  border: 1px solid var(--pj-border, #d0d5dd);
-  background: transparent;
-  border-radius: 8px;
-  padding: 0.45rem 0.6rem;
-  cursor: pointer;
-}
-.lookup-toggle button.is-active {
-  border-color: var(--pj-primary, #2563eb);
-  color: var(--pj-primary, #2563eb);
-  font-weight: 600;
-}
 </style>

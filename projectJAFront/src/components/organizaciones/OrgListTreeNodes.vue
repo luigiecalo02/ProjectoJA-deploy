@@ -212,7 +212,7 @@ function isExpanded(id: number): boolean {
 }
 
 .org-ltn__icon {
-  color: color-mix(in srgb, var(--pj-navy) 75%, #64748b);
+  color: var(--pj-primary);
   margin-top: 0.25rem;
   flex-shrink: 0;
 }
@@ -231,7 +231,7 @@ function isExpanded(id: number): boolean {
 
 .org-ltn__name {
   font-weight: 600;
-  color: var(--pj-navy);
+  color: var(--pj-text);
   font-size: 0.95rem;
 }
 

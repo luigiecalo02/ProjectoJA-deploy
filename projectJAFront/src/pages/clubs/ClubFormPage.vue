@@ -27,6 +27,7 @@ import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
 import { useAuthStore } from '@/stores/auth'
 import { clubPageScope } from '@/modules/clubs/pageScope'
+import { brandConfig } from '@/config/brand'
 import type {
   Club,
   ClubDirector,
@@ -458,7 +459,12 @@ onUnmounted(() => {
         </TabPanels>
       </Tabs>
 
-      <section v-show="!isEdit || activeTab === 'info'" class="club-card">
+      <section
+        v-show="!isEdit || activeTab === 'info'"
+        class="club-card club-card--hero"
+        :style="{ '--club-hero-art': `url(${brandConfig.directivaHero})` }"
+      >
+        <div class="club-card__hero-body">
         <h2>{{ t('clubs.infoTitle') }}</h2>
         <div class="info-grid">
           <div class="logo-col">
@@ -593,6 +599,7 @@ onUnmounted(() => {
             </div>
           </aside>
         </div>
+        </div>
       </section>
 
       <section v-if="isEdit && activeTab === 'board' && canEditBoard" class="club-card club-card--board">
@@ -656,81 +663,8 @@ onUnmounted(() => {
   overflow: visible;
 }
 
-.club-tabs :deep(.p-tablist-tab-list) {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  padding: 0.28rem;
-  background: var(--pj-bg-elevated);
-  border: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
-  border-radius: 12px;
-  box-shadow: var(--pj-shadow);
-}
-
-.club-tabs :deep(.p-tablist-active-bar) {
-  display: none;
-}
-
-.club-tabs :deep(.p-tab) {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin: 0;
-  padding: 0.58rem 0.95rem;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--pj-text-muted);
-  font-family: var(--pj-font-sans);
-  font-size: 0.88rem;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
-}
-
-.club-tabs :deep(.p-tab i) {
-  font-size: 0.92rem;
-  color: inherit;
-}
-
-.club-tabs :deep(.p-tab:not(.p-tab-active):not([data-p-active='true']):hover) {
-  background: var(--pj-primary-soft);
-  color: var(--pj-navy);
-}
-
-.club-tabs :deep(.p-tab.p-tab-active),
-.club-tabs :deep(.p-tab[data-p-active='true']) {
-  background: var(--pj-navy);
-  color: #fff;
-  box-shadow: inset 0 -2px 0 var(--pj-gold);
-}
-
-.club-tabs :deep(.p-tab:focus-visible) {
-  outline: 2px solid var(--pj-gold);
-  outline-offset: 1px;
-}
-
 .club-tabs :deep(.p-tabpanels) {
   display: none;
-}
-
-.club-tabs__count {
-  margin-left: 0.05rem;
-  min-width: 1.35rem;
-  justify-content: center;
-  background: color-mix(in srgb, var(--pj-sky) 18%, transparent) !important;
-  color: var(--pj-navy) !important;
-  border: 0 !important;
-}
-
-.club-tabs :deep(.p-tab.p-tab-active) .club-tabs__count,
-.club-tabs :deep(.p-tab[data-p-active='true']) .club-tabs__count {
-  background: color-mix(in srgb, var(--pj-gold) 88%, #fff) !important;
-  color: var(--pj-navy-dark) !important;
-}
-
-html:not(.dark) .club-tabs :deep(.p-tab:not(.p-tab-active):not([data-p-active='true'])) {
-  color: #5b6b82;
 }
 
 .club-card {
@@ -740,6 +674,42 @@ html:not(.dark) .club-tabs :deep(.p-tab:not(.p-tab-active):not([data-p-active='t
   padding: 1rem;
   box-shadow: var(--pj-shadow);
   backdrop-filter: blur(6px);
+}
+
+.club-card--hero {
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
+  padding: 0;
+  background-color: #eef6ff;
+}
+
+.club-card--hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  background-color: #eef6ff;
+  background-image: var(--club-hero-art);
+  background-repeat: no-repeat;
+  background-position: right center;
+  background-size: auto 100%;
+  pointer-events: none;
+}
+
+.club-card__hero-body {
+  position: relative;
+  z-index: 1;
+  padding: 1rem 1.05rem 1.1rem;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--pj-bg-elevated) 96%, transparent) 0%,
+    color-mix(in srgb, var(--pj-bg-elevated) 88%, transparent) 46%,
+    color-mix(in srgb, var(--pj-bg-elevated) 52%, transparent) 100%
+  );
 }
 
 .club-card--board {
@@ -947,12 +917,49 @@ html:not(.dark) .club-tabs :deep(.p-tab:not(.p-tab-active):not([data-p-active='t
 }
 
 @media (max-width: 720px) {
+  .club-card--hero::before {
+    background-position: center 10%;
+    background-size: cover;
+  }
+
+  .club-card__hero-body {
+    padding-top: 6.4rem;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--pj-bg-elevated) 6%, transparent) 0%,
+      color-mix(in srgb, var(--pj-bg-elevated) 55%, transparent) 18%,
+      color-mix(in srgb, var(--pj-bg-elevated) 92%, transparent) 38%,
+      var(--pj-bg-elevated) 100%
+    );
+  }
+
   .info-grid {
     grid-template-columns: 1fr;
   }
 
   .logo-col {
     max-width: 20rem;
+    width: 100%;
+    justify-self: center;
+    margin-inline: auto;
+    align-items: center;
+  }
+
+  .logo-col :deep(.media-card) {
+    width: 100%;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .logo-col :deep(.media-card__head) {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .logo-col :deep(.actions) {
+    width: 100%;
+    justify-items: center;
   }
 }
 

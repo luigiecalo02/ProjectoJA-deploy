@@ -67,7 +67,7 @@ function iconFor(node: OrganizacionTreeNode): string {
   width: 100%;
   border: 0;
   background: transparent;
-  color: var(--pj-navy);
+  color: var(--pj-text);
   font: inherit;
   font-size: 0.88rem;
   text-align: left;
@@ -77,7 +77,7 @@ function iconFor(node: OrganizacionTreeNode): string {
 }
 
 .org-tree__item i {
-  color: color-mix(in srgb, var(--pj-navy) 70%, #64748b);
+  color: var(--pj-primary);
   font-size: 0.85rem;
 }
 

@@ -962,27 +962,7 @@ html.dark .judge-activity__titles h3 {
 }
 
 .judge-activity__tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--pj-border) 70%, transparent);
-  padding-bottom: 0.35rem;
-}
-
-.judge-activity__tabs button {
-  border: 0;
-  background: transparent;
-  padding: 0.35rem 0.55rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--pj-text-muted);
-  cursor: pointer;
-  border-radius: 8px;
-}
-
-.judge-activity__tabs button.is-active {
-  color: var(--pj-primary, #2563eb);
-  background: color-mix(in srgb, #2563eb 10%, transparent);
+  margin-bottom: 0.35rem;
 }
 
 .judge-activity__body h4 {

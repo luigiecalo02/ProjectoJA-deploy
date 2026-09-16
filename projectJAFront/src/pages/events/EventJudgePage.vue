@@ -2640,25 +2640,7 @@ onBeforeUnmount(() => {
 }
 
 .filter-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.filter-tabs button {
-  border: 1px solid color-mix(in srgb, var(--pj-border) 80%, transparent);
-  background: transparent;
-  border-radius: 999px;
-  padding: 0.28rem 0.65rem;
-  font-size: 0.75rem;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.filter-tabs button.active {
-  background: color-mix(in srgb, #2563eb 12%, transparent);
-  border-color: #2563eb;
-  color: #1d4ed8;
+  margin-bottom: 0.15rem;
 }
 
 .club-item__turn {
@@ -3108,28 +3090,7 @@ onBeforeUnmount(() => {
 }
 
 .evidence-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.evidence-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.65rem;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--pj-border) 80%, transparent);
-  background: transparent;
-  cursor: pointer;
-  font-size: 0.78rem;
-  font-weight: 650;
-}
-
-.evidence-tab.active {
-  border-color: #2563eb;
-  background: color-mix(in srgb, #2563eb 12%, transparent);
-  color: #1d4ed8;
+  margin-bottom: 0.15rem;
 }
 
 .evidence-card {

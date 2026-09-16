@@ -228,8 +228,8 @@ onMounted(() => {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  background: color-mix(in srgb, var(--pj-navy) 10%, white);
-  color: var(--pj-navy);
+  background: var(--pj-primary-soft);
+  color: var(--pj-primary);
 }
 
 .actions {

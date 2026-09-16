@@ -201,27 +201,18 @@ onMounted(() => void load())
   flex-direction: column;
   flex: 1;
   min-height: calc(100vh - 6.5rem);
-  background: color-mix(in srgb, var(--pj-bg-elevated) 94%, transparent);
-  border: 1px solid color-mix(in srgb, var(--pj-border) 65%, transparent);
-  border-radius: 14px;
-  overflow: hidden;
-}
-.lugar-tabs :deep(.p-tablist-tab-list) {
-  gap: 0;
-  padding: 0 0.5rem;
-  background: color-mix(in srgb, var(--pj-bg-muted) 55%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--pj-border) 60%, transparent);
-}
-.lugar-tabs :deep(.p-tab) {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.85rem 1rem;
+  gap: 0.75rem;
+  background: transparent;
+  border: none;
+  overflow: visible;
 }
 .lugar-tabs :deep(.p-tabpanels) {
   flex: 1;
   min-height: 0;
   padding: 0.75rem 0.85rem 0.9rem;
+  background: color-mix(in srgb, var(--pj-bg-elevated) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pj-border) 65%, transparent);
+  border-radius: 14px;
 }
 .lugar-tabs :deep(.p-tabpanel) {
   height: 100%;

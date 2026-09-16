@@ -834,29 +834,6 @@ const recursosHasConfig = computed(
   color: var(--pj-text-muted);
 }
 
-.sub-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.sub-tabs button {
-  border: 0;
-  background: color-mix(in srgb, var(--pj-navy) 6%, #fff);
-  border-radius: 999px;
-  padding: 0.35rem 0.7rem;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 650;
-  color: var(--pj-text-muted);
-  cursor: pointer;
-}
-
-.sub-tabs button.is-active {
-  background: color-mix(in srgb, #2563eb 14%, transparent);
-  color: #1d4ed8;
-}
-
 .sub-tabs--options button.has-config::after {
   content: '';
   display: inline-block;

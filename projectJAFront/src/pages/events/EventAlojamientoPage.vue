@@ -298,7 +298,7 @@ onMounted(() => void load())
 .alojamiento-page { gap: 1rem; }
 .heading { display: flex; align-items: center; gap: .45rem; }
 .heading h1, .heading p { margin: 0; }
-.capacity-pill { display: inline-flex; align-items: center; gap: .4rem; padding: .5rem .75rem; border-radius: 999px; background: var(--pj-primary-soft); color: var(--pj-navy); font-weight: 700; }
+.capacity-pill { display: inline-flex; align-items: center; gap: .4rem; padding: .5rem .75rem; border-radius: 999px; background: var(--pj-primary-soft); color: var(--pj-primary); font-weight: 700; }
 .selector-panel { padding: 1rem; min-width: 0; }
 .quota-tools { display: grid; gap: .75rem; padding: 1rem; }
 .quota-tools label { display: grid; gap: .35rem; font-weight: 700; }
@@ -307,7 +307,7 @@ onMounted(() => void load())
 .quota-people li { display: flex; justify-content: space-between; gap: .75rem; padding: .35rem 0; border-top: 1px solid color-mix(in srgb, var(--pj-border) 55%, transparent); }
 .change-hint { display: block; margin-top: .25rem; font-size: .82rem; }
 .selection-summary { display: flex; align-items: center; gap: .75rem; padding: .8rem; border-radius: 10px; background: var(--pj-primary-soft); }
-.selection-summary > i { font-size: 1.5rem; color: var(--p-primary-color); }
+.selection-summary > i { font-size: 1.5rem; color: var(--pj-primary); }
 .selection-summary strong, .selection-summary span { display: block; }
 .selection-summary span { margin-top: .15rem; color: var(--pj-text-muted); }
 .empty-state { display: grid; justify-items: center; padding: 3rem 1rem; text-align: center; color: var(--pj-text-muted); }

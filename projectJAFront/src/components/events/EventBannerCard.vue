@@ -113,6 +113,11 @@ const countdownLabel = computed(() => {
   min-width: 0;
 }
 
+html.dark .event-banner-card {
+  border-color: #15202e;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
 .event-banner-card__media {
   position: relative;
   aspect-ratio: 16 / 9;

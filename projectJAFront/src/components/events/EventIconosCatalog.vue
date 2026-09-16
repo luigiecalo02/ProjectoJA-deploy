@@ -499,31 +499,6 @@ defineExpose({ openCreate })
   width: 100%;
 }
 
-.visual-toggle {
-  display: flex;
-  padding: 0.15rem;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--pj-navy) 6%, #fff);
-}
-
-.visual-toggle button {
-  flex: 1;
-  border: 0;
-  background: transparent;
-  border-radius: 7px;
-  padding: 0.35rem;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 650;
-  cursor: pointer;
-  color: var(--pj-text-muted);
-}
-
-.visual-toggle button.is-active {
-  background: #fff;
-  color: var(--pj-navy);
-}
-
 .upload-box {
   border: 1.5px dashed color-mix(in srgb, var(--pj-border) 85%, transparent);
   border-radius: 12px;
@@ -544,7 +519,7 @@ defineExpose({ openCreate })
 
 .upload-box i {
   font-size: 1.3rem;
-  color: #2563eb;
+  color: var(--pj-primary);
 }
 
 .prime-grid {

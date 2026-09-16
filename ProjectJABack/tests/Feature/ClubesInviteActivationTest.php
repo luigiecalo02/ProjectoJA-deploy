@@ -68,6 +68,8 @@ class ClubesInviteActivationTest extends TestCase
         $this->postJson('/api/v1/settings/clubes/public/activate', [
             'token' => $token,
             'identificacion' => '1098765432',
+            'nombre1' => 'Luis',
+            'apellido1' => 'Mora',
             'correo' => 'luis@test.local',
             'password' => 'Password1!',
             'password_confirmation' => 'Password1!',
@@ -81,6 +83,73 @@ class ClubesInviteActivationTest extends TestCase
         $this->assertSame(
             (int) Role::query()->where('name', 'miembro')->value('id'),
             (int) $user->active_rol_id,
+        );
+    }
+
+    public function test_lookup_allows_persona_with_existing_user_and_updates_data(): void
+    {
+        $club = $this->createOrg('Club Halcones', Organizacion::TIPO_CLUB);
+        $director = $this->director($club);
+        $persona = Persona::query()->create([
+            'tipo_identificacion' => 'CC',
+            'identificacion' => '1098765433',
+            'nombre1' => 'Ana',
+            'apellido1' => 'Ruiz',
+            'correo' => 'ana@test.local',
+            'telefono' => '3001112233',
+        ]);
+        PersonaOrganizacion::query()->create([
+            'persona_id' => $persona->id,
+            'organizacion_id' => $club->id,
+            'fecha_inicio' => now()->toDateString(),
+            'estado' => true,
+        ]);
+        User::factory()->create([
+            'email' => 'ana@test.local',
+            'password' => 'Password1!',
+            'is_active' => true,
+            'persona_id' => $persona->id,
+            'active_organizacion_id' => $club->id,
+        ]);
+
+        $headers = [
+            'X-Clubes-Client' => 'clubes',
+            'X-Clubes-Root-Id' => (string) $club->id,
+            'Origin' => 'http://localhost:5173',
+        ];
+
+        Sanctum::actingAs($director);
+        $url = $this->postJson('/api/v1/settings/clubes/invite-link', [], $headers)
+            ->assertOk()
+            ->json('data.url');
+        parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+        $token = $query['token'] ?? '';
+
+        $this->postJson('/api/v1/settings/clubes/public/activate/lookup', [
+            'token' => $token,
+            'identificacion' => '1098765433',
+        ], $headers)
+            ->assertOk()
+            ->assertJsonPath('data.has_user', true)
+            ->assertJsonPath('data.persona.nombre1', 'Ana');
+
+        $this->postJson('/api/v1/settings/clubes/public/activate', [
+            'token' => $token,
+            'identificacion' => '1098765433',
+            'nombre1' => 'Ana María',
+            'apellido1' => 'Ruiz',
+            'correo' => 'ana.nueva@test.local',
+            'telefono' => '3009998877',
+        ], $headers)
+            ->assertCreated()
+            ->assertJsonPath('success', true);
+
+        $persona->refresh();
+        $this->assertSame('Ana María', $persona->nombre1);
+        $this->assertSame('ana.nueva@test.local', $persona->correo);
+        $this->assertSame('3009998877', $persona->telefono);
+        $this->assertTrue(
+            User::query()->where('persona_id', $persona->id)->where('email', 'ana.nueva@test.local')->exists()
         );
     }
 

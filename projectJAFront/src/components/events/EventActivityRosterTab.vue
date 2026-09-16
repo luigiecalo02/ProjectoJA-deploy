@@ -296,24 +296,6 @@ onMounted(() => {
   font-weight: 650;
 }
 
-.roster__tabs :deep(.p-tablist-tab-list) {
-  gap: 0.35rem;
-}
-
-.roster__tabs :deep(.p-tab) {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.roster__tabs :deep(.p-tab em) {
-  font-style: normal;
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 0.05rem 0.4rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--p-primary-color) 14%, transparent);
-}
 
 .roster__list {
   list-style: none;

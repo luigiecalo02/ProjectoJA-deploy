@@ -37,6 +37,8 @@
   --p-form-field-background: #ffffff;
   --p-form-field-color: #071e48;
   --p-form-field-placeholder-color: #5b6b82;
+  --p-primary-color: var(--pj-primary);
+  --p-primary-hover-color: var(--pj-primary-hover);
   --p-form-field-icon-color: #5b6b82;
   --p-select-background: #ffffff;
   --p-select-color: #071e48;
@@ -79,6 +81,14 @@ html.dark {
   --pj-primary: #4f84c2;
   --pj-primary-hover: #82abd9;
   --pj-primary-soft: rgba(79, 132, 194, 0.18);
+  --p-primary-color: var(--pj-primary);
+  --p-primary-hover-color: var(--pj-primary-hover);
+  --p-primary-contrast-color: #ffffff;
+  --p-button-outlined-primary-color: #e8eef8;
+  --p-button-outlined-primary-border-color: color-mix(in srgb, #e8eef8 45%, transparent);
+  --p-button-outlined-primary-hover-background: color-mix(in srgb, var(--pj-sky) 20%, transparent);
+  --p-button-outlined-primary-hover-color: #ffffff;
+  --p-button-outlined-primary-hover-border-color: color-mix(in srgb, var(--pj-sky) 70%, #fff);
   --pj-accent: #ffcc00;
   --pj-accent-soft: rgba(255, 204, 0, 0.16);
   --pj-danger: #ff5a5f;
@@ -468,6 +478,324 @@ html:not(.dark) .p-datatable-striped .p-datatable-tbody > tr:nth-child(even) > t
 .p-button.p-button-sm,
 .p-button.p-button-text.p-button-rounded {
   padding: 0.35rem;
+}
+
+html.dark .p-button.p-button-outlined:not(.p-button-danger):not(.p-button-success):not(.p-button-warn):not(.p-button-info) {
+  color: #e8eef8;
+  background: transparent;
+  border-color: color-mix(in srgb, #e8eef8 45%, transparent);
+}
+
+html.dark .p-button.p-button-outlined:not(.p-button-danger):not(.p-button-success):not(.p-button-warn):not(.p-button-info) .p-button-label,
+html.dark .p-button.p-button-outlined:not(.p-button-danger):not(.p-button-success):not(.p-button-warn):not(.p-button-info) .p-button-icon {
+  color: inherit;
+}
+
+html.dark .p-button.p-button-outlined:not(.p-button-danger):not(.p-button-success):not(.p-button-warn):not(.p-button-info):not(:disabled):hover {
+  color: #fff;
+  background: color-mix(in srgb, var(--pj-sky) 20%, transparent);
+  border-color: color-mix(in srgb, var(--pj-sky) 70%, #fff);
+}
+
+html.dark .p-button.p-button-outlined.p-button-danger {
+  color: #ffb4b6;
+  border-color: color-mix(in srgb, #ffb4b6 55%, transparent);
+}
+
+html.dark .p-button.p-button-outlined.p-button-success {
+  color: #86efac;
+  border-color: color-mix(in srgb, #86efac 50%, transparent);
+}
+
+/* Tabs del tema: PrimeVue y pestañas propias */
+.p-tabs .p-tablist,
+.p-tabs .p-tablist-content,
+.p-tabs .p-tablist-viewport {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.p-tabs .p-tablist-active-bar {
+  display: none !important;
+}
+
+.p-tabs .p-tablist-tab-list,
+.config-tabs,
+.loader-tabs,
+.hero-studio__tabs,
+.filter-tabs,
+.evidence-tabs,
+.cabana-tabs,
+.review-tabs,
+.sub-tabs,
+.judge-activity__tabs,
+.visual-toggle,
+.lookup-toggle,
+.drawer-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem;
+  background: var(--pj-bg-elevated);
+  border: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
+  border-radius: 12px;
+  box-shadow: var(--pj-shadow);
+}
+
+.p-tabs .p-tab,
+.config-tabs > button,
+.loader-tabs__btn,
+.hero-studio__tab,
+.filter-tabs > button,
+.evidence-tab,
+.cabana-tabs > button,
+.review-tabs > button,
+.sub-tabs > button,
+.judge-activity__tabs > button,
+.visual-toggle > button,
+.lookup-toggle > button,
+.drawer-tabs .p-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.58rem 0.95rem;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--pj-text-muted);
+  font-family: var(--pj-font-sans);
+  font-size: 0.88rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.visual-toggle > button,
+.lookup-toggle > button {
+  flex: 1 1 0;
+}
+
+.p-tabs .p-tab i,
+.config-tabs > button i,
+.loader-tabs__btn i,
+.hero-studio__tab i,
+.filter-tabs > button i,
+.evidence-tab i,
+.cabana-tabs > button i,
+.review-tabs > button i,
+.sub-tabs > button i,
+.judge-activity__tabs > button i,
+.visual-toggle > button i,
+.lookup-toggle > button i,
+.drawer-tabs .p-button i {
+  font-size: 0.92rem;
+  color: inherit;
+}
+
+.p-tabs .p-tab:not(.p-tab-active):not([data-p-active='true']):hover,
+.config-tabs > button:not(.is-active):hover,
+.loader-tabs__btn:not(.is-active):hover,
+.hero-studio__tab:not(.is-active):hover,
+.filter-tabs > button:not(.active):hover,
+.evidence-tab:not(.active):hover,
+.cabana-tabs > button:not(.active):hover,
+.review-tabs > button:not(.is-active):hover,
+.sub-tabs > button:not(.is-active):hover,
+.judge-activity__tabs > button:not(.is-active):hover,
+.visual-toggle > button:not(.is-active):hover,
+.lookup-toggle > button:not(.is-active):hover,
+.drawer-tabs .p-button.p-button-outlined:hover {
+  background: var(--pj-primary-soft);
+  color: var(--pj-navy);
+}
+
+.p-tabs .p-tab.p-tab-active,
+.p-tabs .p-tab[data-p-active='true'],
+.config-tabs > button.is-active,
+.loader-tabs__btn.is-active,
+.hero-studio__tab.is-active,
+.filter-tabs > button.active,
+.evidence-tab.active,
+.cabana-tabs > button.active,
+.review-tabs > button.is-active,
+.sub-tabs > button.is-active,
+.judge-activity__tabs > button.is-active,
+.visual-toggle > button.is-active,
+.lookup-toggle > button.is-active,
+.drawer-tabs .p-button:not(.p-button-outlined) {
+  background: var(--pj-navy);
+  color: #fff;
+  box-shadow: inset 0 -2px 0 var(--pj-gold);
+}
+
+.p-tabs .p-tab:focus-visible,
+.config-tabs > button:focus-visible,
+.loader-tabs__btn:focus-visible,
+.hero-studio__tab:focus-visible,
+.filter-tabs > button:focus-visible,
+.evidence-tab:focus-visible,
+.cabana-tabs > button:focus-visible,
+.review-tabs > button:focus-visible,
+.sub-tabs > button:focus-visible,
+.judge-activity__tabs > button:focus-visible,
+.visual-toggle > button:focus-visible,
+.lookup-toggle > button:focus-visible,
+.drawer-tabs .p-button:focus-visible {
+  outline: 2px solid var(--pj-gold);
+  outline-offset: 1px;
+}
+
+.drawer-tabs .p-button.p-button-outlined {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.p-tabs .p-tabpanels {
+  padding: 0.85rem 0 0;
+  background: transparent;
+}
+
+.p-tabs .p-tab .p-tag {
+  min-width: 1.35rem;
+  justify-content: center;
+  background: color-mix(in srgb, var(--pj-sky) 18%, transparent);
+  color: var(--pj-navy);
+  border: 0;
+}
+
+.p-tabs .p-tab.p-tab-active .p-tag,
+.p-tabs .p-tab[data-p-active='true'] .p-tag {
+  background: color-mix(in srgb, var(--pj-gold) 88%, #fff);
+  color: var(--pj-navy-dark);
+}
+
+.p-tabs .p-tab em,
+.cabana-tabs small,
+.review-tabs > button span {
+  font-style: normal;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pj-sky) 18%, transparent);
+  color: inherit;
+}
+
+.p-tabs .p-tab.p-tab-active em,
+.p-tabs .p-tab[data-p-active='true'] em,
+.cabana-tabs > button.active small,
+.review-tabs > button.is-active span {
+  background: color-mix(in srgb, var(--pj-gold) 88%, #fff);
+  color: var(--pj-navy-dark);
+}
+
+html:not(.dark) .p-tabs .p-tab:not(.p-tab-active):not([data-p-active='true']),
+html:not(.dark) .config-tabs > button:not(.is-active),
+html:not(.dark) .loader-tabs__btn:not(.is-active),
+html:not(.dark) .hero-studio__tab:not(.is-active),
+html:not(.dark) .filter-tabs > button:not(.active),
+html:not(.dark) .evidence-tab:not(.active),
+html:not(.dark) .cabana-tabs > button:not(.active),
+html:not(.dark) .review-tabs > button:not(.is-active),
+html:not(.dark) .sub-tabs > button:not(.is-active),
+html:not(.dark) .judge-activity__tabs > button:not(.is-active),
+html:not(.dark) .visual-toggle > button:not(.is-active),
+html:not(.dark) .lookup-toggle > button:not(.is-active),
+html:not(.dark) .drawer-tabs .p-button.p-button-outlined {
+  color: #5b6b82;
+}
+
+html.dark .p-tabs .p-tablist-tab-list,
+html.dark .config-tabs,
+html.dark .loader-tabs,
+html.dark .hero-studio__tabs,
+html.dark .filter-tabs,
+html.dark .evidence-tabs,
+html.dark .cabana-tabs,
+html.dark .review-tabs,
+html.dark .sub-tabs,
+html.dark .judge-activity__tabs,
+html.dark .visual-toggle,
+html.dark .lookup-toggle,
+html.dark .drawer-tabs {
+  background: var(--pj-bg-muted);
+  border-color: color-mix(in srgb, var(--pj-sky) 28%, var(--pj-border));
+}
+
+html.dark .p-tabs .p-tab,
+html.dark .config-tabs > button,
+html.dark .loader-tabs__btn,
+html.dark .hero-studio__tab,
+html.dark .filter-tabs > button,
+html.dark .evidence-tab,
+html.dark .cabana-tabs > button,
+html.dark .review-tabs > button,
+html.dark .sub-tabs > button,
+html.dark .judge-activity__tabs > button,
+html.dark .visual-toggle > button,
+html.dark .lookup-toggle > button,
+html.dark .drawer-tabs .p-button {
+  color: #c5d4e8;
+}
+
+html.dark .p-tabs .p-tab:not(.p-tab-active):not([data-p-active='true']):hover,
+html.dark .config-tabs > button:not(.is-active):hover,
+html.dark .loader-tabs__btn:not(.is-active):hover,
+html.dark .hero-studio__tab:not(.is-active):hover,
+html.dark .filter-tabs > button:not(.active):hover,
+html.dark .evidence-tab:not(.active):hover,
+html.dark .cabana-tabs > button:not(.active):hover,
+html.dark .review-tabs > button:not(.is-active):hover,
+html.dark .sub-tabs > button:not(.is-active):hover,
+html.dark .judge-activity__tabs > button:not(.is-active):hover,
+html.dark .visual-toggle > button:not(.is-active):hover,
+html.dark .lookup-toggle > button:not(.is-active):hover,
+html.dark .drawer-tabs .p-button.p-button-outlined:hover {
+  background: color-mix(in srgb, var(--pj-sky) 22%, transparent);
+  color: #f4f8ff;
+}
+
+html.dark .p-tabs .p-tab.p-tab-active,
+html.dark .p-tabs .p-tab[data-p-active='true'],
+html.dark .config-tabs > button.is-active,
+html.dark .loader-tabs__btn.is-active,
+html.dark .hero-studio__tab.is-active,
+html.dark .filter-tabs > button.active,
+html.dark .evidence-tab.active,
+html.dark .cabana-tabs > button.active,
+html.dark .review-tabs > button.is-active,
+html.dark .sub-tabs > button.is-active,
+html.dark .judge-activity__tabs > button.is-active,
+html.dark .visual-toggle > button.is-active,
+html.dark .lookup-toggle > button.is-active,
+html.dark .drawer-tabs .p-button:not(.p-button-outlined) {
+  background: #2f6bb3;
+  color: #fff;
+  box-shadow: inset 0 -2px 0 var(--pj-gold);
+}
+
+html.dark .p-tabs .p-tab .p-tag,
+html.dark .p-tabs .p-tab em,
+html.dark .cabana-tabs small,
+html.dark .review-tabs > button span {
+  background: color-mix(in srgb, var(--pj-sky) 28%, transparent);
+  color: #e8eef8;
+}
+
+html.dark .p-tabs .p-tab.p-tab-active .p-tag,
+html.dark .p-tabs .p-tab[data-p-active='true'] .p-tag,
+html.dark .p-tabs .p-tab.p-tab-active em,
+html.dark .p-tabs .p-tab[data-p-active='true'] em,
+html.dark .cabana-tabs > button.active small,
+html.dark .review-tabs > button.is-active span {
+  background: var(--pj-gold);
+  color: #071e48;
 }
 
 .p-datatable,

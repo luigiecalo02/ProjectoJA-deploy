@@ -61,7 +61,9 @@ class UpdateUserRequest extends FormRequest
                 'nullable',
                 'string',
                 'max:50',
-                Rule::unique('personas', 'identificacion')->whereNull('deleted_at'),
+                Rule::unique('personas', 'identificacion')
+                    ->whereNull('deleted_at')
+                    ->ignore($this->route('user')?->persona_id),
             ],
             'persona.nombre1' => ['nullable', 'string', 'max:100'],
             'persona.nombre2' => ['nullable', 'string', 'max:100'],

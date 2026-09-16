@@ -166,10 +166,8 @@ function unitCodigo(unit: { anchor: CabanaBed }): string {
 <style scoped>
 .bed-selector { display: grid; gap: .8rem; min-width: 0; }
 .selector-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; }
-.cabana-tabs { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .2rem; }
-.cabana-tabs button { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; padding: .55rem .7rem; border: 1px solid var(--pj-border); border-radius: 9px; background: var(--pj-bg-elevated); cursor: pointer; color: var(--pj-text); }
-.cabana-tabs button.active { border-color: var(--p-primary-color); background: var(--pj-primary-soft); color: var(--pj-navy); font-weight: 700; }
-.cabana-tabs small { padding: .12rem .35rem; border-radius: 999px; background: rgb(15 23 42 / 8%); }
+.cabana-tabs { overflow-x: auto; }
+.cabana-tabs button { white-space: nowrap; }
 .global-counter { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; color: var(--pj-text-muted); font-size: .88rem; }
 .global-counter strong { color: var(--pj-text); }
 .global-counter progress { flex: 1 1 12rem; height: .55rem; accent-color: var(--p-primary-color); }
