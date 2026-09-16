@@ -13,7 +13,7 @@ final class ClubesHostMap
             return null;
         }
 
-        $host = $this->clientHost($request);
+        $host = $this->hostForRequest($request);
         if ($host === null) {
             return null;
         }
@@ -21,6 +21,54 @@ final class ClubesHostMap
         $id = $map[$host] ?? null;
 
         return is_int($id) && $id > 0 ? $id : null;
+    }
+
+    public function hostForRequest(Request $request): ?string
+    {
+        return $this->clientHost($request);
+    }
+
+    public function originForHost(string $host): string
+    {
+        $normalized = $this->normalizeHost($host);
+        $local = str_contains($normalized, 'localhost') || str_contains($normalized, '127.0.0.1');
+
+        return ($local ? 'http' : 'https').'://'.$normalized;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function hostsForRootId(int $rootId): array
+    {
+        $hosts = [];
+        foreach ($this->all() as $host => $id) {
+            if ($id === $rootId) {
+                $hosts[] = $host;
+            }
+        }
+
+        return $hosts;
+    }
+
+    public function preferredHostForRoot(int $rootId, ?string $currentHost = null): ?string
+    {
+        $hosts = $this->hostsForRootId($rootId);
+        if ($hosts === []) {
+            return null;
+        }
+
+        if ($currentHost !== null && in_array($currentHost, $hosts, true)) {
+            return $currentHost;
+        }
+
+        foreach ($hosts as $host) {
+            if (substr_count($host, '.') >= 2 && ! str_starts_with($host, 'www.')) {
+                return $host;
+            }
+        }
+
+        return $hosts[0];
     }
 
     /**

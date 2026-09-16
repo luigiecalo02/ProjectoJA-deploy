@@ -16,10 +16,17 @@ class EventoAsistencia extends Model
 
     public const ESTADO_JUSTIFICADO = 'justificado';
 
+    public const ESTADO_PUNTUAL = 'puntual';
+
+    public const PUNTOS_PRESENTE = 1;
+
+    public const PUNTOS_PUNTUAL = 2;
+
     public const ESTADOS = [
         self::ESTADO_PRESENTE,
         self::ESTADO_AUSENTE,
         self::ESTADO_JUSTIFICADO,
+        self::ESTADO_PUNTUAL,
     ];
 
     protected $fillable = [

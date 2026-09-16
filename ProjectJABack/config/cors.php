@@ -30,6 +30,7 @@ return [
 
     'allowed_origins_patterns' => [
         '#^https?://(localhost|127\.0\.0\.1):\d+$#',
+        '#^https://([a-z0-9-]+\.)*clubric\.online$#',
     ],
 
     'allowed_headers' => ['*'],

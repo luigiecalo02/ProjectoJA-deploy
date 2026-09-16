@@ -8,12 +8,15 @@ use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoAsistencia;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Models\AppSetting;
+use App\Modules\Shared\Services\PublicFileService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 final class ClubesAttendanceService
 {
+    public function __construct(private readonly PublicFileService $publicFiles) {}
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -31,19 +34,27 @@ final class ClubesAttendanceService
             ->get();
 
         $memberCount = $this->memberQuery($orgId)->count();
+        $eventIds = $events->pluck('id')->all() ?: [0];
         $presentCounts = EventoAsistencia::query()
             ->where('organizacion_id', $orgId)
-            ->where('estado', EventoAsistencia::ESTADO_PRESENTE)
-            ->whereIn('evento_id', $events->pluck('id')->all() ?: [0])
+            ->whereIn('estado', [EventoAsistencia::ESTADO_PRESENTE, EventoAsistencia::ESTADO_PUNTUAL])
+            ->whereIn('evento_id', $eventIds)
+            ->selectRaw('evento_id, COUNT(*) as total')
+            ->groupBy('evento_id')
+            ->pluck('total', 'evento_id');
+        $takenCounts = EventoAsistencia::query()
+            ->where('organizacion_id', $orgId)
+            ->whereIn('evento_id', $eventIds)
             ->selectRaw('evento_id, COUNT(*) as total')
             ->groupBy('evento_id')
             ->pluck('total', 'evento_id');
 
-        return $events->map(function (Event $event) use ($memberCount, $presentCounts) {
+        return $events->map(function (Event $event) use ($memberCount, $presentCounts, $takenCounts) {
             return [
                 ...$this->eventPayload($event),
                 'integrantes_count' => $memberCount,
                 'presentes_count' => (int) ($presentCounts[$event->id] ?? 0),
+                'asistencias_count' => (int) ($takenCounts[$event->id] ?? 0),
             ];
         })->values()->all();
     }
@@ -84,21 +95,32 @@ final class ClubesAttendanceService
     /**
      * @param  list<int>  $presenteIds
      * @param  list<int>  $justificadoIds
+     * @param  list<int>  $puntualIds
      * @return array<string, mixed>
      */
-    public function sync(User $actor, Event $event, array $presenteIds, array $justificadoIds = []): array
-    {
+    public function sync(
+        User $actor,
+        Event $event,
+        array $presenteIds,
+        array $justificadoIds = [],
+        array $puntualIds = [],
+    ): array {
         $orgId = $this->assertCanUpdate($actor);
         $this->assertVisibleEvent($actor, $event);
 
         $memberIds = $this->members($orgId)->pluck('id')->map(fn ($id) => (int) $id)->all();
-        $presenteIds = array_values(array_unique(array_map('intval', $presenteIds)));
+        $puntualIds = array_values(array_unique(array_map('intval', $puntualIds)));
+        $presenteIds = array_values(array_unique(array_diff(
+            array_map('intval', $presenteIds),
+            $puntualIds,
+        )));
         $justificadoIds = array_values(array_unique(array_diff(
             array_map('intval', $justificadoIds),
             $presenteIds,
+            $puntualIds,
         )));
 
-        foreach ([...$presenteIds, ...$justificadoIds] as $personaId) {
+        foreach ([...$presenteIds, ...$justificadoIds, ...$puntualIds] as $personaId) {
             if (! in_array($personaId, $memberIds, true)) {
                 throw ValidationException::withMessages([
                     'persona_ids' => ['Hay personas que no son integrantes de este club.'],
@@ -106,10 +128,12 @@ final class ClubesAttendanceService
             }
         }
 
-        DB::transaction(function () use ($event, $orgId, $memberIds, $presenteIds, $justificadoIds, $actor) {
+        DB::transaction(function () use ($event, $orgId, $memberIds, $presenteIds, $justificadoIds, $puntualIds, $actor) {
             foreach ($memberIds as $personaId) {
                 $estado = EventoAsistencia::ESTADO_AUSENTE;
-                if (in_array($personaId, $presenteIds, true)) {
+                if (in_array($personaId, $puntualIds, true)) {
+                    $estado = EventoAsistencia::ESTADO_PUNTUAL;
+                } elseif (in_array($personaId, $presenteIds, true)) {
                     $estado = EventoAsistencia::ESTADO_PRESENTE;
                 } elseif (in_array($personaId, $justificadoIds, true)) {
                     $estado = EventoAsistencia::ESTADO_JUSTIFICADO;
@@ -162,9 +186,11 @@ final class ClubesAttendanceService
         $integrantes = $this->members($orgId)
             ->map(function (Persona $persona) use ($counts, $eventos) {
                 $rows = $counts->get((int) $persona->id) ?? collect();
-                $presentes = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_PRESENTE)?->total ?? 0);
+                $presentesTarde = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_PRESENTE)?->total ?? 0);
+                $puntuales = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_PUNTUAL)?->total ?? 0);
                 $ausentes = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_AUSENTE)?->total ?? 0);
                 $justificados = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_JUSTIFICADO)?->total ?? 0);
+                $presentes = $presentesTarde + $puntuales;
                 $marcados = $presentes + $ausentes + $justificados;
                 $porcentaje = $eventos > 0 ? (int) round(($presentes / $eventos) * 100) : 0;
 
@@ -172,17 +198,20 @@ final class ClubesAttendanceService
                     'persona_id' => (int) $persona->id,
                     'full_name' => $persona->full_name,
                     'identificacion' => $persona->identificacion,
+                    'foto_url' => $this->photoUrl($persona),
                     'presentes' => $presentes,
+                    'puntuales' => $puntuales,
                     'ausentes' => $ausentes,
                     'justificados' => $justificados,
                     'sin_marcar' => max($eventos - $marcados, 0),
                     'eventos' => $eventos,
+                    'puntos' => $presentes,
                     'porcentaje' => $porcentaje,
                 ];
             })
             ->sortBy([
-                ['porcentaje', 'asc'],
-                ['presentes', 'asc'],
+                ['presentes', 'desc'],
+                ['puntuales', 'desc'],
                 ['full_name', 'asc'],
             ])
             ->values()
@@ -246,6 +275,7 @@ final class ClubesAttendanceService
         $personaIds = $this->memberQuery($organizacionId)->pluck('persona_id');
 
         return Persona::query()
+            ->with('user:id,persona_id,avatar_url')
             ->whereIn('id', $personaIds->isEmpty() ? [0] : $personaIds)
             ->orderBy('apellido1')
             ->orderBy('nombre1')
@@ -257,6 +287,12 @@ final class ClubesAttendanceService
         return PersonaOrganizacion::query()
             ->where('organizacion_id', $organizacionId)
             ->where('estado', true);
+    }
+
+    private function photoUrl(Persona $persona): ?string
+    {
+        return $this->publicFiles->url($persona->foto)
+            ?? $this->publicFiles->url($persona->user?->avatar_url);
     }
 
     /**
@@ -291,12 +327,14 @@ final class ClubesAttendanceService
     private function resumen(array $integrantes): array
     {
         $presentes = 0;
+        $puntuales = 0;
         $ausentes = 0;
         $justificados = 0;
         $sinMarcar = 0;
 
         foreach ($integrantes as $row) {
             match ($row['estado'] ?? null) {
+                EventoAsistencia::ESTADO_PUNTUAL => $puntuales++,
                 EventoAsistencia::ESTADO_PRESENTE => $presentes++,
                 EventoAsistencia::ESTADO_AUSENTE => $ausentes++,
                 EventoAsistencia::ESTADO_JUSTIFICADO => $justificados++,
@@ -306,7 +344,8 @@ final class ClubesAttendanceService
 
         return [
             'total' => count($integrantes),
-            'presentes' => $presentes,
+            'presentes' => $presentes + $puntuales,
+            'puntuales' => $puntuales,
             'ausentes' => $ausentes,
             'justificados' => $justificados,
             'sin_marcar' => $sinMarcar,

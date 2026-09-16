@@ -341,6 +341,9 @@ class AppSetting extends Model
             'background_day_path' => null,
             'color_principal' => null,
             'color_secundario' => null,
+            'background_style' => 'cover',
+            'background_night_style' => 'cover',
+            'background_day_style' => 'cover',
         ];
     }
 
@@ -367,6 +370,9 @@ class AppSetting extends Model
             'background_day_path' => self::normalizeClubesAssetPath($data['background_day_path'] ?? null),
             'color_principal' => self::normalizeHexColor($data['color_principal'] ?? null),
             'color_secundario' => self::normalizeHexColor($data['color_secundario'] ?? null),
+            'background_style' => self::normalizeBackgroundStyle($data['background_style'] ?? null),
+            'background_night_style' => self::normalizeBackgroundStyle($data['background_night_style'] ?? null),
+            'background_day_style' => self::normalizeBackgroundStyle($data['background_day_style'] ?? null),
         ];
     }
 
@@ -388,6 +394,13 @@ class AppSetting extends Model
         }
 
         return null;
+    }
+
+    public static function normalizeBackgroundStyle(mixed $value): string
+    {
+        $allowed = ['cover', 'contain', 'mosaic', 'stack', 'stretch'];
+
+        return is_string($value) && in_array($value, $allowed, true) ? $value : 'cover';
     }
 
     public static function isClubesAssetKey(string $key): bool

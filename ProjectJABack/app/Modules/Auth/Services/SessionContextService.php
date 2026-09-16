@@ -24,9 +24,37 @@ final class SessionContextService
     ) {}
 
     /**
+     * Membresías del usuario sin filtrar por el dominio actual.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function memberships(User $user): array
+    {
+        return $this->buildOptions($user);
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function options(User $user): array
+    {
+        return $this->clubesTenant->filterOptions($user, $this->buildOptions($user));
+    }
+
+    /**
+     * Todas las membresías, con host si el rol vive en otro front Clubes.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function menuOptions(User $user): array
+    {
+        return $this->clubesTenant->decorateMenuOptions($user, $this->buildOptions($user));
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function buildOptions(User $user): array
     {
         $options = [];
 
@@ -111,7 +139,7 @@ final class SessionContextService
             }
         }
 
-        return $this->clubesTenant->filterOptions($user, $options);
+        return $options;
     }
 
     /**

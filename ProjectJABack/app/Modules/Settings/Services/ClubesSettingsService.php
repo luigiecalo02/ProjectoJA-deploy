@@ -227,6 +227,7 @@ final class ClubesSettingsService
 
         $current = is_array($settings->clubes) ? $settings->clubes : [];
         $settings->clubes = AppSetting::normalizeClubesConfig([
+            ...$current,
             ...$data,
             'logo_path' => $current['logo_path'] ?? null,
             'background_path' => $current['background_path'] ?? null,
@@ -235,6 +236,9 @@ final class ClubesSettingsService
             'background_day_path' => $current['background_day_path'] ?? null,
             'color_principal' => $data['color_principal'] ?? $current['color_principal'] ?? null,
             'color_secundario' => $data['color_secundario'] ?? $current['color_secundario'] ?? null,
+            'background_style' => $data['background_style'] ?? $current['background_style'] ?? 'cover',
+            'background_night_style' => $data['background_night_style'] ?? $current['background_night_style'] ?? 'cover',
+            'background_day_style' => $data['background_day_style'] ?? $current['background_day_style'] ?? 'cover',
         ]);
         $settings->updated_by = $actor->id;
         $settings->save();
@@ -581,6 +585,9 @@ final class ClubesSettingsService
             'values' => $normalized['values'],
             'color_principal' => $normalized['color_principal'],
             'color_secundario' => $normalized['color_secundario'],
+            'background_style' => $normalized['background_style'],
+            'background_night_style' => $normalized['background_night_style'],
+            'background_day_style' => $normalized['background_day_style'],
             'logo_url' => $this->fileUrl(is_string($normalized['logo_path'] ?? null) ? $normalized['logo_path'] : null),
             'background_url' => $this->fileUrl(is_string($normalized['background_path'] ?? null) ? $normalized['background_path'] : null),
             'banner_url' => $this->fileUrl(is_string($normalized['banner_path'] ?? null) ? $normalized['banner_path'] : null),

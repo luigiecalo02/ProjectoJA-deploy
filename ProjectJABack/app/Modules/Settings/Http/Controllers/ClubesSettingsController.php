@@ -51,6 +51,9 @@ final class ClubesSettingsController
             'values' => ['required', 'string', 'max:160'],
             'color_principal' => ['nullable', 'string', 'max:20', 'regex:/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/'],
             'color_secundario' => ['nullable', 'string', 'max:20', 'regex:/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/'],
+            'background_style' => ['sometimes', 'string', 'in:cover,contain,mosaic,stack,stretch'],
+            'background_night_style' => ['sometimes', 'string', 'in:cover,contain,mosaic,stack,stretch'],
+            'background_day_style' => ['sometimes', 'string', 'in:cover,contain,mosaic,stack,stretch'],
         ]);
 
         return ApiResponse::success(

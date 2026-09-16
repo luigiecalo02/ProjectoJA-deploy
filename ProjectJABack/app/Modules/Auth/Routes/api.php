@@ -22,6 +22,7 @@ Route::prefix('auth')->group(function () {
         Route::post('complete', [ParticipantRegistrationController::class, 'complete'])
             ->middleware('throttle:5,1');
     });
+    Route::post('handoff/consume', [AuthController::class, 'consumeHandoff'])->middleware('throttle:10,1');
     Route::get('oauth/{provider}/redirect', [AuthController::class, 'redirect'])->middleware('throttle:10,1');
     Route::get('oauth/{provider}/callback', [AuthController::class, 'callback'])->middleware('throttle:10,1');
 
@@ -30,6 +31,7 @@ Route::prefix('auth')->group(function () {
         Route::get('me', [AuthController::class, 'me']);
         Route::get('context-options', [AuthController::class, 'contextOptions']);
         Route::post('context', [AuthController::class, 'setContext']);
+        Route::post('handoff', [AuthController::class, 'issueHandoff']);
         Route::delete('context', [AuthController::class, 'clearContext']);
         Route::post('impersonate/{user}', [AuthController::class, 'impersonate']);
         Route::post('stop-impersonation', [AuthController::class, 'stopImpersonation']);

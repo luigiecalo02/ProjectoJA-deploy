@@ -3,6 +3,7 @@
 namespace App\Modules\Auth\Services;
 
 use App\Models\User;
+use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use Illuminate\Http\Request;
@@ -169,5 +170,133 @@ final class ClubesTenantAccess
                 return in_array((int) $orgId, $allowed, true);
             },
         ));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $options
+     * @return list<array<string, mixed>>
+     */
+    public function decorateMenuOptions(User $user, array $options, ?Request $request = null): array
+    {
+        $request ??= request();
+        $request = $request instanceof Request ? $request : null;
+        $currentRoot = $this->rootId($request);
+        $allowed = $this->allowedOrganizationIds($request);
+        $currentHost = $request ? $this->hosts->hostForRequest($request) : null;
+
+        $orgIds = [];
+        foreach ($options as $option) {
+            $orgId = (int) ($option['organizacion_id'] ?? 0);
+            if ($orgId > 0) {
+                $orgIds[$orgId] = true;
+            }
+        }
+
+        $rootByOrg = $this->mappedRootsForOrganizations(array_keys($orgIds));
+
+        $decorated = [];
+        foreach ($options as $option) {
+            $orgId = (int) ($option['organizacion_id'] ?? 0);
+            $mappedRoot = $orgId > 0 ? ($rootByOrg[$orgId] ?? null) : null;
+            $host = $mappedRoot ? $this->hosts->preferredHostForRoot($mappedRoot, $currentHost) : null;
+            $inAllowed = $allowed === null
+                || $user->isSuperAdmin()
+                || ($orgId > 0 && in_array($orgId, $allowed, true));
+            $currentTenant = $mappedRoot !== null && $currentRoot !== null
+                ? $mappedRoot === $currentRoot
+                : $inAllowed;
+
+            $option['host'] = $host;
+            $option['origin'] = $host ? $this->hosts->originForHost($host) : null;
+            $option['current_tenant'] = $currentTenant;
+            $decorated[] = $option;
+        }
+
+        return array_values(array_filter(
+            $decorated,
+            static fn (array $option): bool => (bool) ($option['current_tenant'] ?? false)
+                || is_string($option['origin'] ?? null),
+        ));
+    }
+
+    public function hostForOrganization(?int $organizacionId, ?Request $request = null): ?string
+    {
+        if (! $organizacionId) {
+            return null;
+        }
+
+        $request ??= request();
+        $currentHost = $request instanceof Request ? $this->hosts->hostForRequest($request) : null;
+        $mappedRoot = $this->mappedRootsForOrganizations([$organizacionId])[$organizacionId] ?? null;
+
+        return $mappedRoot ? $this->hosts->preferredHostForRoot($mappedRoot, $currentHost) : null;
+    }
+
+    public function originForOrganization(?int $organizacionId, ?Request $request = null): ?string
+    {
+        $host = $this->hostForOrganization($organizacionId, $request);
+
+        return $host ? $this->hosts->originForHost($host) : null;
+    }
+
+    /**
+     * @param  list<int>  $orgIds
+     * @return array<int, int>
+     */
+    private function mappedRootsForOrganizations(array $orgIds): array
+    {
+        $hosts = $this->hosts->all();
+        if ($hosts === [] || $orgIds === []) {
+            return [];
+        }
+
+        $rootIds = array_fill_keys(array_values($hosts), true);
+        $parents = $this->parentMap($orgIds);
+        $result = [];
+
+        foreach ($orgIds as $orgId) {
+            $current = $orgId;
+            $seen = [];
+            $mapped = null;
+
+            while ($current && ! isset($seen[$current])) {
+                $seen[$current] = true;
+                if (isset($rootIds[$current])) {
+                    $mapped = $current;
+                    break;
+                }
+
+                if (! array_key_exists($current, $parents)) {
+                    $parents += $this->parentMap([$current]);
+                }
+
+                $current = $parents[$current] ?? null;
+            }
+
+            if ($mapped !== null) {
+                $result[$orgId] = $mapped;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param  list<int>  $ids
+     * @return array<int, int|null>
+     */
+    private function parentMap(array $ids): array
+    {
+        $ids = array_values(array_filter($ids, static fn (int $id): bool => $id > 0));
+        if ($ids === []) {
+            return [];
+        }
+
+        $map = [];
+        foreach (Organizacion::query()->whereIn('id', $ids)->get(['id', 'organizacion_padre_id']) as $row) {
+            $map[(int) $row->id] = $row->organizacion_padre_id ? (int) $row->organizacion_padre_id : null;
+        }
+
+        return $map;
     }
 }

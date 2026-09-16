@@ -51,6 +51,13 @@ class ClubesAttendanceApiTest extends TestCase
             ->assertJsonPath('data.resumen.presentes', 1)
             ->assertJsonPath('data.resumen.justificados', 1);
 
+        $listed = $this->getJson('/api/v1/settings/clubes/asistencia/eventos', [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()->json('data');
+        $this->assertSame($eventId, $listed[0]['id']);
+        $this->assertSame(1, $listed[0]['presentes_count']);
+        $this->assertGreaterThan(0, $listed[0]['asistencias_count']);
+
         $this->assertDatabaseHas('evento_asistencias', [
             'evento_id' => $eventId,
             'organizacion_id' => $org->id,
@@ -64,10 +71,33 @@ class ClubesAttendanceApiTest extends TestCase
             ->assertJsonPath('data.eventos', 1)
             ->json('data.integrantes');
 
-        $this->assertSame($director->persona_id, $ranking[0]['persona_id']);
-        $this->assertSame(0, $ranking[0]['porcentaje']);
-        $this->assertSame($member->id, $ranking[array_key_last($ranking)]['persona_id']);
-        $this->assertSame(100, $ranking[array_key_last($ranking)]['porcentaje']);
+        $this->assertSame($member->id, $ranking[0]['persona_id']);
+        $this->assertSame(100, $ranking[0]['porcentaje']);
+        $this->assertSame($director->persona_id, $ranking[array_key_last($ranking)]['persona_id']);
+        $this->assertSame(0, $ranking[array_key_last($ranking)]['porcentaje']);
+        $this->assertSame(1, $ranking[0]['puntos']);
+
+        $this->putJson("/api/v1/settings/clubes/asistencia/{$eventId}", [
+            'persona_ids' => [$member->id],
+            'puntuales' => [$member->id],
+            'justificados' => [$director->persona_id],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.resumen.presentes', 1)
+            ->assertJsonPath('data.resumen.puntuales', 1);
+
+        $this->assertDatabaseHas('evento_asistencias', [
+            'evento_id' => $eventId,
+            'persona_id' => $member->id,
+            'estado' => EventoAsistencia::ESTADO_PUNTUAL,
+        ]);
+
+        $rankedPuntual = $this->getJson('/api/v1/settings/clubes/asistencia/resumen', [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()->json('data.integrantes');
+        $this->assertSame(1, $rankedPuntual[0]['puntos']);
+        $this->assertSame(1, $rankedPuntual[0]['puntuales']);
     }
 
     public function test_tesorero_cannot_view_attendance(): void

@@ -6,12 +6,14 @@ use App\Models\User;
 use App\Modules\Auth\Http\Requests\LoginRequest;
 use App\Modules\Auth\Services\AuthService;
 use App\Modules\Auth\Services\SessionContextService;
+use App\Modules\Auth\Services\TenantHandoffService;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
 use App\Modules\Shared\Services\PublicFileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Laravel\Socialite\Facades\Socialite;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -21,6 +23,7 @@ final class AuthController
         private readonly AuthService $authService,
         private readonly OrganizationAccessService $orgAccess,
         private readonly SessionContextService $sessionContext,
+        private readonly TenantHandoffService $tenantHandoff,
         private readonly PublicFileService $publicFiles,
     ) {}
 
@@ -64,7 +67,46 @@ final class AuthController
             'requires_context' => $this->sessionContext->requiresSelection($user),
             'contexto' => $this->sessionContext->current($user),
             'options' => $this->sessionContext->options($user),
+            'menu_options' => $this->sessionContext->menuOptions($user),
         ]);
+    }
+
+    public function issueHandoff(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'organizacion_id' => ['nullable', 'integer', 'exists:organizacion,id'],
+            'rol_id' => ['required', 'integer', 'exists:roles,id'],
+        ]);
+
+        if ($this->authService->impersonatorIdFromUser($request->user()) !== null) {
+            throw ValidationException::withMessages([
+                'contexto' => ['No puedes cambiar de club mientras estás en la cuenta de otra persona.'],
+            ]);
+        }
+
+        $issued = $this->tenantHandoff->issue(
+            $request->user(),
+            isset($data['organizacion_id']) ? (int) $data['organizacion_id'] : null,
+            (int) $data['rol_id'],
+            $request,
+        );
+
+        return ApiResponse::success($issued, 'Listo para abrir el otro club');
+    }
+
+    public function consumeHandoff(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'code' => ['required', 'string', 'min:20', 'max:80'],
+        ]);
+
+        $result = $this->tenantHandoff->consume($data['code'], $request);
+
+        return ApiResponse::success([
+            'token' => $result['token'],
+            'token_type' => 'Bearer',
+            'user' => $this->userPayload($result['user']),
+        ], 'Sesión abierta en este club');
     }
 
     public function setContext(Request $request): JsonResponse
@@ -170,11 +212,13 @@ final class AuthController
             'contexto' => $this->sessionContext->current($user),
             'requires_context' => $this->sessionContext->requiresSelection($user),
             'context_options' => $this->sessionContext->options($user),
+            'menu_options' => $this->sessionContext->menuOptions($user),
             'impersonated' => $resolved !== null,
             'impersonator' => $resolved ? [
                 'id' => $resolved->id,
                 'name' => $resolved->name,
                 'email' => $resolved->email,
+                'avatar_url' => $this->publicFileUrl($resolved->avatar_url),
             ] : null,
         ];
     }
