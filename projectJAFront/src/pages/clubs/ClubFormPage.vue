@@ -99,8 +99,8 @@ const pendingLogo = ref<File | null>(null)
 const pendingPreview = ref<string | null>(null)
 const uploadingLogo = ref(false)
 const fundacionDate = ref<Date | null>(null)
-/** Tab activo en edición: directiva | integrantes */
-const activeTab = ref<'board' | 'members'>('board')
+/** Tab activo en edición: información | directiva | integrantes */
+const activeTab = ref<'info' | 'board' | 'members'>('info')
 
 const ministryOptions = computed(() => [
   { label: t('clubs.typeConquistadores'), value: 'conquistadores' as ClubMinistry },
@@ -430,7 +430,35 @@ onUnmounted(() => {
     <form v-else class="club-edit__body" @submit.prevent="submit">
       <Message v-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
 
-      <section v-if="!isEdit" class="club-card">
+      <Tabs v-if="isEdit" v-model:value="activeTab" class="club-tabs">
+        <TabList>
+          <Tab value="info">
+            <i class="pi pi-building" />
+            <span>{{ t('clubs.tabInfo') }}</span>
+          </Tab>
+          <Tab value="board">
+            <i class="pi pi-id-card" />
+            <span>{{ t('clubs.tabBoard') }}</span>
+          </Tab>
+          <Tab value="members">
+            <i class="pi pi-users" />
+            <span>{{ t('clubs.tabMembers') }}</span>
+            <Tag
+              v-if="clubPersonas.length"
+              severity="info"
+              :value="String(clubPersonas.length)"
+              class="club-tabs__count"
+            />
+          </Tab>
+        </TabList>
+        <TabPanels>
+          <TabPanel value="info" />
+          <TabPanel value="board" />
+          <TabPanel value="members" />
+        </TabPanels>
+      </Tabs>
+
+      <section v-show="!isEdit || activeTab === 'info'" class="club-card">
         <h2>{{ t('clubs.infoTitle') }}</h2>
         <div class="info-grid">
           <div class="logo-col">
@@ -551,146 +579,43 @@ onUnmounted(() => {
                 <strong>{{ form.is_active ? t('common.active') : t('common.inactive') }}</strong>
               </div>
             </div>
+            <div v-if="isEdit" class="meta-item">
+              <span class="meta-label">{{ t('clubs.createdAt') }}</span>
+              <strong>{{ createdAtLabel }}</strong>
+            </div>
+            <div v-if="isEdit" class="meta-item">
+              <span class="meta-label">{{ t('clubs.directorLabel') }}</span>
+              <strong>{{ primaryDirector?.user?.name || '—' }}</strong>
+            </div>
+            <div v-if="isEdit" class="meta-item">
+              <span class="meta-label">{{ t('clubs.totalMembers') }}</span>
+              <strong>{{ clubPersonas.length }} personas</strong>
+            </div>
           </aside>
         </div>
       </section>
 
-      <Tabs v-if="isEdit" v-model:value="activeTab" class="club-tabs">
-        <TabList>
-          <Tab value="board">
-            <i class="pi pi-id-card" />
-            <span>{{ t('clubs.tabBoard') }}</span>
-          </Tab>
-          <Tab value="members">
-            <i class="pi pi-users" />
-            <span>{{ t('clubs.tabMembers') }}</span>
-            <Tag
-              v-if="clubPersonas.length"
-              severity="info"
-              :value="String(clubPersonas.length)"
-              class="club-tabs__count"
-            />
-          </Tab>
-        </TabList>
-        <TabPanels>
-          <TabPanel value="board">
-            <section v-if="canEditBoard" class="club-card club-card--board">
-        <ClubBoardPanel :club-id="clubId" :lock-director="lockIdentity" @updated="onBoardUpdated">
-          <template #info>
-            <div class="hero-form">
-              <div class="hero-form__logo">
-                <MediaProfileUpload
-                  compact
-                  dense
-                  :src="imagePreview"
-                  :busy="uploadingLogo || saving"
-                  :title="t('clubs.logo')"
-                  :subtitle="t('media.clubProfileSubtitle')"
-                  @select="onLogoSelect"
-                />
-              </div>
+      <section v-if="isEdit && activeTab === 'board' && canEditBoard" class="club-card club-card--board">
+        <ClubBoardPanel
+          hide-hero
+          :club-id="clubId"
+          :lock-director="lockIdentity"
+          @updated="onBoardUpdated"
+        />
+      </section>
 
-              <div class="hero-form__fields">
-                <div class="field">
-                  <label for="organizacion_id_edit">{{ t('clubs.organizacion') }}</label>
-                  <template v-if="iglesiaReadOnly && selectedIglesia">
-                    <p class="info-label">{{ selectedIglesia.nombre }}</p>
-                    <small class="pj-muted">{{
-                      lockIdentity ? t('miClub.iglesiaLocked') : t('clubs.iglesiaAutoSelected')
-                    }}</small>
-                  </template>
-                  <Select
-                    v-else
-                    id="organizacion_id_edit"
-                    :model-value="form.organizacion_id"
-                    :options="orgSelectOptions"
-                    option-label="label"
-                    option-value="id"
-                    filter
-                    fluid
-                    :placeholder="t('clubs.organizacionPlaceholder')"
-                    @update:model-value="onIglesiaChange"
-                  />
-                </div>
-                <div class="field">
-                  <label for="nombre">{{ t('clubs.name') }}</label>
-                  <InputText id="nombre" v-model="form.nombre" class="w-full" required />
-                </div>
-                <div class="hero-form__row">
-                  <div class="field">
-                    <label>{{ t('clubs.zone') }}</label>
-                    <p class="info-label">{{ locationZona }}</p>
-                  </div>
-                  <div class="field">
-                    <label>{{ t('clubs.district') }}</label>
-                    <p class="info-label">{{ locationDistrito }}</p>
-                  </div>
-                  <div class="field">
-                    <label>{{ t('clubs.city') }}</label>
-                    <p class="info-label">{{ locationCiudad }}</p>
-                  </div>
-                </div>
-                <small class="pj-muted location-hint">{{ t('clubs.locationFromIglesiaHint') }}</small>
-                <div class="field">
-                  <label>{{ t('clubs.types') }}</label>
-                  <template v-if="lockIdentity">
-                    <p class="info-label">{{ selectedTipoLabel }}</p>
-                    <small class="pj-muted">{{ t('miClub.tipoLocked') }}</small>
-                  </template>
-                  <div v-else class="types-row">
-                    <label v-for="opt in ministryOptions" :key="opt.value" class="type-radio">
-                      <RadioButton v-model="form.tipo" :input-id="`tipo-edit-${opt.value}`" :value="opt.value" />
-                      <span>{{ opt.label }}</span>
-                    </label>
-                  </div>
-                </div>
-                <div class="hero-form__actions">
-                  <Button v-if="!isSessionClub" type="button" :label="t('common.cancel')" text @click="goList" />
-                  <Button type="submit" :label="t('common.save')" :loading="saving" />
-                </div>
-              </div>
+      <div v-show="isEdit && activeTab === 'members'">
+        <ClubMembersPanel
+          v-model:persona-ids="form.persona_ids"
+          v-model:personas="clubPersonas"
+          :club-id="clubId"
+          :club-organizacion-id="clubOrganizacionId"
+          :iglesia-organizacion-id="form.organizacion_id"
+          @refreshed="refreshClub"
+        />
+      </div>
 
-              <aside class="hero-form__meta">
-                <div class="meta-item">
-                  <span class="meta-label">{{ t('clubs.status') }}</span>
-                  <div class="status-row">
-                    <span class="status-dot" :class="{ 'status-dot--on': form.is_active }" />
-                    <ToggleSwitch v-model="form.is_active" />
-                    <strong>{{ form.is_active ? t('common.active') : t('common.inactive') }}</strong>
-                  </div>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">{{ t('clubs.createdAt') }}</span>
-                  <strong>{{ createdAtLabel }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">{{ t('clubs.directorLabel') }}</span>
-                  <strong>{{ primaryDirector?.user?.name || '—' }}</strong>
-                </div>
-                <div class="meta-item">
-                  <span class="meta-label">{{ t('clubs.totalMembers') }}</span>
-                  <strong>{{ clubPersonas.length }} personas</strong>
-                </div>
-              </aside>
-            </div>
-          </template>
-        </ClubBoardPanel>
-            </section>
-          </TabPanel>
-          <TabPanel value="members">
-            <ClubMembersPanel
-              v-model:persona-ids="form.persona_ids"
-              v-model:personas="clubPersonas"
-              :club-id="clubId"
-              :club-organizacion-id="clubOrganizacionId"
-              :iglesia-organizacion-id="form.organizacion_id"
-              @refreshed="refreshClub"
-            />
-          </TabPanel>
-        </TabPanels>
-      </Tabs>
-
-      <div v-if="!isEdit || activeTab === 'members'" class="form-actions">
+      <div v-if="!isEdit || activeTab === 'info' || activeTab === 'members'" class="form-actions">
         <Button v-if="!isSessionClub" type="button" :label="t('common.cancel')" text @click="goList" />
         <Button type="submit" :label="t('common.save')" :loading="saving" />
       </div>
@@ -726,35 +651,86 @@ onUnmounted(() => {
 }
 
 .club-tabs {
-  background: color-mix(in srgb, var(--pj-bg-elevated) 94%, transparent);
-  border: 1px solid color-mix(in srgb, var(--pj-border) 65%, transparent);
-  border-radius: 14px;
-  overflow: hidden;
+  background: transparent;
+  border: none;
+  overflow: visible;
 }
 
 .club-tabs :deep(.p-tablist-tab-list) {
-  gap: 0;
-  padding: 0 0.5rem;
-  background: color-mix(in srgb, var(--pj-bg-muted) 55%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--pj-border) 60%, transparent);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.28rem;
+  background: var(--pj-bg-elevated);
+  border: 1px solid color-mix(in srgb, var(--pj-border) 75%, transparent);
+  border-radius: 12px;
+  box-shadow: var(--pj-shadow);
+}
+
+.club-tabs :deep(.p-tablist-active-bar) {
+  display: none;
 }
 
 .club-tabs :deep(.p-tab) {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.85rem 1rem;
-  font-weight: 600;
+  margin: 0;
+  padding: 0.58rem 0.95rem;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--pj-text-muted);
+  font-family: var(--pj-font-sans);
+  font-size: 0.88rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 }
 
-.club-tabs :deep(.p-tabpanels),
-.club-tabs :deep(.p-tabpanel) {
-  padding: 0;
-  background: transparent;
+.club-tabs :deep(.p-tab i) {
+  font-size: 0.92rem;
+  color: inherit;
+}
+
+.club-tabs :deep(.p-tab:not(.p-tab-active):not([data-p-active='true']):hover) {
+  background: var(--pj-primary-soft);
+  color: var(--pj-navy);
+}
+
+.club-tabs :deep(.p-tab.p-tab-active),
+.club-tabs :deep(.p-tab[data-p-active='true']) {
+  background: var(--pj-navy);
+  color: #fff;
+  box-shadow: inset 0 -2px 0 var(--pj-gold);
+}
+
+.club-tabs :deep(.p-tab:focus-visible) {
+  outline: 2px solid var(--pj-gold);
+  outline-offset: 1px;
+}
+
+.club-tabs :deep(.p-tabpanels) {
+  display: none;
 }
 
 .club-tabs__count {
-  margin-left: 0.1rem;
+  margin-left: 0.05rem;
+  min-width: 1.35rem;
+  justify-content: center;
+  background: color-mix(in srgb, var(--pj-sky) 18%, transparent) !important;
+  color: var(--pj-navy) !important;
+  border: 0 !important;
+}
+
+.club-tabs :deep(.p-tab.p-tab-active) .club-tabs__count,
+.club-tabs :deep(.p-tab[data-p-active='true']) .club-tabs__count {
+  background: color-mix(in srgb, var(--pj-gold) 88%, #fff) !important;
+  color: var(--pj-navy-dark) !important;
+}
+
+html:not(.dark) .club-tabs :deep(.p-tab:not(.p-tab-active):not([data-p-active='true'])) {
+  color: #5b6b82;
 }
 
 .club-card {
@@ -808,79 +784,11 @@ onUnmounted(() => {
   align-items: start;
 }
 
-.hero-form {
-  display: grid;
-  grid-template-columns: minmax(16rem, 17.5rem) minmax(0, 1fr) minmax(11rem, 13rem);
-  gap: 1rem 1.15rem;
-  align-items: start;
-}
-
-.hero-form__logo {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  position: relative;
-  z-index: 3;
-}
-
 .logo-preview--sm {
   width: 5.5rem;
   aspect-ratio: 1;
   border-radius: 10px;
   background: color-mix(in srgb, #fff 85%, transparent);
-}
-
-.hero-form__fields {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  min-width: 0;
-}
-
-.hero-form__fields .field {
-  gap: 0.15rem;
-}
-
-.hero-form__fields label {
-  font-size: 0.72rem;
-}
-
-.hero-form__row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.45rem;
-}
-
-.hero-form__meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.5rem 0.6rem;
-  border-radius: 10px;
-  background: color-mix(in srgb, #fff 88%, var(--pj-navy) 5%);
-  border: 1px solid color-mix(in srgb, var(--pj-border) 50%, transparent);
-  backdrop-filter: blur(4px);
-}
-
-.hero-form__meta .meta-item {
-  gap: 0.1rem;
-}
-
-.hero-form__meta strong {
-  font-size: 0.82rem;
-  line-height: 1.2;
-}
-
-.hero-form__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.45rem;
-  padding-top: 0.35rem;
-}
-
-.hero-form__fields :deep(.p-inputtext) {
-  padding: 0.35rem 0.55rem;
-  font-size: 0.88rem;
 }
 
 :deep(.logo-upload-sm .p-button) {
@@ -1027,13 +935,11 @@ onUnmounted(() => {
 }
 
 @media (max-width: 1100px) {
-  .info-grid,
-  .hero-form {
+  .info-grid {
     grid-template-columns: minmax(16rem, 1fr) minmax(0, 1.4fr);
   }
 
-  .meta-col,
-  .hero-form__meta {
+  .meta-col {
     grid-column: 1 / -1;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
@@ -1041,13 +947,11 @@ onUnmounted(() => {
 }
 
 @media (max-width: 720px) {
-  .info-grid,
-  .hero-form {
+  .info-grid {
     grid-template-columns: 1fr;
   }
 
-  .logo-col,
-  .hero-form__logo {
+  .logo-col {
     max-width: 20rem;
   }
 }
@@ -1055,7 +959,6 @@ onUnmounted(() => {
 @media (max-width: 640px) {
   .grid-2,
   .grid-3,
-  .hero-form__row,
   .create-grid {
     grid-template-columns: 1fr;
   }

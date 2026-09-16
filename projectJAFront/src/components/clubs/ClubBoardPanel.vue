@@ -47,6 +47,7 @@ interface CreateForm {
 const props = defineProps<{
   clubId: number
   lockDirector?: boolean
+  hideHero?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -522,7 +523,7 @@ onMounted(() => {
   <section class="board-panel">
     <header class="board-panel__header">
       <div>
-        <h2>{{ t('clubs.infoTitle') }}</h2>
+        <h2>{{ hideHero ? t('clubs.directorsTeam') : t('clubs.infoTitle') }}</h2>
         <p class="pj-muted">{{ t('clubs.directorsPageSubtitle') }}</p>
       </div>
       <Button type="button"
@@ -537,6 +538,7 @@ onMounted(() => {
     <Message v-if="errorMessage" severity="error" :closable="false">{{ errorMessage }}</Message>
 
     <section
+      v-if="!hideHero"
       class="club-hero"
       :class="{ 'club-hero--form': $slots.info }"
       :style="{ '--club-hero-art': `url(${brandConfig.directivaHero})` }"

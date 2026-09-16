@@ -1813,6 +1813,7 @@ export default {
     membersAfterSave: 'Guarda el club para registrar integrantes',
     membersAfterSaveDetail:
       'Al guardar se crea la organización tipo Club bajo la iglesia en el árbol. Luego podrás agregar integrantes.',
+    tabInfo: 'Información principal',
     tabBoard: 'Directiva',
     tabMembers: 'Integrantes',
     addMember: 'Agregar integrante',
