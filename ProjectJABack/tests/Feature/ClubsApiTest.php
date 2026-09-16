@@ -376,4 +376,33 @@ class ClubsApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.nombre', 'Club Barzilai Junior');
     }
+
+    public function test_current_creates_club_row_for_club_organization(): void
+    {
+        $iglesia = $this->createIglesia();
+        $clubOrg = Organizacion::query()->create([
+            'organizacion_padre_id' => $iglesia->id,
+            'tipo_organizacion_id' => Organizacion::TIPO_CLUB,
+            'nombre' => 'Club de Guías Mayores R.I.C',
+            'codigo' => 'R.I.C',
+            'estado' => true,
+        ]);
+
+        $admin = $this->admin();
+        $admin->forceFill(['active_organizacion_id' => $clubOrg->id])->save();
+        Sanctum::actingAs($admin);
+
+        $this->assertDatabaseMissing('clubes', ['organizacion_id' => $clubOrg->id]);
+
+        $this->getJson('/api/v1/clubs/current')
+            ->assertOk()
+            ->assertJsonPath('data.organizacion_id', $clubOrg->id)
+            ->assertJsonPath('data.nombre', 'Club de Guías Mayores R.I.C')
+            ->assertJsonPath('data.tipos.0', 'guias_mayores');
+
+        $this->assertDatabaseHas('clubes', [
+            'organizacion_id' => $clubOrg->id,
+            'nombre' => 'Club de Guías Mayores R.I.C',
+        ]);
+    }
 }

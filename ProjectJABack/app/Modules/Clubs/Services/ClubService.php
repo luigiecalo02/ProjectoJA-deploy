@@ -128,12 +128,60 @@ final class ClubService
             return null;
         }
 
-        $club = Club::query()->where('organizacion_id', $orgId)->first();
+        $club = $this->ensureClubForOrganization($orgId);
         if (! $club || ! $this->orgAccess->canAccessClub($actor, $club)) {
             return null;
         }
 
         return $club;
+    }
+
+    public function ensureClubForOrganization(int $orgId): ?Club
+    {
+        $club = Club::withTrashed()->where('organizacion_id', $orgId)->first();
+        if ($club) {
+            if ($club->trashed()) {
+                $club->restore();
+            }
+
+            return $club;
+        }
+
+        $org = Organizacion::query()->find($orgId);
+        if (! $org || (int) $org->tipo_organizacion_id !== Organizacion::TIPO_CLUB) {
+            return null;
+        }
+
+        $iglesiaId = $org->organizacion_padre_id ? (int) $org->organizacion_padre_id : null;
+        $location = $iglesiaId
+            ? $this->locationLabelsFromIglesia($iglesiaId)
+            : ['zona' => null, 'distrito' => null, 'ciudad' => null];
+
+        return Club::query()->create([
+            'organizacion_id' => $org->id,
+            'nombre' => $org->nombre,
+            'nombre_corto' => $org->codigo,
+            'distrito' => $location['distrito'],
+            'ciudad' => $location['ciudad'],
+            'tipos' => $this->tiposFromOrganizacion($org),
+            'is_active' => (bool) $org->estado,
+        ]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function tiposFromOrganizacion(Organizacion $org): array
+    {
+        $haystack = Str::lower(trim(($org->nombre ?? '').' '.($org->codigo ?? '')));
+        if (str_contains($haystack, 'guia') || str_contains($haystack, 'guía')) {
+            return [Club::MINISTRY_GUIAS];
+        }
+        if (str_contains($haystack, 'aventur')) {
+            return [Club::MINISTRY_AVENTUREROS];
+        }
+
+        return [Club::MINISTRY_CONQUISTADORES];
     }
 
     public function find(int $id): Club
