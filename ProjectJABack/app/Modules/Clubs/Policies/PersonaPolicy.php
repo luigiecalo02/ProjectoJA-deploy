@@ -70,10 +70,14 @@ final class PersonaPolicy
 
     public function managePhotos(User $actor, Persona $persona): bool
     {
-        if (! $actor->hasPermission('integrantes.manage_photos') && ! $actor->hasRole('director')) {
-            return false;
+        if (
+            $actor->hasPermission('integrantes.manage_photos')
+            || $actor->hasRole('director')
+            || $this->update($actor, $persona)
+        ) {
+            return $this->personaService->actorCanAccess($actor, $persona);
         }
 
-        return $this->personaService->actorCanAccess($actor, $persona);
+        return false;
     }
 }

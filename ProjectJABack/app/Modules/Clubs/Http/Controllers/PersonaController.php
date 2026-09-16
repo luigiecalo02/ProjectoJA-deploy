@@ -134,7 +134,12 @@ final class PersonaController
             'correo' => $persona->correo,
             'direccion_actual' => $persona->direccion_actual,
             'foto' => $persona->foto,
-            'foto_url' => $this->publicFiles->url($persona->foto),
+            'foto_url' => $this->publicFiles->url($persona->foto)
+                ?: $this->publicFiles->url(
+                    $persona->relationLoaded('user')
+                        ? $persona->user?->avatar_url
+                        : $persona->user()->value('users.avatar_url')
+                ),
             'full_name' => $persona->full_name,
             'club_ids' => $clubs->pluck('id')->values()->all(),
             'clubs' => $clubs->map(fn (Club $club) => [

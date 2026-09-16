@@ -469,6 +469,7 @@ final class PersonaService
         $old = ['foto' => $persona->foto];
         $this->deleteStoredFoto($persona->foto);
         $persona->update(['foto' => $stored->path]);
+        $this->syncLinkedUserAvatar($persona, $stored->path);
         $this->auditLogger->log('personas', 'foto', $old, ['foto' => $stored->path], $persona);
 
         return $persona->fresh(['user', 'organizaciones.organizacion']) ?? $persona;
@@ -479,9 +480,20 @@ final class PersonaService
         $old = ['foto' => $persona->foto];
         $this->deleteStoredFoto($persona->foto);
         $persona->update(['foto' => null]);
+        $this->syncLinkedUserAvatar($persona, null);
         $this->auditLogger->log('personas', 'foto.delete', $old, ['foto' => null], $persona);
 
         return $persona->fresh(['user', 'organizaciones.organizacion']) ?? $persona;
+    }
+
+    private function syncLinkedUserAvatar(Persona $persona, ?string $path): void
+    {
+        $user = $persona->relationLoaded('user') ? $persona->user : $persona->user()->first();
+        if (! $user) {
+            return;
+        }
+
+        $user->update(['avatar_url' => $path]);
     }
 
     private function deleteStoredFoto(?string $path): void
