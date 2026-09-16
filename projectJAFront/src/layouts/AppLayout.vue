@@ -112,9 +112,9 @@ function toggleChromeMenu(event: Event): void {
   chromeMenu.value?.toggle(event)
 }
 
-function inProjectMenu(routeName: string): boolean {
+function inProjectMenu(...candidates: string[]): boolean {
   if (!menuRouteNames.value) return true
-  return menuRouteNames.value.has(routeName)
+  return candidates.some((name) => menuRouteNames.value!.has(name))
 }
 
 const navItems = computed(() => {
@@ -122,7 +122,7 @@ const navItems = computed(() => {
     { to: { name: 'dashboard' }, label: t('nav.dashboard'), icon: 'pi pi-home', show: can('dashboard.view') && inProjectMenu('dashboard') },
     { to: { name: 'users' }, label: t('nav.users'), icon: 'pi pi-users', show: can('users.view') && inProjectMenu('users') },
     { to: { name: 'roles' }, label: t('nav.roles'), icon: 'pi pi-shield', show: can('roles.view') && inProjectMenu('roles') },
-    { to: { name: 'settings.platform' }, label: t('nav.settingsBrand'), icon: 'pi pi-cog', show: can('settings.view') && inProjectMenu('settings.platform') },
+    { to: { name: 'settings.platform' }, label: t('nav.settingsBrand'), icon: 'pi pi-cog', show: can('settings.view') && inProjectMenu('settings.platform', 'settings.brand', 'settings') },
     { to: { name: 'clubs' }, label: t('nav.clubs'), icon: 'pi pi-building', show: can('clubs.view') && inProjectMenu('clubs') },
     { to: { name: 'mi-club' }, label: t('nav.miClub'), icon: 'pi pi-flag', show: can('mi_club.view') && inProjectMenu('mi-club') },
     { to: { name: 'organizaciones' }, label: t('nav.organizaciones'), icon: 'pi pi-sitemap', show: can('organizaciones.view') && inProjectMenu('organizaciones') },
@@ -160,6 +160,7 @@ function isActive(name: string): boolean {
   if (
     name === 'users' ||
     name === 'roles' ||
+    name === 'settings.platform' ||
     name === 'settings.brand' ||
     name === 'clubs' ||
     name === 'mi-club' ||
@@ -233,7 +234,7 @@ async function loadProjectMenu(): Promise<void> {
   try {
     const items = await pagesService.menu()
     menuRouteNames.value = new Set(
-      items.map((item) => item.route_name).filter((name): name is string => Boolean(name)),
+      items.flatMap((item) => [item.route_name, item.key].filter((name): name is string => Boolean(name))),
     )
   } catch {
     menuRouteNames.value = null

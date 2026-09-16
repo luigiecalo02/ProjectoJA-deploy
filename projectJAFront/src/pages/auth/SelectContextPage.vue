@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import PageLoader from '@/components/PageLoader.vue'
+import IconMark from '@/components/IconMark.vue'
 import { useAuthStore } from '@/stores/auth'
 import { getApiErrorMessage } from '@/services/api'
 import type { AuthContextOption } from '@/modules/auth/types'
@@ -136,7 +137,7 @@ onMounted(async () => {
               <img :src="option.club_logo_url" :alt="option.organizacion_nombre" />
             </span>
             <span v-else class="context-card__icon" aria-hidden="true">
-              <i :class="option.icon || 'pi pi-sitemap'" />
+              <IconMark :icono="option.icon" fallback="pi pi-sitemap" />
             </span>
             <div>
               <h2>{{ option.organizacion_nombre }}</h2>

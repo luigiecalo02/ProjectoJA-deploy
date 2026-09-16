@@ -3,9 +3,12 @@
 namespace App\Modules\Users\Policies;
 
 use App\Models\User;
+use App\Modules\Clubs\Services\PersonaService;
 
 final class UserPolicy
 {
+    public function __construct(private readonly PersonaService $personaService) {}
+
     public function viewAny(User $actor): bool
     {
         return $actor->hasPermission('users.view');
@@ -46,6 +49,20 @@ final class UserPolicy
             return false;
         }
 
-        return $actor->isPlatformAdmin() || $actor->hasPermission('users.view');
+        if ($actor->isPlatformAdmin() || $actor->hasPermission('users.view')) {
+            return true;
+        }
+
+        if (! $actor->hasPermission('clubs.manage_members')
+            && ! $actor->hasPermission('mi_club.manage_members')) {
+            return false;
+        }
+
+        $persona = $user->persona;
+        if (! $persona) {
+            return false;
+        }
+
+        return $this->personaService->actorCanManageClubAccount($actor, $persona);
     }
 }

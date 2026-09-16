@@ -17,7 +17,7 @@ final class MailSettingsController
     {
         $this->assertCanView($request);
 
-        return ApiResponse::success($this->mailSettings->publicConfig());
+        return ApiResponse::success($this->mailSettings->publicConfig($this->isClubesClient($request)));
     }
 
     public function update(Request $request): JsonResponse
@@ -72,7 +72,12 @@ final class MailSettingsController
 
     private function clubesDirector(Request $request, User $user): bool
     {
-        return $request->header('X-Clubes-Client') === 'clubes'
+        return $this->isClubesClient($request)
             && in_array('director', $user->roleNames(), true);
+    }
+
+    private function isClubesClient(Request $request): bool
+    {
+        return $request->header('X-Clubes-Client') === 'clubes';
     }
 }

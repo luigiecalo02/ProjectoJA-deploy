@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Auth\Services\ClubesTenantAccess;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Settings\Models\AppSetting;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
@@ -41,7 +42,7 @@ final class MailSettingsService
     /**
      * @return array<string, mixed>
      */
-    public function publicConfig(): array
+    public function publicConfig(bool $revealPassword = false): array
     {
         $mail = $this->mailArray();
         $password = $this->decryptPassword($mail['password'] ?? null);
@@ -53,7 +54,7 @@ final class MailSettingsService
             'username' => $mail['username'] ?? '',
             'from_address' => $mail['from_address'] ?? '',
             'from_name' => $mail['from_name'] ?? config('app.name'),
-            'password' => '',
+            'password' => $revealPassword && $password !== null ? $password : '',
             'password_set' => $password !== null,
             'configured' => $this->isConfigured(),
         ];
@@ -90,7 +91,7 @@ final class MailSettingsService
         $settings->updated_by = $actor->id;
         $settings->save();
 
-        return $this->publicConfig();
+        return $this->publicConfig($this->isClubesRequest());
     }
 
     public function apply(): void
@@ -186,6 +187,14 @@ final class MailSettingsService
         }
 
         return AppSetting::platform()->mail ?? [];
+    }
+
+    private function isClubesRequest(): bool
+    {
+        $request = request();
+
+        return $request instanceof Request
+            && $request->header('X-Clubes-Client') === 'clubes';
     }
 
     private function writableSettings(): AppSetting

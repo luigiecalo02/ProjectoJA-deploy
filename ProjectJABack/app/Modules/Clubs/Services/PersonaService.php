@@ -8,9 +8,13 @@ use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Organizations\Services\OrganizationAccessService;
+use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
+use App\Modules\Shared\Services\ImageOptimizer;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 final class PersonaService
@@ -18,6 +22,7 @@ final class PersonaService
     public function __construct(
         private readonly AuditLogger $auditLogger,
         private readonly OrganizationAccessService $orgAccess,
+        private readonly ImageOptimizer $imageOptimizer,
     ) {}
 
     public function shouldScopeToOwnedClubs(User $actor): bool
@@ -38,6 +43,19 @@ final class PersonaService
 
         return $persona->organizaciones()
             ->whereIn('organizacion_id', $orgIds)
+            ->where('estado', true)
+            ->exists();
+    }
+
+    public function actorCanManageClubAccount(User $actor, Persona $persona): bool
+    {
+        $clubId = $this->orgAccess->activeClubOrganizationId($actor);
+        if ($clubId === null) {
+            return $this->actorCanAccess($actor, $persona);
+        }
+
+        return $persona->organizaciones()
+            ->where('organizacion_id', $clubId)
             ->where('estado', true)
             ->exists();
     }
@@ -405,12 +423,76 @@ final class PersonaService
         });
     }
 
+    public function updatePassword(Persona $persona, string $password, User $actor): User
+    {
+        $user = $persona->user;
+        if (! $user) {
+            throw ValidationException::withMessages([
+                'password' => ['Esta persona no tiene un usuario asociado.'],
+            ]);
+        }
+
+        $user->forceFill(['password' => $password])->save();
+        $this->auditLogger->log('personas', 'password', [
+            'actor_id' => $actor->id,
+            'persona_id' => $persona->id,
+            'user_id' => $user->id,
+        ], [
+            'user_id' => $user->id,
+        ], $persona);
+
+        return $user;
+    }
+
     public function delete(Persona $persona): void
     {
         $old = $persona->toArray();
         User::query()->where('persona_id', $persona->id)->update(['persona_id' => null]);
+        $this->deleteStoredFoto($persona->foto);
         $persona->delete();
         $this->auditLogger->log('personas', 'delete', $old, null, $persona);
+    }
+
+    public function storeFoto(Persona $persona, UploadedFile $file, User $actor): Persona
+    {
+        $stored = $this->imageOptimizer->store($file, "personas/{$persona->id}", 'foto');
+
+        StoredFile::query()->create([
+            'name' => $file->getClientOriginalName(),
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
+            'uploaded_by' => $actor->id,
+        ]);
+
+        $old = ['foto' => $persona->foto];
+        $this->deleteStoredFoto($persona->foto);
+        $persona->update(['foto' => $stored->path]);
+        $this->auditLogger->log('personas', 'foto', $old, ['foto' => $stored->path], $persona);
+
+        return $persona->fresh(['user', 'organizaciones.organizacion']) ?? $persona;
+    }
+
+    public function deleteFoto(Persona $persona, User $actor): Persona
+    {
+        $old = ['foto' => $persona->foto];
+        $this->deleteStoredFoto($persona->foto);
+        $persona->update(['foto' => null]);
+        $this->auditLogger->log('personas', 'foto.delete', $old, ['foto' => null], $persona);
+
+        return $persona->fresh(['user', 'organizaciones.organizacion']) ?? $persona;
+    }
+
+    private function deleteStoredFoto(?string $path): void
+    {
+        if (! is_string($path) || $path === '') {
+            return;
+        }
+
+        if (Storage::disk('public')->exists($path)) {
+            Storage::disk('public')->delete($path);
+        }
     }
 
     /**

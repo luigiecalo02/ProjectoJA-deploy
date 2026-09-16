@@ -18,7 +18,10 @@ final class IconoController
     {
         $user = $request->user();
         abort_unless(
-            $user->can('viewAny', Event::class) || $user->hasPermission('settings.view'),
+            $user->can('viewAny', Event::class)
+            || $user->hasPermission('settings.view')
+            || $user->hasPermission('roles.view')
+            || $user->hasPermission('roles.update'),
             Response::HTTP_FORBIDDEN,
         );
 

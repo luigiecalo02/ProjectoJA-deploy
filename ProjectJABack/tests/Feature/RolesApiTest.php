@@ -86,6 +86,19 @@ class RolesApiTest extends TestCase
         $this->assertTrue($super->fresh()->hasPermission('roles.assign_permissions'));
     }
 
+    public function test_miembro_is_system_and_cannot_be_deleted(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $miembro = Role::query()->where('name', 'miembro')->firstOrFail();
+
+        $this->assertTrue($miembro->is_system);
+        $this->getJson('/api/v1/roles')
+            ->assertOk()
+            ->assertJsonFragment(['name' => 'miembro', 'is_system' => true]);
+
+        $this->deleteJson("/api/v1/roles/{$miembro->id}")->assertForbidden();
+    }
+
     public function test_pastor_cannot_manage_roles(): void
     {
         $user = User::factory()->create();

@@ -140,6 +140,7 @@ final class ClubesSettingsController
             'banner' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
             'remove_logo' => ['sometimes', 'boolean'],
             'remove_banner' => ['sometimes', 'boolean'],
+            'evento_padre_id' => ['nullable', 'integer', 'exists:events,id'],
         ]);
     }
 }

@@ -239,8 +239,11 @@ final class ClubController
                     'nombre2' => $persona->nombre2,
                     'apellido1' => $persona->apellido1,
                     'apellido2' => $persona->apellido2,
+                    'fecha_nacimiento' => $persona->fecha_nacimiento?->format('Y-m-d'),
+                    'sexo' => $persona->sexo,
                     'correo' => $persona->correo,
                     'telefono' => $persona->telefono,
+                    'foto_url' => $this->publicFileUrl($persona->foto),
                     'full_name' => $persona->full_name,
                     'cargo' => null,
                 ];

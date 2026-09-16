@@ -3,18 +3,23 @@
 namespace App\Modules\Clubs\Http\Controllers;
 
 use App\Modules\Clubs\Http\Requests\StorePersonaRequest;
+use App\Modules\Clubs\Http\Requests\UpdatePersonaPasswordRequest;
 use App\Modules\Clubs\Http\Requests\UpdatePersonaRequest;
 use App\Modules\Clubs\Models\Club;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Clubs\Services\PersonaService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
+use App\Modules\Shared\Services\PublicFileService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 final class PersonaController
 {
-    public function __construct(private readonly PersonaService $personaService) {}
+    public function __construct(
+        private readonly PersonaService $personaService,
+        private readonly PublicFileService $publicFiles,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -65,6 +70,37 @@ final class PersonaController
         return ApiResponse::success($this->payload($persona), 'Persona actualizada');
     }
 
+    public function updatePassword(UpdatePersonaPasswordRequest $request, Persona $persona): JsonResponse
+    {
+        $this->personaService->updatePassword(
+            $persona,
+            $request->validated('password'),
+            $request->user(),
+        );
+
+        return ApiResponse::success(null, 'Contraseña actualizada');
+    }
+
+    public function storeFoto(Request $request, Persona $persona): JsonResponse
+    {
+        abort_unless($request->user()->can('managePhotos', $persona), Response::HTTP_FORBIDDEN);
+        $request->validate([
+            'foto' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+        ]);
+
+        $persona = $this->personaService->storeFoto($persona, $request->file('foto'), $request->user());
+
+        return ApiResponse::success($this->payload($persona), 'Foto actualizada');
+    }
+
+    public function destroyFoto(Request $request, Persona $persona): JsonResponse
+    {
+        abort_unless($request->user()->can('managePhotos', $persona), Response::HTTP_FORBIDDEN);
+        $persona = $this->personaService->deleteFoto($persona, $request->user());
+
+        return ApiResponse::success($this->payload($persona), 'Foto eliminada');
+    }
+
     public function destroy(Request $request, Persona $persona): JsonResponse
     {
         abort_unless($request->user()->can('delete', $persona), Response::HTTP_FORBIDDEN);
@@ -97,6 +133,8 @@ final class PersonaController
             'telefono' => $persona->telefono,
             'correo' => $persona->correo,
             'direccion_actual' => $persona->direccion_actual,
+            'foto' => $persona->foto,
+            'foto_url' => $this->publicFiles->url($persona->foto),
             'full_name' => $persona->full_name,
             'club_ids' => $clubs->pluck('id')->values()->all(),
             'clubs' => $clubs->map(fn (Club $club) => [

@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Modules\Events\Models\Icono;
+use App\Modules\Users\Models\Permission;
+use App\Modules\Users\Models\Role;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -81,17 +83,36 @@ class IconoCatalogApiTest extends TestCase
         $this->assertDatabaseHas('iconos', ['nombre' => 'Fuego animado', 'tipo' => 'imagen']);
     }
 
+    public function test_roles_viewer_can_list_icon_catalog(): void
+    {
+        $viewer = User::factory()->create(['email' => 'roles-icons@test.local']);
+        $role = Role::query()->create([
+            'name' => 'visor_roles',
+            'display_name' => 'Visor roles',
+            'is_system' => false,
+            'estado' => true,
+        ]);
+        $role->permissions()->sync(
+            Permission::query()->where('name', 'roles.view')->pluck('id')
+        );
+        $viewer->forceFill(['active_rol_id' => $role->id])->save();
+        $viewer->clearPermissionCache();
+
+        Sanctum::actingAs($viewer->fresh());
+        $this->getJson('/api/v1/events/iconos')->assertOk();
+    }
+
     public function test_cannot_delete_system_icon(): void
     {
         Sanctum::actingAs($this->admin());
 
         $icono = Icono::query()->create([
-            'nombre' => 'Calendario',
-            'slug' => 'eventos-calendario',
+            'nombre' => 'Icono protegido test',
+            'slug' => 'test-icono-protegido',
             'categoria' => 'eventos',
             'etiquetas' => ['evento'],
             'tipo' => 'prime',
-            'valor' => 'pi pi-calendar',
+            'valor' => 'pi pi-lock',
             'es_sistema' => true,
             'estado' => true,
         ]);

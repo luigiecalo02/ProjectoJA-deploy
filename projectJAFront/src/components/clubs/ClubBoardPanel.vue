@@ -921,6 +921,7 @@ onMounted(() => {
 .club-hero--form .club-hero__info {
   padding: 0.85rem 1rem;
   overflow: visible;
+  z-index: 2;
 }
 
 .club-hero__brand {

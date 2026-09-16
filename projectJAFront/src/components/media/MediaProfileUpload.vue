@@ -108,15 +108,21 @@ async function onInput(event: Event): Promise<void> {
 </template>
 
 <style scoped>
-.profile { display: grid; justify-items: center; }
+.profile {
+  display: grid;
+  justify-items: center;
+  position: relative;
+  z-index: 4;
+}
 .profile__preview {
   position: relative;
+  z-index: 2;
   width: 10.5rem;
   height: 10.5rem;
   border: 3px dashed #93c5fd;
   border-radius: 50%;
   background: #eff6ff;
-  overflow: hidden;
+  overflow: visible;
   padding: 0;
   cursor: pointer;
 }
@@ -129,6 +135,8 @@ async function onInput(event: Event): Promise<void> {
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
+  position: relative;
+  z-index: 0;
 }
 .profile__preview > .pi-user {
   display: grid;
@@ -138,8 +146,9 @@ async function onInput(event: Event): Promise<void> {
 }
 .profile__cam {
   position: absolute;
-  right: 0.15rem;
-  bottom: 0.15rem;
+  right: -0.1rem;
+  bottom: -0.1rem;
+  z-index: 5;
   width: 2.2rem;
   height: 2.2rem;
   border-radius: 50%;
@@ -147,6 +156,7 @@ async function onInput(event: Event): Promise<void> {
   color: #fff;
   display: grid;
   place-items: center;
+  pointer-events: none;
   box-shadow: 0 4px 10px rgb(79 70 229 / 35%);
 }
 .actions { display: grid; gap: 0.5rem; }

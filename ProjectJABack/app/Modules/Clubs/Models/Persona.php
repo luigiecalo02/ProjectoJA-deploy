@@ -29,6 +29,7 @@ class Persona extends Model
         'telefono',
         'correo',
         'direccion_actual',
+        'foto',
     ];
 
     protected function casts(): array

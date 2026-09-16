@@ -10,6 +10,7 @@ import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 import Dialog from 'primevue/dialog'
 import PageLoader from '@/components/PageLoader.vue'
+import IconMark from '@/components/IconMark.vue'
 import { rolesService } from '@/services/rolesService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
@@ -122,7 +123,7 @@ onMounted(() => {
           <template #body="{ data }">
             <div class="role-name">
               <span v-if="data.icon" class="role-name__icon" aria-hidden="true">
-                <i :class="data.icon" />
+                <IconMark :icono="data.icon" />
               </span>
               <div>
                 <strong>{{ data.display_name }}</strong>

@@ -67,4 +67,13 @@ final class PersonaPolicy
 
         return $this->personaService->actorCanAccess($actor, $persona);
     }
+
+    public function managePhotos(User $actor, Persona $persona): bool
+    {
+        if (! $actor->hasPermission('integrantes.manage_photos') && ! $actor->hasRole('director')) {
+            return false;
+        }
+
+        return $this->personaService->actorCanAccess($actor, $persona);
+    }
 }

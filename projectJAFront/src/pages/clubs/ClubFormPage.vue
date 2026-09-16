@@ -819,6 +819,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  position: relative;
+  z-index: 3;
 }
 
 .logo-preview--sm {

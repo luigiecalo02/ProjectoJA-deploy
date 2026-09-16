@@ -231,6 +231,8 @@ final class ClubesSettingsService
             'logo_path' => $current['logo_path'] ?? null,
             'background_path' => $current['background_path'] ?? null,
             'banner_path' => $current['banner_path'] ?? null,
+            'background_night_path' => $current['background_night_path'] ?? null,
+            'background_day_path' => $current['background_day_path'] ?? null,
             'color_principal' => $data['color_principal'] ?? $current['color_principal'] ?? null,
             'color_secundario' => $data['color_secundario'] ?? $current['color_secundario'] ?? null,
         ]);
@@ -252,6 +254,19 @@ final class ClubesSettingsService
         ?UploadedFile $banner = null,
     ): array {
         $organizacionId = $this->assertCanWriteClubEvent($actor);
+        $parentId = isset($data['evento_padre_id']) ? (int) $data['evento_padre_id'] : null;
+
+        if ($parentId) {
+            $parent = Event::query()->findOrFail($parentId);
+            abort_unless(
+                (int) $parent->organizacion_id === $organizacionId,
+                Response::HTTP_FORBIDDEN,
+                'El evento padre no pertenece a tu club.',
+            );
+            if (! $parent->tiene_subeventos) {
+                $this->eventService->update($parent, $actor, ['tiene_subeventos' => true]);
+            }
+        }
 
         $event = $this->eventService->create($actor, [
             'name' => $data['name'],
@@ -260,6 +275,7 @@ final class ClubesSettingsService
             'starts_at' => $data['starts_at'],
             'ends_at' => $data['ends_at'],
             'tipo_evento_id' => $data['tipo_evento_id'] ?? null,
+            'evento_padre_id' => $parentId,
             'organizacion_id' => $organizacionId,
             'organizacion_ids' => [$organizacionId],
             'estado' => Event::ESTADO_PUBLICADO,
@@ -328,11 +344,7 @@ final class ClubesSettingsService
     private function assertCanWriteClubEvent(User $actor): int
     {
         abort_unless(
-            $this->actorIsDirectiva($actor)
-            || $actor->hasPermission(Event::PERMISSION_CREATE)
-            || $actor->hasPermission(Event::PERMISSION_CREATE_ORGANIZATION)
-            || $actor->hasPermission('events.view')
-            || $actor->hasPermission('events.update'),
+            $this->actorCanWriteClubEvent($actor),
             Response::HTTP_FORBIDDEN,
             'No tienes permiso para gestionar eventos desde este front.',
         );
@@ -352,6 +364,9 @@ final class ClubesSettingsService
 
         return [
             'id' => $event->id,
+            'evento_padre_id' => $event->evento_padre_id,
+            'tiene_subeventos' => (bool) $event->tiene_subeventos,
+            'hijos_count' => (int) ($event->hijos_count ?? $event->hijos()->count()),
             'name' => $event->name,
             'descripcion' => $event->descripcion,
             'lugar' => $event->lugar,
@@ -394,17 +409,22 @@ final class ClubesSettingsService
         return in_array('director', $actor->roleNames(), true);
     }
 
-    private function actorIsDirectiva(?User $actor): bool
+    private function actorCanWriteClubEvent(?User $actor): bool
     {
         if (! $actor || ! AppSetting::resolveOrganizacionId()) {
             return false;
+        }
+
+        if ($actor->hasPermission(Event::PERMISSION_CREATE)
+            || $actor->hasPermission(Event::PERMISSION_CREATE_ORGANIZATION)
+            || $actor->hasPermission('events.update')) {
+            return true;
         }
 
         return count(array_intersect($actor->roleNames(), [
             'director',
             'subdirector',
             'secretario',
-            'tesorero',
         ])) > 0;
     }
 
@@ -564,6 +584,8 @@ final class ClubesSettingsService
             'logo_url' => $this->fileUrl(is_string($normalized['logo_path'] ?? null) ? $normalized['logo_path'] : null),
             'background_url' => $this->fileUrl(is_string($normalized['background_path'] ?? null) ? $normalized['background_path'] : null),
             'banner_url' => $this->fileUrl(is_string($normalized['banner_path'] ?? null) ? $normalized['banner_path'] : null),
+            'background_night_url' => $this->fileUrl(is_string($normalized['background_night_path'] ?? null) ? $normalized['background_night_path'] : null),
+            'background_day_url' => $this->fileUrl(is_string($normalized['background_day_path'] ?? null) ? $normalized['background_day_path'] : null),
         ];
     }
 

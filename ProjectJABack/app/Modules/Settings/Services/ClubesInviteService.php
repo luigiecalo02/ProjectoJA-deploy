@@ -264,7 +264,7 @@ final class ClubesInviteService
 
     private function memberRole(): Role
     {
-        $role = Role::query()->firstOrCreate(
+        $role = Role::query()->updateOrCreate(
             ['name' => 'miembro'],
             [
                 'display_name' => 'Miembro',

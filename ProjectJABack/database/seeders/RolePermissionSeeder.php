@@ -194,6 +194,7 @@ class RolePermissionSeeder extends Seeder
                     ['action' => 'create', 'display_name' => 'Crear integrantes', 'sort_order' => 2],
                     ['action' => 'update', 'display_name' => 'Actualizar integrantes', 'sort_order' => 3],
                     ['action' => 'delete', 'display_name' => 'Eliminar integrantes', 'sort_order' => 4],
+                    ['action' => 'manage_photos', 'display_name' => 'Colocar fotos de integrantes', 'sort_order' => 5],
                 ],
             ],
             [
@@ -370,6 +371,7 @@ class RolePermissionSeeder extends Seeder
             'integrantes.view',
             'integrantes.create',
             'integrantes.update',
+            'integrantes.manage_photos',
             'settings.view',
             'settings.update',
             'asistencia.view',

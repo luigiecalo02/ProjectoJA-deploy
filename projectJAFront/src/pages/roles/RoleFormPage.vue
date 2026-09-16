@@ -17,13 +17,14 @@ import TabPanel from 'primevue/tabpanel'
 import Tag from 'primevue/tag'
 import Message from 'primevue/message'
 import PageLoader from '@/components/PageLoader.vue'
+import IconCatalogSelect from '@/components/IconCatalogSelect.vue'
+import IconMark from '@/components/IconMark.vue'
 import { rolesService } from '@/services/rolesService'
 import { pagesService } from '@/services/pagesService'
 import { getApiErrorMessage } from '@/services/api'
 import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
 import type { PageFront, RolePage } from '@/modules/roles/types'
-import { primeIconOptions } from '@/utils/primeIcons'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -310,32 +311,12 @@ onMounted(() => {
           />
         </div>
         <p class="pj-muted icon-field__hint">{{ t('roles.iconHint') }}</p>
-        <Select
-          id="role-icon"
+        <IconCatalogSelect
+          input-id="role-icon"
           v-model="form.icon"
-          :options="primeIconOptions"
-          option-label="label"
-          option-value="value"
           :placeholder="t('roles.iconPlaceholder')"
           :disabled="isSuper || !canSubmit"
-          filter
-          show-clear
-          class="w-full icon-select"
-        >
-          <template #value="{ value, placeholder }">
-            <span v-if="value" class="icon-select__value">
-              <i :class="value" aria-hidden="true" />
-              <span>{{ value.replace(/^pi pi-/, '') }}</span>
-            </span>
-            <span v-else class="pj-muted">{{ placeholder }}</span>
-          </template>
-          <template #option="{ option }">
-            <span class="icon-select__option">
-              <i :class="option.value" aria-hidden="true" />
-              <span>{{ option.label }}</span>
-            </span>
-          </template>
-        </Select>
+        />
       </div>
 
       <div class="permissions-block">
@@ -370,7 +351,7 @@ onMounted(() => {
         <article v-for="page in visiblePages" :key="page.id" class="page-card">
           <header class="page-card__header">
             <div class="page-card__title">
-              <i v-if="page.icon" :class="page.icon" />
+              <IconMark v-if="page.icon" :icono="page.icon" />
               <div>
                 <strong>{{ page.name }}</strong>
                 <span class="pj-muted">{{ page.key }}</span>
@@ -446,31 +427,11 @@ onMounted(() => {
         </div>
         <div class="field">
           <label for="page-icon">{{ t('roles.icon') }}</label>
-          <Select
-            id="page-icon"
+          <IconCatalogSelect
+            input-id="page-icon"
             v-model="pageForm.icon"
-            :options="primeIconOptions"
-            option-label="label"
-            option-value="value"
             :placeholder="t('roles.iconPlaceholder')"
-            filter
-            show-clear
-            class="w-full icon-select"
-          >
-            <template #value="{ value, placeholder }">
-              <span v-if="value" class="icon-select__value">
-                <i :class="value" aria-hidden="true" />
-                <span>{{ value.replace(/^pi pi-/, '') }}</span>
-              </span>
-              <span v-else class="pj-muted">{{ placeholder }}</span>
-            </template>
-            <template #option="{ option }">
-              <span class="icon-select__option">
-                <i :class="option.value" aria-hidden="true" />
-                <span>{{ option.label }}</span>
-              </span>
-            </template>
-          </Select>
+          />
         </div>
         <div class="field">
           <label for="page-front">{{ t('roles.pageFront') }}</label>
@@ -531,20 +492,6 @@ onMounted(() => {
 .icon-field__hint {
   margin: 0;
   font-size: 0.85rem;
-}
-
-.icon-select__value,
-.icon-select__option {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-}
-
-.icon-select__value i,
-.icon-select__option i {
-  width: 1.1rem;
-  text-align: center;
-  color: var(--pj-navy);
 }
 
 .w-full {

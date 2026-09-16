@@ -91,6 +91,26 @@ class PagesMenuApiTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_settings_appears_in_project_menu_for_admin(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $menu = collect($this->getJson('/api/v1/menu')->assertOk()->json('data'));
+
+        $this->assertContains('settings', $menu->pluck('key')->all());
+        $this->assertContains('settings.platform', $menu->pluck('route_name')->all());
+    }
+
+    public function test_settings_cannot_move_to_clubes_only(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $pageId = (int) Page::query()->where('key', 'settings')->value('id');
+
+        $this->patchJson("/api/v1/pages/{$pageId}", ['front' => Page::FRONT_CLUBES])
+            ->assertStatus(422);
+        $this->assertDatabaseHas('pages', ['id' => $pageId, 'front' => Page::FRONT_PROJECT]);
+    }
+
     public function test_cannot_delete_system_page(): void
     {
         Sanctum::actingAs($this->admin());

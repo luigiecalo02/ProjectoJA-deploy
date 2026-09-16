@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import MultiSelect from 'primevue/multiselect'
@@ -24,6 +25,7 @@ import { evaluatePasswordStrength, PASSWORD_MAX_LENGTH } from '@/utils/passwordS
 import { useAuthStore } from '@/stores/auth'
 import { usePermission } from '@/composables/usePermission'
 import { usePageChrome } from '@/composables/usePageChrome'
+import type { User } from '@/modules/auth/types'
 import type { RoleOption } from '@/modules/users/types'
 import type { Club, ClubMinistry, ClubPersona, Persona } from '@/modules/clubs/types'
 import type { Organizacion } from '@/modules/organizaciones/types'
@@ -41,6 +43,9 @@ const userId = computed(() => Number(route.params.id))
 
 const loading = ref(false)
 const saving = ref(false)
+const editingUser = ref<User | null>(null)
+const impersonating = ref(false)
+const impersonateDialogVisible = ref(false)
 const uploading = ref(false)
 const roles = ref<RoleOption[]>([])
 const clubs = ref<Club[]>([])
@@ -158,6 +163,14 @@ function ministryLabel(tipo: string): string {
   return ministryOptions.value.find((o) => o.value === tipo)?.label || tipo
 }
 
+const canLoginAs = computed(() => {
+  const user = editingUser.value
+  if (!isEdit.value || !user) return false
+  if (auth.isImpersonating || !form.is_active || user.id === auth.user?.id) return false
+  if (user.is_super && !auth.user?.is_super) return false
+  return auth.canImpersonate || can('users.view') || can('users.update')
+})
+
 const pageTitle = computed(() => (isEdit.value ? t('users.edit') : t('users.new')))
 
 usePageChrome(() => ({
@@ -223,6 +236,26 @@ const passwordLevelLabel = computed(() => {
   }
   return labels[passwordStrength.value.level]
 })
+
+async function confirmImpersonate(): Promise<void> {
+  const user = editingUser.value
+  if (!user || impersonating.value) return
+  impersonating.value = true
+  try {
+    await auth.impersonate(user.id)
+    impersonateDialogVisible.value = false
+    toast.add({
+      severity: 'success',
+      summary: t('common.success'),
+      detail: t('users.impersonateSuccess'),
+      life: 2500,
+    })
+    await router.replace({ name: 'dashboard' })
+  } catch (error) {
+    impersonating.value = false
+    showError(getApiErrorMessage(error))
+  }
+}
 
 function showError(detail: string): void {
   toast.add({
@@ -301,6 +334,7 @@ async function loadUser(): Promise<void> {
   loading.value = true
   try {
     const user = await usersService.get(userId.value)
+    editingUser.value = user
     form.name = user.name
     form.email = user.email
     form.is_active = user.is_active
@@ -839,6 +873,16 @@ onMounted(async () => {
         </div>
 
         <div class="user-form-layout__actions form-actions">
+          <Button
+            v-if="canLoginAs"
+            type="button"
+            class="form-actions__autologin"
+            outlined
+            icon="pi pi-sign-in"
+            :label="t('users.impersonate')"
+            :disabled="saving || uploading || impersonating"
+            @click="impersonateDialogVisible = true"
+          />
           <Button type="button" :label="t('common.cancel')" text @click="router.push({ name: 'users' })" />
           <Button type="submit" :label="t('common.save')" :loading="saving || uploading" />
         </div>
@@ -911,6 +955,30 @@ onMounted(async () => {
         <Column field="telefono" :header="t('personas.phone')" />
       </DataTable>
     </Drawer>
+
+    <Dialog
+      v-model:visible="impersonateDialogVisible"
+      modal
+      :header="t('users.impersonate')"
+      :style="{ width: 'min(92vw, 460px)' }"
+      :closable="!impersonating"
+    >
+      <p>{{ t('users.impersonateConfirm', { name: editingUser?.name || form.name }) }}</p>
+      <template #footer>
+        <Button
+          :label="t('common.cancel')"
+          text
+          :disabled="impersonating"
+          @click="impersonateDialogVisible = false"
+        />
+        <Button
+          :label="t('users.impersonate')"
+          icon="pi pi-sign-in"
+          :loading="impersonating"
+          @click="confirmImpersonate"
+        />
+      </template>
+    </Dialog>
   </section>
 </template>
 
@@ -1124,6 +1192,10 @@ onMounted(async () => {
   margin-top: 0.5rem;
 }
 
+.form-actions__autologin {
+  margin-right: auto;
+}
+
 .clubs-block__head {
   display: flex;
   align-items: center;
@@ -1262,6 +1334,10 @@ onMounted(async () => {
   .form-actions {
     flex-direction: column-reverse;
     align-items: stretch;
+  }
+
+  .form-actions__autologin {
+    margin-right: 0;
   }
 
   .clubs-block__head {

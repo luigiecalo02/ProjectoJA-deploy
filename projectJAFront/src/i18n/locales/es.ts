@@ -535,7 +535,7 @@ export default {
     name: 'Nombre del rol',
     description: 'Descripción',
     icon: 'Icono',
-    iconHint: 'Se muestra al cambiar de organización/rol (cuando no es un club). Puedes buscar entre todos los PrimeIcons.',
+    iconHint: 'Se muestra al cambiar de organización/rol (cuando no es un club). Elige un icono del catálogo de Configuración.',
     iconPlaceholder: 'Buscar y seleccionar icono…',
     iconClear: 'Quitar icono',
     empty: 'No hay roles para mostrar',

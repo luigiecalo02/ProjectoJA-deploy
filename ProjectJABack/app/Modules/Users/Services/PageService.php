@@ -86,6 +86,13 @@ final class PageService
             $data['key'] = Str::slug((string) $data['key'], '_');
         }
 
+        $nextKey = $data['key'] ?? $page->key;
+        if ($nextKey === 'settings' && isset($data['front']) && $data['front'] === Page::FRONT_CLUBES) {
+            throw ValidationException::withMessages([
+                'front' => ['Configuración pertenece al menú de ProjectJA (project o ambos).'],
+            ]);
+        }
+
         $page->fill($data);
         $page->save();
         $this->auditLogger->log('pages', 'update', $old, $page->toArray(), $page);

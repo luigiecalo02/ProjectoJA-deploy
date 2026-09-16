@@ -41,10 +41,16 @@ class AppSetting extends Model
 
     public const CLUBES_ASSET_BANNER = 'banner';
 
+    public const CLUBES_ASSET_BACKGROUND_NIGHT = 'background_night';
+
+    public const CLUBES_ASSET_BACKGROUND_DAY = 'background_day';
+
     public const CLUBES_ASSET_KEYS = [
         self::CLUBES_ASSET_LOGO,
         self::CLUBES_ASSET_BACKGROUND,
         self::CLUBES_ASSET_BANNER,
+        self::CLUBES_ASSET_BACKGROUND_NIGHT,
+        self::CLUBES_ASSET_BACKGROUND_DAY,
     ];
 
     public const LOGO_ANIMATIONS = ['float', 'pulse', 'spin', 'bounce', 'none'];
@@ -331,6 +337,8 @@ class AppSetting extends Model
             'logo_path' => null,
             'background_path' => null,
             'banner_path' => null,
+            'background_night_path' => null,
+            'background_day_path' => null,
             'color_principal' => null,
             'color_secundario' => null,
         ];
@@ -355,6 +363,8 @@ class AppSetting extends Model
             'logo_path' => self::normalizeClubesAssetPath($data['logo_path'] ?? null),
             'background_path' => self::normalizeClubesAssetPath($data['background_path'] ?? null),
             'banner_path' => self::normalizeClubesAssetPath($data['banner_path'] ?? null),
+            'background_night_path' => self::normalizeClubesAssetPath($data['background_night_path'] ?? null),
+            'background_day_path' => self::normalizeClubesAssetPath($data['background_day_path'] ?? null),
             'color_principal' => self::normalizeHexColor($data['color_principal'] ?? null),
             'color_secundario' => self::normalizeHexColor($data['color_secundario'] ?? null),
         ];

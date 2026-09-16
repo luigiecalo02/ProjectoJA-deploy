@@ -13,6 +13,8 @@ use Database\Seeders\OrganizacionCatalogSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -251,6 +253,43 @@ class PersonasApiTest extends TestCase
         $this->assertContains($club->id, $persona['club_ids']);
     }
 
+    public function test_correo_must_be_unique_across_personas_and_users(): void
+    {
+        Sanctum::actingAs($this->admin());
+        $org = $this->createClubOrg('Club Correo');
+
+        $this->postJson('/api/v1/personas', [
+            'tipo_identificacion' => 'CC',
+            'identificacion' => '101010101',
+            'nombre1' => 'Ana',
+            'apellido1' => 'Uno',
+            'correo' => 'ana@test.local',
+            'organizacion_ids' => [$org->id],
+        ])->assertCreated();
+
+        $this->postJson('/api/v1/personas', [
+            'tipo_identificacion' => 'CC',
+            'identificacion' => '202020202',
+            'nombre1' => 'Luis',
+            'apellido1' => 'Dos',
+            'correo' => 'ANA@test.local',
+            'organizacion_ids' => [$org->id],
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['correo']);
+
+        User::factory()->create(['email' => 'ya-usuario@test.local']);
+
+        $this->postJson('/api/v1/personas', [
+            'tipo_identificacion' => 'CC',
+            'identificacion' => '303030303',
+            'nombre1' => 'Eva',
+            'apellido1' => 'Tres',
+            'correo' => 'ya-usuario@test.local',
+            'organizacion_ids' => [$org->id],
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['correo']);
+    }
+
     public function test_persona_can_only_link_one_user(): void
     {
         $first = Persona::query()->create([
@@ -271,5 +310,45 @@ class PersonasApiTest extends TestCase
             'email' => 'dup-persona@test.local',
             'persona_id' => $first->id,
         ]);
+    }
+
+    public function test_director_can_upload_member_photo_and_others_cannot(): void
+    {
+        Storage::fake('public');
+        $ctx = $this->clubActorWithFamily();
+        Sanctum::actingAs($ctx['user']);
+
+        $persona = $this->postJson('/api/v1/personas', [
+            'tipo_identificacion' => 'CC',
+            'identificacion' => 'PHOTO-'.uniqid(),
+            'nombre1' => 'Foto',
+            'apellido1' => 'Integrante',
+            'solo_tipo_club' => true,
+            'organizacion_ids' => [$ctx['mine']->id],
+        ])->assertCreated()->json('data');
+
+        $this->post('/api/v1/personas/'.$persona['id'].'/foto', [
+            'foto' => UploadedFile::fake()->image('rostro.jpg', 400, 400),
+        ], ['Accept' => 'application/json'])
+            ->assertOk()
+            ->assertJsonPath('data.id', $persona['id']);
+
+        $this->assertNotNull(
+            Persona::query()->find($persona['id'])?->foto
+        );
+
+        $secretario = User::factory()->create(['email' => 'secretario-foto@test.local']);
+        $roleId = Role::query()->where('name', 'secretario')->value('id');
+        $secretario->forceFill([
+            'active_organizacion_id' => $ctx['mine']->id,
+            'active_rol_id' => $roleId,
+        ])->save();
+        $secretario->clearPermissionCache();
+        Sanctum::actingAs($secretario);
+
+        $this->post('/api/v1/personas/'.$persona['id'].'/foto', [
+            'foto' => UploadedFile::fake()->image('otra.jpg', 200, 200),
+        ], ['Accept' => 'application/json'])
+            ->assertForbidden();
     }
 }
