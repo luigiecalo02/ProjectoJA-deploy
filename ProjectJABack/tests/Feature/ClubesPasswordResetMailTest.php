@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use App\Modules\Auth\Services\BrandedMailView;
+use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Settings\Models\AppSetting;
 use Database\Seeders\RolePermissionSeeder;
@@ -99,6 +101,84 @@ class ClubesPasswordResetMailTest extends TestCase
 
         $this->assertSame(Storage::disk('public')->path('brand/parent-logo.png'), $layout['logoPath']);
         $this->assertSame(Storage::disk('public')->path('brand/parent-banner.jpg'), $layout['heroPath']);
+    }
+
+    public function test_forgot_password_finds_account_by_identificacion_ignoring_punctuation(): void
+    {
+        $persona = Persona::query()->create([
+            'tipo_identificacion' => 'CC',
+            'identificacion' => '1.002.161.078',
+            'nombre1' => 'Katerine',
+            'apellido1' => 'Marmol',
+            'correo' => 'katerine@projectja.local',
+        ]);
+        User::factory()->create([
+            'email' => 'Katerine@projectja.local',
+            'persona_id' => $persona->id,
+        ]);
+
+        $errors = $this->postJson('/api/v1/auth/password/forgot', [
+            'identificacion' => '1002161078',
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->json('errors') ?? [];
+
+        $this->assertArrayNotHasKey('lookup', $errors);
+    }
+
+    public function test_forgot_password_does_not_use_persona_correo_without_user(): void
+    {
+        Persona::query()->create([
+            'tipo_identificacion' => 'CC',
+            'identificacion' => '1002161079',
+            'nombre1' => 'Luis',
+            'apellido1' => 'Garcia',
+            'correo' => 'luis@projectja.local',
+        ]);
+        User::factory()->create([
+            'email' => 'otro@projectja.local',
+            'persona_id' => null,
+        ]);
+
+        $this->postJson('/api/v1/auth/password/forgot', [
+            'identificacion' => '1002161079',
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['lookup']);
+    }
+
+    public function test_forgot_password_finds_user_email_case_insensitive(): void
+    {
+        User::factory()->create([
+            'email' => 'luis@projectja.local',
+        ]);
+
+        $errorsByEmail = $this->postJson('/api/v1/auth/password/forgot', [
+            'email' => 'LUIS@projectja.local',
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->json('errors') ?? [];
+
+        $this->assertArrayNotHasKey('lookup', $errorsByEmail);
+    }
+
+    public function test_forgot_password_explains_when_persona_has_no_user(): void
+    {
+        Persona::query()->create([
+            'tipo_identificacion' => 'CC',
+            'identificacion' => '1002161080',
+            'nombre1' => 'Ana',
+            'apellido1' => 'Perez',
+            'correo' => 'ana@projectja.local',
+        ]);
+
+        $this->postJson('/api/v1/auth/password/forgot', [
+            'identificacion' => '1002161080',
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['lookup']);
     }
 
     private function actingAsClubes(int $rootId): void

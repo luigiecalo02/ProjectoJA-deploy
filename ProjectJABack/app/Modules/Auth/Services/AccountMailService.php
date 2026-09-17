@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 final class AccountMailService
@@ -34,7 +35,7 @@ final class AccountMailService
         $user = $this->findUserForRecovery($email, $identificacion);
         if (! $user) {
             throw ValidationException::withMessages([
-                'lookup' => ['No encontramos una cuenta con esos datos.'],
+                'lookup' => [$this->missingAccountMessage($email, $identificacion)],
             ]);
         }
 
@@ -327,7 +328,7 @@ final class AccountMailService
         $user = $this->findUserForRecovery($email, $identificacion);
         if (! $user) {
             throw ValidationException::withMessages([
-                'lookup' => ['No encontramos una cuenta con esos datos.'],
+                'lookup' => [$this->missingAccountMessage($email, $identificacion)],
             ]);
         }
 
@@ -362,19 +363,62 @@ final class AccountMailService
     private function findUserForRecovery(?string $email, ?string $identificacion): ?User
     {
         if (filled($email)) {
-            return User::query()->where('email', trim($email))->first();
+            return $this->findUserByEmail($email);
         }
 
         if (! filled($identificacion)) {
             return null;
         }
 
-        $persona = Persona::query()
-            ->where('identificacion', trim($identificacion))
-            ->whereHas('user')
-            ->first();
+        return $this->userForPersona($this->findPersonaByIdentificacion($identificacion));
+    }
 
+    private function findUserByEmail(string $email): ?User
+    {
+        $needle = Str::lower(trim($email));
+
+        return User::query()->whereRaw('LOWER(email) = ?', [$needle])->first();
+    }
+
+    private function findPersonaByIdentificacion(string $identificacion): ?Persona
+    {
+        $raw = trim($identificacion);
+        $normalized = $this->normalizeIdentificacion($raw);
+        if ($raw === '' || $normalized === '') {
+            return null;
+        }
+
+        return Persona::query()
+            ->where(function ($query) use ($raw, $normalized) {
+                $query->where('identificacion', $raw)
+                    ->orWhereRaw(
+                        'LOWER(REPLACE(REPLACE(REPLACE(identificacion, ".", ""), "-", ""), " ", "")) = ?',
+                        [$normalized],
+                    );
+            })
+            ->first();
+    }
+
+    private function userForPersona(?Persona $persona): ?User
+    {
         return $persona?->user;
+    }
+
+    private function missingAccountMessage(?string $email, ?string $identificacion): string
+    {
+        if (filled($identificacion)) {
+            $persona = $this->findPersonaByIdentificacion($identificacion);
+            if ($persona && ! $persona->user) {
+                return 'Encontramos tu ficha, pero aún no tiene cuenta de acceso. Pide al director que te asigne usuario o contraseña.';
+            }
+        }
+
+        return 'No encontramos una cuenta con esos datos.';
+    }
+
+    private function normalizeIdentificacion(string $value): string
+    {
+        return strtolower((string) preg_replace('/[^A-Za-z0-9]/', '', $value));
     }
 
     public function maskEmail(string $email): string

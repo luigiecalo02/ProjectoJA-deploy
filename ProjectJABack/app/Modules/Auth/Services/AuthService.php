@@ -20,7 +20,9 @@ final class AuthService
      */
     public function login(string $email, string $password): array
     {
-        $user = User::query()->where('email', $email)->first();
+        $user = User::query()
+            ->whereRaw('LOWER(email) = ?', [strtolower(trim($email))])
+            ->first();
 
         if (! $user || ! $user->password || ! Hash::check($password, $user->password)) {
             throw ValidationException::withMessages([
