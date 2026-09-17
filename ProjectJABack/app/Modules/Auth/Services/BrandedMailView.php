@@ -59,7 +59,7 @@ final class BrandedMailView
             'subtitle' => (string) ($copy['subtitle'] ?? 'Plataforma oficial para la gestión de clubes.'),
             'heroPath' => $this->resolvePath($settings->login_hero_path, 'login-hero.jpg'),
             'patternPath' => $this->resolvePath($settings->pattern_light_path, 'pattern-scout.png'),
-            'logoPath' => $this->resolvePath($settings->login_logos_path, 'clubes-logos.png'),
+            'logoPath' => $this->mailPngPath($this->resolvePath($settings->login_logos_path, 'clubes-logos.png')),
             'brandName' => 'ProjectJA',
             'footer' => 'ProjectJA · Clubes de Conquistadores, Aventureros y Guías Mayores',
         ];
@@ -89,7 +89,7 @@ final class BrandedMailView
             'subtitle' => (string) $branding['subtitle'],
             'heroPath' => $this->storedPath($branding['banner_path']),
             'patternPath' => null,
-            'logoPath' => $this->storedPath($branding['logo_path']),
+            'logoPath' => $this->mailPngPath($this->storedPath($branding['logo_path'])),
             'brandName' => $brandName,
             'footer' => $motto !== '' ? $brandName.' · '.$motto : $brandName,
         ];
@@ -132,5 +132,57 @@ final class BrandedMailView
         $public = public_path('email/'.$frontendFile);
 
         return is_file($public) ? $public : null;
+    }
+
+    private function mailPngPath(?string $path): ?string
+    {
+        if (! $path || ! is_file($path)) {
+            return $path;
+        }
+
+        $ext = strtolower((string) pathinfo($path, PATHINFO_EXTENSION));
+        if (in_array($ext, ['png', 'gif'], true)) {
+            return $path;
+        }
+
+        $source = $this->imageFromFile($path);
+        if ($source === false) {
+            return $path;
+        }
+
+        imagealphablending($source, false);
+        imagesavealpha($source, true);
+        $tmp = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'mail-logo-'.uniqid('', true).'.png';
+        $ok = imagepng($source, $tmp, 6);
+        imagedestroy($source);
+        if (! $ok || ! is_file($tmp)) {
+            return $path;
+        }
+
+        register_shutdown_function(static function () use ($tmp): void {
+            if (is_file($tmp)) {
+                @unlink($tmp);
+            }
+        });
+
+        return $tmp;
+    }
+
+    /**
+     * @return \GdImage|false
+     */
+    private function imageFromFile(string $path)
+    {
+        $ext = strtolower((string) pathinfo($path, PATHINFO_EXTENSION));
+        if ($ext === 'webp' && function_exists('imagecreatefromwebp')) {
+            $fromWebp = @imagecreatefromwebp($path);
+            if ($fromWebp !== false) {
+                return $fromWebp;
+            }
+        }
+
+        $raw = @file_get_contents($path);
+
+        return $raw !== false ? @imagecreatefromstring($raw) : false;
     }
 }
