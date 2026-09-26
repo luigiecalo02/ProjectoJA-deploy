@@ -606,6 +606,7 @@ export default {
       iconCatEventos: 'Eventos',
       iconCatClubes: 'Clubes',
       iconCatDeportes: 'Deportes',
+      iconCatComidas: 'Comidas',
       iconCatNaturaleza: 'Naturaleza',
       iconCatPersonas: 'Personas',
       iconCatTiempo: 'Tiempo',

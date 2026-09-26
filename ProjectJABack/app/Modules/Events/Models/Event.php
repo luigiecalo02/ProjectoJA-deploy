@@ -435,6 +435,13 @@ class Event extends Model
         return $this->belongsTo(TipoEvento::class, 'tipo_evento_id');
     }
 
+    public function isActividadEconomica(): bool
+    {
+        $this->loadMissing('tipoEvento');
+
+        return ($this->tipoEvento?->slug ?? '') === TipoEvento::SLUG_ACTIVIDAD_ECONOMICA;
+    }
+
     public function cuentaBancaria(): BelongsTo
     {
         return $this->belongsTo(CuentaBancaria::class, 'cuenta_bancaria_id');

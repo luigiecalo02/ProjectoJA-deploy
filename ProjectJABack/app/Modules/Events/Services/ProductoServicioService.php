@@ -10,11 +10,14 @@ use Illuminate\Validation\ValidationException;
 
 final class ProductoServicioService
 {
-    public function listCatalog(bool $soloActivos = true): Collection
+    public function listCatalog(bool $soloActivos = true, ?int $organizacionId = null): Collection
     {
         $q = ProductoServicio::query()->orderBy('tipo')->orderBy('nombre');
         if ($soloActivos) {
             $q->where('activo', true);
+        }
+        if ($organizacionId !== null) {
+            $q->forOrganizacion($organizacionId);
         }
 
         return $q->get();
@@ -23,25 +26,32 @@ final class ProductoServicioService
     public function createProducto(array $data): ProductoServicio
     {
         return ProductoServicio::query()->create([
+            'organizacion_id' => $data['organizacion_id'] ?? null,
             'nombre' => $data['nombre'],
-            'tipo' => strtoupper((string) $data['tipo']),
+            'tipo' => strtoupper((string) ($data['tipo'] ?? ProductoServicio::TIPO_SERVICIO)),
             'descripcion' => $data['descripcion'] ?? null,
             'precio' => $data['precio'] ?? 0,
             'unidad' => $data['unidad'] ?? 'UNIDAD',
+            'icono' => $data['icono'] ?? null,
             'activo' => $data['activo'] ?? true,
         ]);
     }
 
     public function updateProducto(ProductoServicio $producto, array $data): ProductoServicio
     {
-        $producto->update(array_filter([
+        $fields = array_filter([
             'nombre' => $data['nombre'] ?? null,
             'tipo' => isset($data['tipo']) ? strtoupper((string) $data['tipo']) : null,
             'descripcion' => $data['descripcion'] ?? null,
             'precio' => $data['precio'] ?? null,
             'unidad' => $data['unidad'] ?? null,
             'activo' => $data['activo'] ?? null,
-        ], fn ($v) => $v !== null));
+        ], fn ($v) => $v !== null);
+        if (array_key_exists('icono', $data)) {
+            $fields['icono'] = $data['icono'] ?: null;
+        }
+
+        $producto->update($fields);
 
         return $producto->fresh();
     }
@@ -55,15 +65,30 @@ final class ProductoServicioService
             ->get();
     }
 
-    public function syncOfertasEvento(Event $evento, array $items): Collection
-    {
+    public function syncOfertasEvento(
+        Event $evento,
+        array $items,
+        ?int $organizacionId = null,
+        bool $soloEconomica = false,
+    ): Collection {
+        if ($soloEconomica && ! $evento->isActividadEconomica()) {
+            throw ValidationException::withMessages([
+                'evento' => ['Los servicios solo se asocian a actividades económicas.'],
+            ]);
+        }
+
         $keep = [];
         foreach ($items as $item) {
             $productoId = (int) ($item['producto_servicio_id'] ?? 0);
             if (! $productoId) {
                 continue;
             }
-            if (! ProductoServicio::query()->whereKey($productoId)->exists()) {
+            $productoQuery = ProductoServicio::query()->whereKey($productoId);
+            if ($organizacionId !== null) {
+                $productoQuery->forOrganizacion($organizacionId);
+            }
+            $producto = $productoQuery->first();
+            if (! $producto) {
                 throw ValidationException::withMessages([
                     'productos' => ["Producto {$productoId} no existe."],
                 ]);
@@ -74,7 +99,7 @@ final class ProductoServicioService
                     'producto_servicio_id' => $productoId,
                 ],
                 [
-                    'precio' => $item['precio'] ?? 0,
+                    'precio' => $item['precio'] ?? $producto->precio ?? 0,
                     'activo' => $item['activo'] ?? true,
                 ]
             );

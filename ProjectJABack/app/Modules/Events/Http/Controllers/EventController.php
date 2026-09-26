@@ -34,7 +34,7 @@ final class EventController
 
         $paginator = $this->eventService->list(
             $request->user(),
-            $request->only(['q', 'is_active', 'estado', 'evento_padre_id', 'solo_raiz', 'tipo_evento_id', 'incluir_hijos', 'proximos']),
+            $request->only(['q', 'is_active', 'estado', 'evento_padre_id', 'solo_raiz', 'tipo_evento_id', 'incluir_hijos', 'proximos', 'desde', 'hasta']),
             (int) $request->integer('per_page', 15),
         );
 

@@ -383,7 +383,7 @@ class EventsApiTest extends TestCase
         $this->seed(TipoEventoSeeder::class);
         $union = $this->createOrg('Unión Tipos Evento');
         $tipoEventoId = TipoEvento::query()
-            ->where('slug', 'eventos-biblicos')
+            ->where('slug', 'camporee')
             ->value('id');
         $this->assertNotNull($tipoEventoId);
 
@@ -403,8 +403,10 @@ class EventsApiTest extends TestCase
 
         $this->getJson('/api/v1/events/tipos')
             ->assertOk()
-            ->assertJsonFragment(['slug' => 'eventos-deportivos'])
             ->assertJsonFragment(['slug' => 'camporee'])
+            ->assertJsonMissing(['slug' => 'eventos-biblicos'])
+            ->assertJsonMissing(['slug' => 'eventos-deportivos'])
+            ->assertJsonMissing(['slug' => 'eventos-precamporee'])
             ->assertJsonFragment(['slug' => 'congreso'])
             ->assertJsonFragment(['slug' => 'actividad'])
             ->assertJsonFragment(['slug' => 'clase'])

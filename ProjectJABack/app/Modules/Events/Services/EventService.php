@@ -76,6 +76,21 @@ final class EventService
             $query->where('tipo_evento_id', (int) $filters['tipo_evento_id']);
         }
 
+        $desde = $this->parseFilterDate($filters['desde'] ?? null, false);
+        if ($desde) {
+            $query->where(function (Builder $inner) use ($desde) {
+                $inner->where('ends_at', '>=', $desde)
+                    ->orWhere(function (Builder $fallback) use ($desde) {
+                        $fallback->whereNull('ends_at')->where('starts_at', '>=', $desde);
+                    });
+            });
+        }
+
+        $hasta = $this->parseFilterDate($filters['hasta'] ?? null, true);
+        if ($hasta) {
+            $query->where('starts_at', '<=', $hasta);
+        }
+
         if (! empty($filters['evento_padre_id'])) {
             $query->where('evento_padre_id', (int) $filters['evento_padre_id']);
         }
@@ -116,6 +131,21 @@ final class EventService
             ->when($proximos, fn (Builder $inner) => $inner->orderBy('starts_at'))
             ->when(! $proximos, fn (Builder $inner) => $inner->orderByDesc('starts_at'))
             ->paginate($perPage);
+    }
+
+    private function parseFilterDate(mixed $value, bool $endOfDay): ?Carbon
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            $date = Carbon::parse($value);
+
+            return $endOfDay ? $date->endOfDay() : $date->startOfDay();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     public function find(int $id): Event

@@ -2,6 +2,8 @@
 
 use App\Modules\Settings\Http\Controllers\BrandSettingsController;
 use App\Modules\Settings\Http\Controllers\ClubesAttendanceController;
+use App\Modules\Settings\Http\Controllers\ClubesParticipantesController;
+use App\Modules\Settings\Http\Controllers\ClubesServiciosController;
 use App\Modules\Settings\Http\Controllers\ClubesSettingsController;
 use App\Modules\Settings\Http\Controllers\ClubesSignupController;
 use App\Modules\Settings\Http\Controllers\CuentaBancariaController;
@@ -35,6 +37,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('settings/clubes/asistencia/resumen', [ClubesAttendanceController::class, 'ranking']);
     Route::get('settings/clubes/asistencia/{event}', [ClubesAttendanceController::class, 'show']);
     Route::put('settings/clubes/asistencia/{event}', [ClubesAttendanceController::class, 'sync']);
+    Route::get('settings/clubes/servicios', [ClubesServiciosController::class, 'index']);
+    Route::get('settings/clubes/servicios/iconos', [ClubesServiciosController::class, 'iconos']);
+    Route::post('settings/clubes/servicios', [ClubesServiciosController::class, 'store']);
+    Route::put('settings/clubes/servicios/{servicio}', [ClubesServiciosController::class, 'update']);
+    Route::post('settings/clubes/servicios/{servicio}', [ClubesServiciosController::class, 'update']);
+    Route::delete('settings/clubes/servicios/{servicio}', [ClubesServiciosController::class, 'destroy']);
+    Route::get('settings/clubes/events/{event}/servicios', [ClubesServiciosController::class, 'ofertas']);
+    Route::put('settings/clubes/events/{event}/servicios', [ClubesServiciosController::class, 'syncOfertas']);
+    Route::get('settings/clubes/events/{event}/participantes', [ClubesParticipantesController::class, 'show']);
+    Route::put('settings/clubes/events/{event}/participantes', [ClubesParticipantesController::class, 'sync']);
     Route::get('settings/mail', [MailSettingsController::class, 'show']);
     Route::put('settings/mail', [MailSettingsController::class, 'update']);
     Route::post('settings/mail/test', [MailSettingsController::class, 'test']);

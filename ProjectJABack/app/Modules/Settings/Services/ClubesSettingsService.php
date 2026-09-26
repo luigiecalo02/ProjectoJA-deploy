@@ -272,6 +272,7 @@ final class ClubesSettingsService
             }
         }
 
+        $estado = $this->safeEstado($data['estado'] ?? null) ?? Event::ESTADO_PUBLICADO;
         $event = $this->eventService->create($actor, [
             'name' => $data['name'],
             'descripcion' => $data['descripcion'] ?? null,
@@ -282,7 +283,8 @@ final class ClubesSettingsService
             'evento_padre_id' => $parentId,
             'organizacion_id' => $organizacionId,
             'organizacion_ids' => [$organizacionId],
-            'estado' => Event::ESTADO_PUBLICADO,
+            'estado' => $estado,
+            'is_active' => $this->estadoIsActive($estado),
             'visibilidad' => Event::VISIBILIDAD_ORGANIZACION,
             'permite_inscripcion_club' => true,
             'permite_inscripcion_organizacion' => true,
@@ -326,6 +328,11 @@ final class ClubesSettingsService
             'ends_at' => $data['ends_at'],
             'tipo_evento_id' => $data['tipo_evento_id'] ?? null,
         ];
+        $estado = $this->safeEstado($data['estado'] ?? null);
+        if ($estado) {
+            $payload['estado'] = $estado;
+            $payload['is_active'] = $this->estadoIsActive($estado);
+        }
         if (! $logo && ! empty($data['remove_logo'])) {
             $payload['image_url'] = null;
         }
@@ -343,6 +350,25 @@ final class ClubesSettingsService
         }
 
         return $this->eventPayload($event, (int) ($event->inscritos_count ?? 0));
+    }
+
+    private function safeEstado(mixed $value): ?string
+    {
+        $estado = is_string($value) ? trim($value) : '';
+        $allowed = [
+            Event::ESTADO_BORRADOR,
+            Event::ESTADO_PUBLICADO,
+            Event::ESTADO_EN_PROCESO,
+            Event::ESTADO_CERRADO,
+            Event::ESTADO_CANCELADO,
+        ];
+
+        return in_array($estado, $allowed, true) ? $estado : null;
+    }
+
+    private function estadoIsActive(string $estado): bool
+    {
+        return in_array($estado, [Event::ESTADO_PUBLICADO, Event::ESTADO_EN_PROCESO], true);
     }
 
     private function assertCanWriteClubEvent(User $actor): int

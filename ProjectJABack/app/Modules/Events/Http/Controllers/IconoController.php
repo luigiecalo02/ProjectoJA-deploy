@@ -85,7 +85,7 @@ final class IconoController
             'slug' => ['nullable', 'string', 'max:140'],
             'categoria' => ['nullable', 'string', 'max:40'],
             'etiquetas' => ['nullable'],
-            'tipo' => ['nullable', 'string', 'in:prime,imagen'],
+            'tipo' => ['nullable', 'string', 'in:prime,imagen,trazo'],
             'valor' => [$creating ? 'required_without:archivo' : 'nullable', 'string', 'max:255'],
             'orden' => ['nullable', 'integer', 'min:0', 'max:65535'],
             'estado' => ['sometimes', 'boolean'],

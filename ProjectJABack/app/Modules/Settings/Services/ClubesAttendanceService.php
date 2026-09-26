@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoAsistencia;
+use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Models\AppSetting;
 use App\Modules\Shared\Services\PublicFileService;
@@ -29,6 +30,10 @@ final class ClubesAttendanceService
             ->with('tipoEvento:id,nombre,slug,color,icono')
             ->whereNull('evento_padre_id')
             ->whereNotIn('estado', [Event::ESTADO_CANCELADO])
+            ->where(function ($query) {
+                $query->whereDoesntHave('tipoEvento')
+                    ->orWhereHas('tipoEvento', fn ($tipo) => $tipo->where('slug', '!=', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA));
+            })
             ->orderByDesc('starts_at')
             ->limit(60)
             ->get();
@@ -166,6 +171,10 @@ final class ClubesAttendanceService
             ->visibleTo($actor)
             ->whereNull('evento_padre_id')
             ->whereNotIn('estado', [Event::ESTADO_CANCELADO])
+            ->where(function ($query) {
+                $query->whereDoesntHave('tipoEvento')
+                    ->orWhereHas('tipoEvento', fn ($tipo) => $tipo->where('slug', '!=', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA));
+            })
             ->pluck('id');
 
         $takenEventIds = EventoAsistencia::query()
@@ -264,6 +273,11 @@ final class ClubesAttendanceService
             $event->estado !== Event::ESTADO_CANCELADO && $event->isVisibleTo($actor),
             Response::HTTP_FORBIDDEN,
             'No puedes tomar asistencia de este evento.',
+        );
+        abort_unless(
+            ! $event->isActividadEconomica(),
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+            'La asistencia no aplica a actividades económicas.',
         );
     }
 

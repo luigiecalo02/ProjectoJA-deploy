@@ -12,36 +12,12 @@ class TipoEventoSeeder extends Seeder
         $now = now();
         $tipos = [
             [
-                'nombre' => 'Eventos Bíblicos',
-                'slug' => 'eventos-biblicos',
-                'descripcion' => 'Estudios, concursos y actividades bíblicas',
-                'color' => '#2563eb',
-                'icono' => 'pi pi-book',
-                'orden' => 1,
-            ],
-            [
-                'nombre' => 'Eventos Deportivos',
-                'slug' => 'eventos-deportivos',
-                'descripcion' => 'Competencias y actividades deportivas',
-                'color' => '#16a34a',
-                'icono' => 'pi pi-bolt',
-                'orden' => 2,
-            ],
-            [
-                'nombre' => 'Eventos Precamporee',
-                'slug' => 'eventos-precamporee',
-                'descripcion' => 'Actividades preparatorias de camporee',
-                'color' => '#ea580c',
-                'icono' => 'pi pi-flag',
-                'orden' => 3,
-            ],
-            [
                 'nombre' => 'Camporee',
                 'slug' => 'camporee',
                 'descripcion' => 'Camporee y eventos mayores de campamento',
                 'color' => '#7c3aed',
                 'icono' => 'pi pi-map',
-                'orden' => 4,
+                'orden' => 1,
             ],
             [
                 'nombre' => 'Congreso',
@@ -60,9 +36,9 @@ class TipoEventoSeeder extends Seeder
                 'orden' => 6,
             ],
             [
-                'nombre' => 'Clase',
+                'nombre' => 'Especialidad',
                 'slug' => 'clase',
-                'descripcion' => 'Clases, talleres y sesiones de instrucción',
+                'descripcion' => 'Especialidades, talleres y sesiones de instrucción',
                 'color' => '#ca8a04',
                 'icono' => 'pi pi-bookmark',
                 'orden' => 7,

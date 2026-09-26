@@ -120,4 +120,21 @@ class IconoCatalogApiTest extends TestCase
         $this->deleteJson("/api/v1/events/iconos/{$icono->id}")->assertStatus(422);
         $this->assertDatabaseHas('iconos', ['id' => $icono->id]);
     }
+
+    public function test_can_create_comida_category_icon(): void
+    {
+        Sanctum::actingAs($this->admin());
+
+        $this->postJson('/api/v1/events/iconos', [
+            'nombre' => 'Empanadas',
+            'categoria' => 'comidas',
+            'etiquetas' => ['kiosco', 'venta'],
+            'tipo' => 'trazo',
+            'valor' => 'hamburger',
+        ])->assertCreated()
+            ->assertJsonPath('data.categoria', 'comidas')
+            ->assertJsonPath('data.tipo', 'trazo')
+            ->assertJsonPath('data.valor', 'hamburger')
+            ->assertJsonPath('data.nombre', 'Empanadas');
+    }
 }

@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TipoEvento extends Model
 {
+    public const SLUG_ACTIVIDAD = 'actividad';
+
+    public const SLUG_ACTIVIDAD_ECONOMICA = 'actividad-economica';
+
     protected $table = 'tipo_evento';
 
     protected $fillable = [

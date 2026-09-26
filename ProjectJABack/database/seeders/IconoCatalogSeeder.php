@@ -22,7 +22,7 @@ class IconoCatalogSeeder extends Seeder
                     'nombre' => $item['nombre'],
                     'categoria' => $item['categoria'],
                     'etiquetas' => json_encode($item['etiquetas'], JSON_UNESCAPED_UNICODE),
-                    'tipo' => 'prime',
+                    'tipo' => $item['tipo'] ?? 'prime',
                     'valor' => $item['valor'],
                     'orden' => $item['orden'] ?? $orden,
                     'estado' => true,
@@ -37,7 +37,7 @@ class IconoCatalogSeeder extends Seeder
     }
 
     /**
-     * @return list<array{nombre: string, slug: string, categoria: string, etiquetas: list<string>, valor: string, orden?: int}>
+     * @return list<array{nombre: string, slug: string, categoria: string, etiquetas: list<string>, valor: string, tipo?: string, orden?: int}>
      */
     private function catalog(): array
     {
@@ -84,6 +84,60 @@ class IconoCatalogSeeder extends Seeder
                 ['Descanso', 'pi pi-pause', ['pausa']],
                 ['Play', 'pi pi-play', ['inicio', 'arrancar']],
                 ['Replay', 'pi pi-replay', ['repetir']],
+            ],
+            'comidas' => [
+                ['Hamburguesa', 'hamburger', ['comida', 'rapida'], 'trazo'],
+                ['Sándwich', 'sandwich', ['comida', 'lonchera'], 'trazo'],
+                ['Pescado', 'fish', ['mariscos', 'pescado'], 'trazo'],
+                ['Sopa', 'soup', ['caldo', 'plato'], 'trazo'],
+                ['Olla', 'cooking-pot', ['guiso', 'cocina'], 'trazo'],
+                ['Pizza', 'pizza', ['comida', 'horno'], 'trazo'],
+                ['Plato', 'utensils-crossed', ['cubiertos', 'almuerzo'], 'trazo'],
+                ['Cubiertos', 'utensils', ['tenedor', 'cuchara'], 'trazo'],
+                ['Ensalada', 'salad', ['verdura', 'saludable'], 'trazo'],
+                ['Pollo', 'drumstick', ['carne', 'asado'], 'trazo'],
+                ['Carne', 'beef', ['res', 'parrilla'], 'trazo'],
+                ['Jamón', 'ham', ['embutido', 'lonchera'], 'trazo'],
+                ['Huevo', 'egg-fried', ['desayuno'], 'trazo'],
+                ['Torta', 'cake-slice', ['postre', 'cumple'], 'trazo'],
+                ['Postre', 'dessert', ['dulce'], 'trazo'],
+                ['Galleta', 'cookie', ['merienda', 'dulce'], 'trazo'],
+                ['Dona', 'donut', ['dulce', 'merienda'], 'trazo'],
+                ['Croissant', 'croissant', ['pan', 'desayuno'], 'trazo'],
+                ['Helado', 'ice-cream-cone', ['postre', 'frio'], 'trazo'],
+                ['Copa helado', 'ice-cream-bowl', ['postre'], 'trazo'],
+                ['Paleta', 'popsicle', ['hielo', 'dulce'], 'trazo'],
+                ['Caramelo', 'candy', ['dulce'], 'trazo'],
+                ['Palomitas', 'popcorn', ['snack', 'cine'], 'trazo'],
+                ['Refresco', 'cup-soda', ['bebida', 'vaso'], 'trazo'],
+                ['Bebida caliente', 'coffee', ['te', 'agua'], 'trazo'],
+                ['Agua', 'glass-water', ['vaso', 'bebida'], 'trazo'],
+                ['Leche', 'milk', ['desayuno', 'vaso'], 'trazo'],
+                ['Cereza', 'cherry', ['fruta'], 'trazo'],
+                ['Banano', 'banana', ['fruta'], 'trazo'],
+                ['Uvas', 'grape', ['fruta'], 'trazo'],
+                ['Zanahoria', 'carrot', ['verdura'], 'trazo'],
+                ['Cítrico', 'citrus', ['naranja', 'fruta'], 'trazo'],
+                ['Pan', 'wheat', ['harina', 'cereal'], 'trazo'],
+                ['Chef', 'chef-hat', ['cocina', 'cocinero'], 'trazo'],
+                ['Servicio mesa', 'concierge-bell', ['mesero', 'pedido'], 'trazo'],
+                ['Manzana', 'pi pi-apple', ['fruta', 'saludable', 'merienda']],
+                ['Tienda', 'pi pi-shop', ['kiosco', 'cafeteria', 'venta']],
+                ['Bolsa', 'pi pi-shopping-bag', ['pedido', 'para llevar']],
+                ['Carrito', 'pi pi-shopping-cart', ['compra', 'venta']],
+                ['Agregar pedido', 'pi pi-cart-plus', ['agregar', 'pedido']],
+                ['Quitar pedido', 'pi pi-cart-minus', ['quitar']],
+                ['Entregar pedido', 'pi pi-cart-arrow-down', ['entrega']],
+                ['Combo', 'pi pi-gift', ['combo', 'promocion']],
+                ['Recibo', 'pi pi-receipt', ['cuenta', 'factura']],
+                ['Oferta', 'pi pi-percentage', ['descuento', 'promo']],
+                ['Domicilio', 'pi pi-truck', ['entrega', 'envio']],
+                ['Pago', 'pi pi-wallet', ['caja', 'dinero']],
+                ['Efectivo', 'pi pi-money-bill', ['billete', 'pago']],
+                ['Tarjeta', 'pi pi-credit-card', ['pago']],
+                ['Precio', 'pi pi-dollar', ['costo', 'venta']],
+                ['Despensa', 'pi pi-warehouse', ['almacen', 'inventario']],
+                ['Sabor', 'pi pi-face-smile', ['rico', 'gusto']],
             ],
             'naturaleza' => [
                 ['Sol naturaleza', 'pi pi-sun', ['aire libre', 'dia']],
@@ -187,7 +241,9 @@ class IconoCatalogSeeder extends Seeder
         $seen = [];
         foreach ($groups as $categoria => $rows) {
             $i = 0;
-            foreach ($rows as [$nombre, $valor, $etiquetas]) {
+            foreach ($rows as $row) {
+                [$nombre, $valor, $etiquetas] = $row;
+                $tipo = $row[3] ?? 'prime';
                 if (isset($seen[$valor])) {
                     continue;
                 }
@@ -198,6 +254,7 @@ class IconoCatalogSeeder extends Seeder
                     'slug' => Str::slug($categoria.'-'.$nombre),
                     'categoria' => $categoria,
                     'etiquetas' => array_values(array_unique([...$etiquetas, $categoria, Str::slug($nombre, ' ')])),
+                    'tipo' => $tipo,
                     'valor' => $valor,
                     'orden' => $i,
                 ];

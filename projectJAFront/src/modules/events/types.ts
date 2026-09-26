@@ -77,6 +77,7 @@ export type IconoCatalogCategoria =
   | 'eventos'
   | 'clubes'
   | 'deportes'
+  | 'comidas'
   | 'naturaleza'
   | 'personas'
   | 'tiempo'

@@ -14,6 +14,7 @@ final class IconoCatalogService
         'eventos',
         'clubes',
         'deportes',
+        'comidas',
         'naturaleza',
         'personas',
         'tiempo',
@@ -160,8 +161,10 @@ final class IconoCatalogService
         }
 
         $tipo = (string) ($data['tipo'] ?? $current?->tipo ?? 'prime');
-        if (! in_array($tipo, ['prime', 'imagen'], true)) {
-            $tipo = str_starts_with($valor, 'pi ') ? 'prime' : 'imagen';
+        if (! in_array($tipo, ['prime', 'imagen', 'trazo'], true)) {
+            $tipo = str_starts_with($valor, 'pi ')
+                ? 'prime'
+                : (str_contains($valor, '/') || str_contains($valor, '.') ? 'imagen' : 'trazo');
         }
 
         return [$tipo, $valor];

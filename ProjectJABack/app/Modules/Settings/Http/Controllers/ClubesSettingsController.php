@@ -139,6 +139,7 @@ final class ClubesSettingsController
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after_or_equal:starts_at'],
             'tipo_evento_id' => ['nullable', 'integer', 'exists:tipo_evento,id'],
+            'estado' => ['nullable', 'string', 'in:borrador,publicado,en_proceso,cerrado,cancelado'],
             'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'banner' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
             'remove_logo' => ['sometimes', 'boolean'],

@@ -40,6 +40,7 @@ const categorias: Array<{ value: IconoCatalogCategoria; labelKey: string }> = [
   { value: 'eventos', labelKey: 'events.catalogos.iconCatEventos' },
   { value: 'clubes', labelKey: 'events.catalogos.iconCatClubes' },
   { value: 'deportes', labelKey: 'events.catalogos.iconCatDeportes' },
+  { value: 'comidas', labelKey: 'events.catalogos.iconCatComidas' },
   { value: 'naturaleza', labelKey: 'events.catalogos.iconCatNaturaleza' },
   { value: 'personas', labelKey: 'events.catalogos.iconCatPersonas' },
   { value: 'tiempo', labelKey: 'events.catalogos.iconCatTiempo' },
