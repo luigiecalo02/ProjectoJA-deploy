@@ -45,6 +45,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('settings/clubes/servicios/{servicio}', [ClubesServiciosController::class, 'destroy']);
     Route::get('settings/clubes/events/{event}/servicios', [ClubesServiciosController::class, 'ofertas']);
     Route::put('settings/clubes/events/{event}/servicios', [ClubesServiciosController::class, 'syncOfertas']);
+    Route::get('settings/clubes/events/{event}/participantes/yo', [ClubesParticipantesController::class, 'me']);
+    Route::put('settings/clubes/events/{event}/participantes/yo', [ClubesParticipantesController::class, 'join']);
     Route::get('settings/clubes/events/{event}/participantes', [ClubesParticipantesController::class, 'show']);
     Route::put('settings/clubes/events/{event}/participantes', [ClubesParticipantesController::class, 'sync']);
     Route::get('settings/mail', [MailSettingsController::class, 'show']);

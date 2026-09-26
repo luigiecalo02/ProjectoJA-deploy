@@ -38,28 +38,9 @@ final class ClubesParticipantesService
         $servicios = $this->eventServices($event);
         $servicioIds = array_map(fn (array $item) => (int) $item['id'], $servicios);
 
-        $integrantes = $this->members($orgId)->map(function (Persona $persona) use ($marcados, $servicioIds) {
-            $row = $marcados->get((int) $persona->id);
-            $ventas = [];
-            if ($row) {
-                $ventas = $row->ventas
-                    ->filter(fn (EventoParticipacionVenta $venta) => in_array((int) $venta->producto_servicio_id, $servicioIds, true))
-                    ->map(fn (EventoParticipacionVenta $venta) => [
-                        'producto_servicio_id' => (int) $venta->producto_servicio_id,
-                        'cantidad' => (int) $venta->cantidad,
-                    ])
-                    ->values()
-                    ->all();
-            }
-
-            return [
-                'persona_id' => (int) $persona->id,
-                'full_name' => $persona->full_name,
-                'identificacion' => $persona->identificacion,
-                'participa' => $row ? (bool) $row->participa : null,
-                'ventas' => $ventas,
-            ];
-        })->values()->all();
+        $integrantes = $this->members($orgId)->map(
+            fn (Persona $persona) => $this->mapIntegrante($persona, $marcados->get((int) $persona->id), $servicioIds)
+        )->values()->all();
 
         return [
             'evento' => $this->eventPayload($event),
@@ -118,6 +99,57 @@ final class ClubesParticipantesService
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function self(User $actor, Event $event): array
+    {
+        [$orgId, $personaId] = $this->assertCanJoin($actor, $event);
+        $servicios = $this->eventServices($event);
+        $servicioIds = array_map(fn (array $item) => (int) $item['id'], $servicios);
+        $persona = Persona::query()->findOrFail($personaId);
+        $row = EventoParticipacion::query()
+            ->with('ventas')
+            ->where('evento_id', $event->id)
+            ->where('organizacion_id', $orgId)
+            ->where('persona_id', $personaId)
+            ->first();
+
+        return [
+            'evento' => $this->eventPayload($event),
+            'servicios' => $servicios,
+            'integrante' => $this->mapIntegrante($persona, $row, $servicioIds),
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $ventas
+     * @return array<string, mixed>
+     */
+    public function join(User $actor, Event $event, bool $participa, array $ventas = []): array
+    {
+        [$orgId, $personaId] = $this->assertCanJoin($actor, $event);
+        $servicioIds = array_map(fn (array $item) => (int) $item['id'], $this->eventServices($event));
+        $normalized = $this->normalizeVentas($ventas);
+
+        DB::transaction(function () use ($event, $orgId, $personaId, $participa, $normalized, $servicioIds) {
+            $row = EventoParticipacion::query()->updateOrCreate(
+                [
+                    'evento_id' => $event->id,
+                    'organizacion_id' => $orgId,
+                    'persona_id' => $personaId,
+                ],
+                [
+                    'participa' => $participa,
+                ],
+            );
+
+            $this->syncVentas($row, $participa ? $normalized : [], $servicioIds);
+        });
+
+        return $this->self($actor, $event->fresh());
+    }
+
+    /**
      * @param  list<int>  $participaIds
      * @param  list<array<string, mixed>>  $participantes
      * @param  list<int>  $memberIds
@@ -135,17 +167,9 @@ final class ClubesParticipantesService
                     ]);
                 }
                 $participa = array_key_exists('participa', $item) ? $item['participa'] : null;
-                $ventas = [];
-                foreach ($item['ventas'] ?? [] as $venta) {
-                    $productoId = (int) ($venta['producto_servicio_id'] ?? 0);
-                    $cantidad = max(0, (int) ($venta['cantidad'] ?? 0));
-                    if ($productoId > 0 && $cantidad > 0) {
-                        $ventas[$productoId] = $cantidad;
-                    }
-                }
                 $entries[$personaId] = [
                     'participa' => is_bool($participa) ? $participa : null,
-                    'ventas' => $ventas,
+                    'ventas' => $this->normalizeVentas($item['ventas'] ?? []),
                 ];
             }
 
@@ -168,6 +192,51 @@ final class ClubesParticipantesService
         }
 
         return $entries;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $ventas
+     * @return array<int, int>
+     */
+    private function normalizeVentas(array $ventas): array
+    {
+        $normalized = [];
+        foreach ($ventas as $venta) {
+            $productoId = (int) ($venta['producto_servicio_id'] ?? 0);
+            $cantidad = max(0, (int) ($venta['cantidad'] ?? 0));
+            if ($productoId > 0 && $cantidad > 0) {
+                $normalized[$productoId] = $cantidad;
+            }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param  list<int>  $servicioIds
+     * @return array<string, mixed>
+     */
+    private function mapIntegrante(Persona $persona, ?EventoParticipacion $row, array $servicioIds): array
+    {
+        $ventas = [];
+        if ($row) {
+            $ventas = $row->ventas
+                ->filter(fn (EventoParticipacionVenta $venta) => in_array((int) $venta->producto_servicio_id, $servicioIds, true))
+                ->map(fn (EventoParticipacionVenta $venta) => [
+                    'producto_servicio_id' => (int) $venta->producto_servicio_id,
+                    'cantidad' => (int) $venta->cantidad,
+                ])
+                ->values()
+                ->all();
+        }
+
+        return [
+            'persona_id' => (int) $persona->id,
+            'full_name' => $persona->full_name,
+            'identificacion' => $persona->identificacion,
+            'participa' => $row ? (bool) $row->participa : null,
+            'ventas' => $ventas,
+        ];
     }
 
     /**
@@ -264,6 +333,36 @@ final class ClubesParticipantesService
             'subdirector',
             'secretario',
         ])) > 0;
+    }
+
+    /**
+     * @return array{0: int, 1: int}
+     */
+    private function assertCanJoin(User $actor, Event $event): array
+    {
+        $orgId = AppSetting::resolveOrganizacionId();
+        abort_unless($orgId, Response::HTTP_FORBIDDEN, 'Debes tener una organización activa.');
+        abort_unless(
+            $actor->hasPermission('events.view'),
+            Response::HTTP_FORBIDDEN,
+            'No puedes participar en este evento.',
+        );
+
+        $personaId = (int) ($actor->persona_id ?? 0);
+        abort_unless($personaId > 0, Response::HTTP_UNPROCESSABLE_ENTITY, 'Tu usuario no está vinculado a una persona.');
+        abort_unless(
+            PersonaOrganizacion::query()
+                ->where('organizacion_id', $orgId)
+                ->where('persona_id', $personaId)
+                ->where('estado', true)
+                ->exists(),
+            Response::HTTP_FORBIDDEN,
+            'Solo los integrantes del club pueden participar.',
+        );
+
+        $this->assertEconomicEvent($actor, $event);
+
+        return [$orgId, $personaId];
     }
 
     private function assertEconomicEvent(User $actor, Event $event): void

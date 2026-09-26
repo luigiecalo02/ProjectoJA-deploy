@@ -19,6 +19,34 @@ final class ClubesParticipantesController
         return ApiResponse::success($this->participantes->show($request->user(), $event));
     }
 
+    public function me(Request $request, Event $event): JsonResponse
+    {
+        $this->assertClubesClient($request);
+
+        return ApiResponse::success($this->participantes->self($request->user(), $event));
+    }
+
+    public function join(Request $request, Event $event): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'participa' => ['required', 'boolean'],
+            'ventas' => ['nullable', 'array'],
+            'ventas.*.producto_servicio_id' => ['required', 'integer', 'exists:productos_servicios,id'],
+            'ventas.*.cantidad' => ['required', 'integer', 'min:0', 'max:99999'],
+        ]);
+
+        return ApiResponse::success(
+            $this->participantes->join(
+                $request->user(),
+                $event,
+                (bool) $data['participa'],
+                $data['ventas'] ?? [],
+            ),
+            $data['participa'] ? 'Participación guardada' : 'Ya no participas',
+        );
+    }
+
     public function sync(Request $request, Event $event): JsonResponse
     {
         $this->assertClubesClient($request);

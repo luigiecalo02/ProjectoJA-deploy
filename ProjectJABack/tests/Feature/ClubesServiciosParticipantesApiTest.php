@@ -231,6 +231,75 @@ class ClubesServiciosParticipantesApiTest extends TestCase
         ])->assertUnprocessable();
     }
 
+    public function test_member_joins_economic_event_with_own_quantities(): void
+    {
+        $org = $this->createClubOrg('Club Autoinscripción');
+        $director = $this->boardUser('director', $org, 'dir-join@test.local');
+        $memberUser = $this->memberUser($org, 'mem-join@test.local');
+        $other = $this->member($org, 'otro-join@test.local');
+
+        Sanctum::actingAs($director);
+        $economicId = $this->postJson('/api/v1/settings/clubes/events', $this->eventPayload('Venta de pescado', $this->economicTipoId()), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertCreated()->json('data.id');
+
+        $servicio = ProductoServicio::query()->create([
+            'organizacion_id' => $org->id,
+            'nombre' => 'Pescado',
+            'tipo' => ProductoServicio::TIPO_SERVICIO,
+            'precio' => 8000,
+            'activo' => true,
+        ]);
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/servicios", [
+            'producto_servicio_ids' => [$servicio->id],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        Sanctum::actingAs($memberUser);
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/participantes", [
+            'participantes' => [
+                ['persona_id' => $other->id, 'participa' => true, 'ventas' => []],
+            ],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertForbidden();
+
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/participantes/yo", [
+            'participa' => true,
+            'ventas' => [
+                ['producto_servicio_id' => $servicio->id, 'cantidad' => 7],
+            ],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.integrante.persona_id', $memberUser->persona_id)
+            ->assertJsonPath('data.integrante.participa', true)
+            ->assertJsonPath('data.integrante.ventas.0.cantidad', 7);
+
+        $this->assertDatabaseHas('evento_participacion', [
+            'evento_id' => $economicId,
+            'organizacion_id' => $org->id,
+            'persona_id' => $memberUser->persona_id,
+            'participa' => 1,
+        ]);
+        $this->assertDatabaseHas('evento_participacion_venta', [
+            'producto_servicio_id' => $servicio->id,
+            'cantidad' => 7,
+        ]);
+        $this->assertDatabaseMissing('evento_participacion', [
+            'evento_id' => $economicId,
+            'persona_id' => $other->id,
+        ]);
+
+        Sanctum::actingAs($director);
+        $this->getJson("/api/v1/settings/clubes/events/{$economicId}/participantes", [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.resumen.participan', 1)
+            ->assertJsonPath('data.resumen.unidades', 7);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -324,6 +393,25 @@ class ClubesServiciosParticipantesApiTest extends TestCase
         $this->attachMember($persona, $org);
 
         return $persona;
+    }
+
+    private function memberUser(Organizacion $org, string $email): User
+    {
+        $persona = $this->createPersona($email, 'Integrante');
+        $this->attachMember($persona, $org, 'miembro');
+
+        $roleId = (int) Role::query()->where('name', 'miembro')->value('id');
+        $user = User::factory()->create([
+            'email' => $email,
+            'persona_id' => $persona->id,
+        ]);
+        $user->forceFill([
+            'active_organizacion_id' => $org->id,
+            'active_rol_id' => $roleId,
+        ])->save();
+        $user->clearPermissionCache();
+
+        return $user->fresh();
     }
 
     private function createPersona(string $email, string $nombre): Persona
