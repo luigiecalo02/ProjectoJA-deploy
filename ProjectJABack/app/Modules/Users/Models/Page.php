@@ -26,6 +26,7 @@ class Page extends Model
         'settings',
         'events',
         'asistencia',
+        'abonos',
         'seguros_consulta',
         'productos_servicios',
         'clubs',

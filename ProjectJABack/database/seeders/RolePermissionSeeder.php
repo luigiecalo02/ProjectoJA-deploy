@@ -99,6 +99,19 @@ class RolePermissionSeeder extends Seeder
                 ],
             ],
             [
+                'key' => 'abonos',
+                'name' => 'Abonos',
+                'route_name' => 'abonos',
+                'icon' => 'pi pi-wallet',
+                'sort_order' => 44,
+                'front' => Page::FRONT_CLUBES,
+                'description' => 'Registro de lo recogido en actividades económicas',
+                'permissions' => [
+                    ['action' => 'view', 'display_name' => 'Ver abonos', 'sort_order' => 1],
+                    ['action' => 'update', 'display_name' => 'Registrar abonos', 'sort_order' => 2],
+                ],
+            ],
+            [
                 'key' => 'seguros_consulta',
                 'name' => 'Consultar seguro',
                 'route_name' => 'segurosConsulta',
@@ -376,6 +389,8 @@ class RolePermissionSeeder extends Seeder
             'settings.update',
             'asistencia.view',
             'asistencia.update',
+            'abonos.view',
+            'abonos.update',
         ])->pluck('id');
 
         $director->permissions()->sync($directorPermissions);
@@ -401,6 +416,8 @@ class RolePermissionSeeder extends Seeder
                 'integrantes.update',
                 'asistencia.view',
                 'asistencia.update',
+                'abonos.view',
+                'abonos.update',
             ])->pluck('id')
         );
 
@@ -420,6 +437,8 @@ class RolePermissionSeeder extends Seeder
                 'integrantes.update',
                 'asistencia.view',
                 'asistencia.update',
+                'abonos.view',
+                'abonos.update',
             ])->pluck('id')
         );
 
@@ -433,6 +452,8 @@ class RolePermissionSeeder extends Seeder
                 'mi_club.view',
                 'personas.view',
                 'integrantes.view',
+                'abonos.view',
+                'abonos.update',
             ])->pluck('id')
         );
 

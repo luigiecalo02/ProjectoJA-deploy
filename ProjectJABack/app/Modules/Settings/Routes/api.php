@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Settings\Http\Controllers\BrandSettingsController;
+use App\Modules\Settings\Http\Controllers\ClubesAbonosController;
 use App\Modules\Settings\Http\Controllers\ClubesAttendanceController;
 use App\Modules\Settings\Http\Controllers\ClubesParticipantesController;
 use App\Modules\Settings\Http\Controllers\ClubesServiciosController;
@@ -37,6 +38,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('settings/clubes/asistencia/resumen', [ClubesAttendanceController::class, 'ranking']);
     Route::get('settings/clubes/asistencia/{event}', [ClubesAttendanceController::class, 'show']);
     Route::put('settings/clubes/asistencia/{event}', [ClubesAttendanceController::class, 'sync']);
+    Route::get('settings/clubes/abonos', [ClubesAbonosController::class, 'board']);
+    Route::post('settings/clubes/abonos', [ClubesAbonosController::class, 'store']);
     Route::get('settings/clubes/servicios', [ClubesServiciosController::class, 'index']);
     Route::get('settings/clubes/servicios/iconos', [ClubesServiciosController::class, 'iconos']);
     Route::post('settings/clubes/servicios', [ClubesServiciosController::class, 'store']);

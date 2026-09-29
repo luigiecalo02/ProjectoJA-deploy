@@ -21,6 +21,45 @@ class PagesMenuApiTest extends TestCase
         $this->seed(RolePermissionSeeder::class);
     }
 
+    public function test_asistencia_and_abonos_are_clubes_system_pages(): void
+    {
+        $this->assertDatabaseHas('pages', [
+            'key' => 'asistencia',
+            'name' => 'Asistencia',
+            'route_name' => 'asistencia',
+            'front' => Page::FRONT_CLUBES,
+            'is_active' => 1,
+        ]);
+        $this->assertDatabaseHas('pages', [
+            'key' => 'abonos',
+            'name' => 'Abonos',
+            'route_name' => 'abonos',
+            'front' => Page::FRONT_CLUBES,
+            'is_active' => 1,
+        ]);
+        $this->assertDatabaseHas('permissions', ['name' => 'asistencia.view']);
+        $this->assertDatabaseHas('permissions', ['name' => 'asistencia.update']);
+        $this->assertDatabaseHas('permissions', ['name' => 'abonos.view']);
+        $this->assertDatabaseHas('permissions', ['name' => 'abonos.update']);
+
+        Sanctum::actingAs($this->admin());
+
+        $this->getJson('/api/v1/roles/pages')
+            ->assertOk()
+            ->assertJsonFragment(['key' => 'asistencia', 'front' => Page::FRONT_CLUBES])
+            ->assertJsonFragment(['key' => 'abonos', 'front' => Page::FRONT_CLUBES]);
+
+        $projectKeys = collect($this->getJson('/api/v1/menu')->assertOk()->json('data'))->pluck('key');
+        $this->assertNotContains('asistencia', $projectKeys->all());
+        $this->assertNotContains('abonos', $projectKeys->all());
+
+        $clubesKeys = collect($this->getJson('/api/v1/menu', [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()->json('data'))->pluck('key');
+        $this->assertContains('asistencia', $clubesKeys->all());
+        $this->assertContains('abonos', $clubesKeys->all());
+    }
+
     public function test_clubes_page_is_hidden_from_project_menu(): void
     {
         $admin = $this->admin();

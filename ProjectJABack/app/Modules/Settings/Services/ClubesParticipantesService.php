@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoParticipacion;
+use App\Modules\Events\Models\EventoParticipacionAbono;
 use App\Modules\Events\Models\EventoParticipacionVenta;
 use App\Modules\Events\Models\EventoProductoServicio;
 use App\Modules\Events\Models\ProductoServicio;
@@ -37,9 +38,20 @@ final class ClubesParticipantesService
 
         $servicios = $this->eventServices($event);
         $servicioIds = array_map(fn (array $item) => (int) $item['id'], $servicios);
+        $abonos = EventoParticipacionAbono::query()
+            ->where('organizacion_id', $orgId)
+            ->where('evento_id', $event->id)
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy(fn (EventoParticipacionAbono $abono) => (int) $abono->persona_id);
 
         $integrantes = $this->members($orgId)->map(
-            fn (Persona $persona) => $this->mapIntegrante($persona, $marcados->get((int) $persona->id), $servicioIds)
+            fn (Persona $persona) => $this->mapIntegrante(
+                $persona,
+                $marcados->get((int) $persona->id),
+                $servicioIds,
+                $abonos->get((int) $persona->id),
+            )
         )->values()->all();
 
         return [
@@ -59,6 +71,7 @@ final class ClubesParticipantesService
     {
         $orgId = $this->assertCanUpdate($actor);
         $this->assertEconomicEvent($actor, $event);
+        $this->assertParticipationOpen($event);
 
         $memberIds = $this->members($orgId)->pluck('id')->map(fn ($id) => (int) $id)->all();
         $entries = $this->normalizeEntries($participaIds, $participantes, $memberIds);
@@ -106,7 +119,7 @@ final class ClubesParticipantesService
         [$orgId, $personaId] = $this->assertCanJoin($actor, $event);
         $servicios = $this->eventServices($event);
         $servicioIds = array_map(fn (array $item) => (int) $item['id'], $servicios);
-        $persona = Persona::query()->findOrFail($personaId);
+        $persona = Persona::query()->with('user')->findOrFail($personaId);
         $row = EventoParticipacion::query()
             ->with('ventas')
             ->where('evento_id', $event->id)
@@ -118,6 +131,7 @@ final class ClubesParticipantesService
             'evento' => $this->eventPayload($event),
             'servicios' => $servicios,
             'integrante' => $this->mapIntegrante($persona, $row, $servicioIds),
+            'recaudo' => $this->selfRecaudo($orgId, (int) $event->id, $personaId),
         ];
     }
 
@@ -128,6 +142,7 @@ final class ClubesParticipantesService
     public function join(User $actor, Event $event, bool $participa, array $ventas = []): array
     {
         [$orgId, $personaId] = $this->assertCanJoin($actor, $event);
+        $this->assertParticipationOpen($event);
         $servicioIds = array_map(fn (array $item) => (int) $item['id'], $this->eventServices($event));
         $normalized = $this->normalizeVentas($ventas);
 
@@ -214,9 +229,10 @@ final class ClubesParticipantesService
 
     /**
      * @param  list<int>  $servicioIds
+     * @param  \Illuminate\Support\Collection<int, EventoParticipacionAbono>|null  $abonos
      * @return array<string, mixed>
      */
-    private function mapIntegrante(Persona $persona, ?EventoParticipacion $row, array $servicioIds): array
+    private function mapIntegrante(Persona $persona, ?EventoParticipacion $row, array $servicioIds, $abonos = null): array
     {
         $ventas = [];
         if ($row) {
@@ -230,12 +246,23 @@ final class ClubesParticipantesService
                 ->all();
         }
 
+        $lista = collect($abonos ?? []);
+        $abonado = round((float) $lista->sum(fn (EventoParticipacionAbono $abono) => (float) $abono->monto), 2);
+
         return [
             'persona_id' => (int) $persona->id,
             'full_name' => $persona->full_name,
             'identificacion' => $persona->identificacion,
+            'foto_url' => $this->photoUrl($persona),
             'participa' => $row ? (bool) $row->participa : null,
             'ventas' => $ventas,
+            'abonado' => $abonado,
+            'abonos' => $lista->map(fn (EventoParticipacionAbono $abono) => [
+                'id' => (int) $abono->id,
+                'monto' => (float) $abono->monto,
+                'nota' => $abono->nota,
+                'created_at' => $abono->created_at?->toIso8601String(),
+            ])->values()->all(),
         ];
     }
 
@@ -268,6 +295,29 @@ final class ClubesParticipantesService
             $query->whereNotIn('id', $keep);
         }
         $query->delete();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function selfRecaudo(int $orgId, int $eventoId, int $personaId): array
+    {
+        $abonos = EventoParticipacionAbono::query()
+            ->where('organizacion_id', $orgId)
+            ->where('evento_id', $eventoId)
+            ->where('persona_id', $personaId)
+            ->orderByDesc('created_at')
+            ->get();
+
+        return [
+            'abonado' => round((float) $abonos->sum(fn (EventoParticipacionAbono $abono) => (float) $abono->monto), 2),
+            'abonos' => $abonos->map(fn (EventoParticipacionAbono $abono) => [
+                'id' => (int) $abono->id,
+                'monto' => (float) $abono->monto,
+                'nota' => $abono->nota,
+                'created_at' => $abono->created_at?->toIso8601String(),
+            ])->values()->all(),
+        ];
     }
 
     /**
@@ -380,6 +430,15 @@ final class ClubesParticipantesService
         );
     }
 
+    private function assertParticipationOpen(Event $event): void
+    {
+        abort_unless(
+            ! in_array($event->estado, [Event::ESTADO_EN_PROCESO, Event::ESTADO_CERRADO], true),
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+            'Esta actividad ya está en curso. Ya no se puede inscribir ni cambiar cantidades.',
+        );
+    }
+
     /**
      * @return \Illuminate\Support\Collection<int, Persona>
      */
@@ -391,10 +450,17 @@ final class ClubesParticipantesService
             ->pluck('persona_id');
 
         return Persona::query()
+            ->with('user')
             ->whereIn('id', $personaIds->isEmpty() ? [0] : $personaIds)
             ->orderBy('apellido1')
             ->orderBy('nombre1')
             ->get();
+    }
+
+    private function photoUrl(Persona $persona): ?string
+    {
+        return $this->publicFiles->url($persona->foto)
+            ?? $this->publicFiles->url($persona->user?->avatar_url);
     }
 
     /**

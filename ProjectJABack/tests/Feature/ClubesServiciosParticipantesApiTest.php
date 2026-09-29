@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Modules\Clubs\Models\Persona;
+use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\ProductoServicio;
 use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Organizations\Models\Organizacion;
@@ -298,6 +299,65 @@ class ClubesServiciosParticipantesApiTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.resumen.participan', 1)
             ->assertJsonPath('data.resumen.unidades', 7);
+
+        $this->postJson('/api/v1/settings/clubes/abonos', [
+            'evento_id' => $economicId,
+            'persona_id' => $memberUser->persona_id,
+            'monto' => 20000,
+            'nota' => 'Primera entrega',
+            'modo' => 'integrante',
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.resumen.abonado', 20000)
+            ->assertJsonPath('data.filas.0.pendiente', 36000);
+
+        $this->assertDatabaseHas('evento_participacion_abono', [
+            'evento_id' => $economicId,
+            'persona_id' => $memberUser->persona_id,
+            'monto' => 20000,
+        ]);
+
+        $this->getJson('/api/v1/settings/clubes/abonos?modo=actividad&evento_id='.$economicId, [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.filas.0.abonado', 20000);
+    }
+
+    public function test_nobody_joins_economic_event_once_in_progress(): void
+    {
+        $org = $this->createClubOrg('Club En Curso');
+        $director = $this->boardUser('director', $org, 'dir-curso@test.local');
+        $memberUser = $this->memberUser($org, 'mem-curso@test.local');
+
+        Sanctum::actingAs($director);
+        $economicId = $this->postJson('/api/v1/settings/clubes/events', $this->eventPayload('Venta en curso', $this->economicTipoId()), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertCreated()->json('data.id');
+
+        Event::query()->whereKey($economicId)->update(['estado' => Event::ESTADO_EN_PROCESO]);
+
+        Sanctum::actingAs($memberUser);
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/participantes/yo", [
+            'participa' => true,
+            'ventas' => [],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertUnprocessable();
+
+        Sanctum::actingAs($director);
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/participantes", [
+            'participantes' => [
+                ['persona_id' => $memberUser->persona_id, 'participa' => true, 'ventas' => []],
+            ],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertUnprocessable();
+
+        $this->assertDatabaseMissing('evento_participacion', [
+            'evento_id' => $economicId,
+            'persona_id' => $memberUser->persona_id,
+        ]);
     }
 
     /**
