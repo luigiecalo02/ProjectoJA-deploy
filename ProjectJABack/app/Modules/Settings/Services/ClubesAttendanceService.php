@@ -85,6 +85,7 @@ final class ClubesAttendanceService
                 'persona_id' => (int) $persona->id,
                 'full_name' => $persona->full_name,
                 'identificacion' => $persona->identificacion,
+                'foto_url' => $this->photoUrl($persona),
                 'estado' => $row?->estado,
                 'notas' => $row?->notas,
             ];
@@ -164,25 +165,10 @@ final class ClubesAttendanceService
     /**
      * @return array<string, mixed>
      */
-    public function ranking(User $actor): array
+    public function ranking(User $actor, ?string $desde = null, ?string $hasta = null): array
     {
         $orgId = $this->assertCanView($actor);
-        $eventIds = Event::query()
-            ->visibleTo($actor)
-            ->whereNull('evento_padre_id')
-            ->whereNotIn('estado', [Event::ESTADO_CANCELADO])
-            ->where(function ($query) {
-                $query->whereDoesntHave('tipoEvento')
-                    ->orWhereHas('tipoEvento', fn ($tipo) => $tipo->where('slug', '!=', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA));
-            })
-            ->pluck('id');
-
-        $takenEventIds = EventoAsistencia::query()
-            ->where('organizacion_id', $orgId)
-            ->whereIn('evento_id', $eventIds->isEmpty() ? [0] : $eventIds)
-            ->distinct()
-            ->pluck('evento_id');
-
+        $takenEventIds = $this->takenEventIds($actor, $orgId, $desde, $hasta);
         $eventos = $takenEventIds->count();
         $counts = EventoAsistencia::query()
             ->where('organizacion_id', $orgId)
@@ -219,7 +205,7 @@ final class ClubesAttendanceService
                 ];
             })
             ->sortBy([
-                ['presentes', 'desc'],
+                ['puntos', 'desc'],
                 ['puntuales', 'desc'],
                 ['full_name', 'asc'],
             ])
@@ -228,8 +214,112 @@ final class ClubesAttendanceService
 
         return [
             'eventos' => $eventos,
+            'desde' => $desde,
+            'hasta' => $hasta,
             'integrantes' => $integrantes,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function memberHistory(User $actor, int $personaId, ?string $desde = null, ?string $hasta = null): array
+    {
+        $orgId = $this->assertCanView($actor);
+        abort_unless(
+            PersonaOrganizacion::query()
+                ->where('organizacion_id', $orgId)
+                ->where('persona_id', $personaId)
+                ->where('estado', true)
+                ->exists(),
+            Response::HTTP_NOT_FOUND,
+            'Esa persona no es integrante de este club.',
+        );
+
+        $persona = $this->members($orgId)->firstWhere('id', $personaId);
+        abort_unless($persona instanceof Persona, Response::HTTP_NOT_FOUND);
+
+        $takenEventIds = $this->takenEventIds($actor, $orgId, $desde, $hasta);
+        $events = Event::query()
+            ->with('tipoEvento:id,nombre,slug,color,icono')
+            ->whereIn('id', $takenEventIds->isEmpty() ? [0] : $takenEventIds)
+            ->orderByDesc('starts_at')
+            ->get();
+        $asistencias = EventoAsistencia::query()
+            ->where('organizacion_id', $orgId)
+            ->where('persona_id', $personaId)
+            ->whereIn('evento_id', $takenEventIds->isEmpty() ? [0] : $takenEventIds)
+            ->get()
+            ->keyBy(fn (EventoAsistencia $row) => (int) $row->evento_id);
+
+        $registros = $events->map(function (Event $event) use ($asistencias) {
+            $estado = $asistencias->get((int) $event->id)?->estado;
+
+            return [
+                ...$this->eventPayload($event),
+                'estado' => $estado,
+                'puntos' => $this->puntosPorEstado($estado),
+            ];
+        })->values()->all();
+
+        $presentes = collect($registros)->whereIn('estado', [
+            EventoAsistencia::ESTADO_PRESENTE,
+            EventoAsistencia::ESTADO_PUNTUAL,
+        ])->count();
+        $puntuales = collect($registros)->where('estado', EventoAsistencia::ESTADO_PUNTUAL)->count();
+        $justificados = collect($registros)->where('estado', EventoAsistencia::ESTADO_JUSTIFICADO)->count();
+        $ausentes = collect($registros)->where('estado', EventoAsistencia::ESTADO_AUSENTE)->count();
+        $eventos = count($registros);
+        $marcados = $presentes + $justificados + $ausentes;
+
+        return [
+            'persona_id' => (int) $persona->id,
+            'full_name' => $persona->full_name,
+            'foto_url' => $this->photoUrl($persona),
+            'desde' => $desde,
+            'hasta' => $hasta,
+            'presentes' => $presentes,
+            'puntuales' => $puntuales,
+            'justificados' => $justificados,
+            'ausentes' => $ausentes,
+            'sin_marcar' => max($eventos - $marcados, 0),
+            'eventos' => $eventos,
+            'puntos' => $presentes,
+            'porcentaje' => $eventos > 0 ? (int) round(($presentes / $eventos) * 100) : 0,
+            'registros' => $registros,
+        ];
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, int>
+     */
+    private function takenEventIds(User $actor, int $orgId, ?string $desde, ?string $hasta)
+    {
+        $eventIds = Event::query()
+            ->visibleTo($actor)
+            ->whereNull('evento_padre_id')
+            ->whereNotIn('estado', [Event::ESTADO_CANCELADO])
+            ->where(function ($query) {
+                $query->whereDoesntHave('tipoEvento')
+                    ->orWhereHas('tipoEvento', fn ($tipo) => $tipo->where('slug', '!=', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA));
+            })
+            ->when($desde, fn ($query) => $query->whereDate('starts_at', '>=', $desde))
+            ->when($hasta, fn ($query) => $query->whereDate('starts_at', '<=', $hasta))
+            ->pluck('id');
+
+        return EventoAsistencia::query()
+            ->where('organizacion_id', $orgId)
+            ->whereIn('evento_id', $eventIds->isEmpty() ? [0] : $eventIds)
+            ->distinct()
+            ->pluck('evento_id');
+    }
+
+    private function puntosPorEstado(?string $estado): int
+    {
+        return in_array($estado, [
+            EventoAsistencia::ESTADO_PRESENTE,
+            EventoAsistencia::ESTADO_PUNTUAL,
+        ], true) ? 1 : 0;
     }
 
     private function assertCanView(User $actor): int
@@ -322,6 +412,7 @@ final class ClubesAttendanceService
             'starts_at' => $event->starts_at?->toIso8601String(),
             'ends_at' => $event->ends_at?->toIso8601String(),
             'estado' => $event->estado,
+            'image_url' => $event->image_url,
             'tipo_evento' => $event->tipoEvento
                 ? [
                     'id' => $event->tipoEvento->id,

@@ -10,6 +10,7 @@ use App\Modules\Organizations\Models\PersonaOrganizacionRol;
 use App\Modules\Users\Models\Role;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -22,6 +23,7 @@ class ClubesMemberAccountTest extends TestCase
     {
         parent::setUp();
         $this->seed(RolePermissionSeeder::class);
+        $this->ensureClubTipo();
     }
 
     public function test_director_can_update_member_and_password_when_user_exists(): void
@@ -76,6 +78,26 @@ class ClubesMemberAccountTest extends TestCase
             ->assertJsonPath('data.user.impersonator.id', $director->id);
     }
 
+    public function test_director_can_impersonate_even_without_manage_members_permission(): void
+    {
+        $org = $this->createClubOrg('Club Autologin Rol');
+        $director = $this->boardUser('director', $org, 'dir-auto-rol@test.local');
+        $member = $this->memberWithUser($org, 'int-auto-rol@test.local');
+
+        $role = Role::query()->where('name', 'director')->firstOrFail();
+        $role->permissions()->detach(
+            \App\Modules\Users\Models\Permission::query()
+                ->whereIn('name', ['mi_club.manage_members', 'clubs.manage_members', 'users.view'])
+                ->pluck('id'),
+        );
+        $director->clearPermissionCache();
+
+        Sanctum::actingAs($director->fresh());
+        $this->postJson("/api/v1/auth/impersonate/{$member->user->id}")
+            ->assertOk()
+            ->assertJsonPath('data.user.id', $member->user->id);
+    }
+
     public function test_director_cannot_impersonate_member_of_other_club(): void
     {
         $mine = $this->createClubOrg('Club Propio');
@@ -103,6 +125,23 @@ class ClubesMemberAccountTest extends TestCase
 
         $this->postJson("/api/v1/auth/impersonate/{$member->user->id}")
             ->assertForbidden();
+    }
+
+    private function ensureClubTipo(): void
+    {
+        if (DB::table('tipo_organizacion')->where('id', Organizacion::TIPO_CLUB)->exists()) {
+            return;
+        }
+
+        DB::table('tipo_organizacion')->insert([
+            'id' => Organizacion::TIPO_CLUB,
+            'tipo_organizacion_padre_id' => null,
+            'nombre' => 'Club',
+            'descripcion' => 'Club',
+            'estado' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function createClubOrg(string $nombre): Organizacion

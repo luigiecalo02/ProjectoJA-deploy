@@ -53,16 +53,24 @@ final class UserPolicy
             return true;
         }
 
-        if (! $actor->hasPermission('clubs.manage_members')
-            && ! $actor->hasPermission('mi_club.manage_members')) {
-            return false;
-        }
-
         $persona = $user->persona;
         if (! $persona) {
             return false;
         }
 
+        if (! $this->actorManagesClubMembers($actor)) {
+            return false;
+        }
+
         return $this->personaService->actorCanManageClubAccount($actor, $persona);
+    }
+
+    private function actorManagesClubMembers(User $actor): bool
+    {
+        if ($actor->hasPermission('clubs.manage_members') || $actor->hasPermission('mi_club.manage_members')) {
+            return true;
+        }
+
+        return count(array_intersect($actor->roleNames(), ['director', 'subdirector'])) > 0;
     }
 }

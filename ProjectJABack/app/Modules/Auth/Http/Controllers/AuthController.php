@@ -140,8 +140,19 @@ final class AuthController
 
     public function impersonate(Request $request, User $user): JsonResponse
     {
+        $actor = $request->user();
+        $user->loadMissing('persona');
+
+        if ($actor->id === $user->id) {
+            abort(Response::HTTP_FORBIDDEN, 'No puedes entrar como tu mismo usuario.');
+        }
+
+        if (! $user->is_active) {
+            abort(Response::HTTP_FORBIDDEN, 'La cuenta de este integrante está desactivada.');
+        }
+
         abort_unless(
-            $request->user()->can('impersonate', $user),
+            $actor->can('impersonate', $user),
             Response::HTTP_FORBIDDEN,
             'No puedes entrar como este usuario.',
         );

@@ -36,6 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('settings/clubes/events/{event}', [ClubesSettingsController::class, 'updateEvent']);
     Route::get('settings/clubes/asistencia/eventos', [ClubesAttendanceController::class, 'events']);
     Route::get('settings/clubes/asistencia/resumen', [ClubesAttendanceController::class, 'ranking']);
+    Route::get('settings/clubes/asistencia/integrante/{persona}', [ClubesAttendanceController::class, 'member']);
     Route::get('settings/clubes/asistencia/{event}', [ClubesAttendanceController::class, 'show']);
     Route::put('settings/clubes/asistencia/{event}', [ClubesAttendanceController::class, 'sync']);
     Route::get('settings/clubes/abonos', [ClubesAbonosController::class, 'board']);

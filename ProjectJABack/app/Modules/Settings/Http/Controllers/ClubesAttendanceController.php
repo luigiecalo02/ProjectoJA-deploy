@@ -22,8 +22,32 @@ final class ClubesAttendanceController
     public function ranking(Request $request): JsonResponse
     {
         $this->assertClubesClient($request);
+        $data = $request->validate([
+            'desde' => ['nullable', 'date'],
+            'hasta' => ['nullable', 'date', 'after_or_equal:desde'],
+        ]);
 
-        return ApiResponse::success($this->attendance->ranking($request->user()));
+        return ApiResponse::success($this->attendance->ranking(
+            $request->user(),
+            $data['desde'] ?? null,
+            $data['hasta'] ?? null,
+        ));
+    }
+
+    public function member(Request $request, int $persona): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'desde' => ['nullable', 'date'],
+            'hasta' => ['nullable', 'date', 'after_or_equal:desde'],
+        ]);
+
+        return ApiResponse::success($this->attendance->memberHistory(
+            $request->user(),
+            $persona,
+            $data['desde'] ?? null,
+            $data['hasta'] ?? null,
+        ));
     }
 
     public function show(Request $request, Event $event): JsonResponse

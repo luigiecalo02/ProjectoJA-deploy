@@ -100,6 +100,61 @@ class ClubesAttendanceApiTest extends TestCase
         $this->assertSame(1, $rankedPuntual[0]['puntuales']);
     }
 
+    public function test_ranking_and_history_use_selected_dates(): void
+    {
+        $org = $this->createClubOrg('Club Ranking Fechas');
+        $director = $this->boardUser('director', $org, 'dir-rank-fechas@test.local');
+        $member = $this->member($org, 'int-rank-fechas@test.local');
+
+        Sanctum::actingAs($director);
+        $thisMonth = now()->startOfMonth()->addDays(2);
+        $lastMonth = now()->subMonth()->startOfMonth()->addDays(4);
+
+        $currentId = $this->postJson('/api/v1/settings/clubes/events', $this->eventPayload('Este mes', $thisMonth), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertCreated()->json('data.id');
+        $pastId = $this->postJson('/api/v1/settings/clubes/events', $this->eventPayload('Mes pasado', $lastMonth), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertCreated()->json('data.id');
+
+        $this->putJson("/api/v1/settings/clubes/asistencia/{$currentId}", [
+            'persona_ids' => [$member->id],
+            'puntuales' => [$member->id],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+        $this->putJson("/api/v1/settings/clubes/asistencia/{$pastId}", [
+            'persona_ids' => [$member->id],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        $month = $this->getJson('/api/v1/settings/clubes/asistencia/resumen?desde='.$thisMonth->toDateString().'&hasta='.$thisMonth->copy()->endOfMonth()->toDateString(), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.eventos', 1)
+            ->json('data.integrantes');
+        $this->assertSame($member->id, $month[0]['persona_id']);
+        $this->assertSame(1, $month[0]['puntos']);
+        $this->assertSame(1, $month[0]['puntuales']);
+
+        $all = $this->getJson('/api/v1/settings/clubes/asistencia/resumen', [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()->json('data');
+        $this->assertSame(2, $all['eventos']);
+        $this->assertSame(2, collect($all['integrantes'])->firstWhere('persona_id', $member->id)['puntos']);
+
+        $history = $this->getJson('/api/v1/settings/clubes/asistencia/integrante/'.$member->id.'?desde='.$thisMonth->toDateString().'&hasta='.$thisMonth->copy()->endOfMonth()->toDateString(), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.puntos', 1)
+            ->json('data.registros');
+        $this->assertCount(1, $history);
+        $this->assertSame($currentId, $history[0]['id']);
+        $this->assertSame('puntual', $history[0]['estado']);
+        $this->assertSame(1, $history[0]['puntos']);
+    }
+
     public function test_tesorero_cannot_view_attendance(): void
     {
         $org = $this->createClubOrg('Club Tesorería');
@@ -141,12 +196,14 @@ class ClubesAttendanceApiTest extends TestCase
     /**
      * @return array<string, string>
      */
-    private function eventPayload(string $name): array
+    private function eventPayload(string $name, $startsAt = null): array
     {
+        $start = $startsAt ? \Carbon\Carbon::parse($startsAt) : now()->addDay();
+
         return [
             'name' => $name,
-            'starts_at' => now()->addDay()->toDateTimeString(),
-            'ends_at' => now()->addDays(2)->toDateTimeString(),
+            'starts_at' => $start->toDateTimeString(),
+            'ends_at' => $start->copy()->addDay()->toDateTimeString(),
         ];
     }
 
