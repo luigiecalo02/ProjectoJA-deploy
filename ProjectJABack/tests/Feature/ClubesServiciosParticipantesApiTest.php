@@ -321,7 +321,9 @@ class ClubesServiciosParticipantesApiTest extends TestCase
         $this->getJson('/api/v1/settings/clubes/abonos?modo=actividad&evento_id='.$economicId, [
             'X-Clubes-Client' => 'clubes',
         ])->assertOk()
-            ->assertJsonPath('data.filas.0.abonado', 20000);
+            ->assertJsonPath('data.filas.0.abonado', 20000)
+            ->assertJsonPath('data.filas.0.pedidos.0.nombre', 'Pescado')
+            ->assertJsonPath('data.filas.0.pedidos.0.cantidad', 7);
     }
 
     public function test_nobody_joins_economic_event_once_in_progress(): void

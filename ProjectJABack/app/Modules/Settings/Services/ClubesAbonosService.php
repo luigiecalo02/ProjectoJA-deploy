@@ -57,6 +57,7 @@ final class ClubesAbonosService
                     'pendiente' => round($comprometido - $abonado, 2),
                     'items' => 1,
                     'pendientes' => ($comprometido - $abonado) > 0.009 ? 1 : 0,
+                    'pedidos' => $detalle ? $this->pedidos($row) : [],
                     'abonos' => $detalle ? $lista->map(fn (EventoParticipacionAbono $abono) => [
                         'id' => (int) $abono->id,
                         'monto' => (float) $abono->monto,
@@ -177,6 +178,31 @@ final class ClubesAbonosService
         return round((float) $row->ventas->sum(function (EventoParticipacionVenta $venta) {
             return (int) $venta->cantidad * (float) ($venta->producto?->precio ?? 0);
         }), 2);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function pedidos(EventoParticipacion $row): array
+    {
+        return $row->ventas
+            ->filter(fn (EventoParticipacionVenta $venta) => (int) $venta->cantidad > 0)
+            ->map(function (EventoParticipacionVenta $venta) {
+                $cantidad = (int) $venta->cantidad;
+                $precio = (float) ($venta->producto?->precio ?? 0);
+
+                return [
+                    'id' => (int) $venta->id,
+                    'nombre' => $venta->producto?->nombre ?? 'Servicio',
+                    'cantidad' => $cantidad,
+                    'precio' => $precio,
+                    'total' => round($cantidad * $precio, 2),
+                    'icono' => $venta->producto?->icono,
+                    'image_url' => $this->publicFiles->url($venta->producto?->image_path),
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     /**
