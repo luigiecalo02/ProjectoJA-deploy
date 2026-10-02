@@ -63,15 +63,17 @@ final class ClubPolicy
 
     public function manageDirectors(User $actor, Club $club): bool
     {
-        if (! (
-            $actor->hasPermission('clubs.manage_directors')
-            || $actor->hasPermission('mi_club.manage_directors')
-            || $actor->hasPermission('clubs.update')
-            || $actor->hasPermission('mi_club.update')
-        )) {
+        if (! $this->orgAccess->canAccessClub($actor, $club)) {
             return false;
         }
 
-        return $this->orgAccess->canAccessClub($actor, $club);
+        if ($actor->isPlatformAdmin()) {
+            return $actor->hasPermission('clubs.manage_directors')
+                || $actor->hasPermission('mi_club.manage_directors')
+                || $actor->hasPermission('clubs.update')
+                || $actor->hasPermission('mi_club.update');
+        }
+
+        return $actor->hasRole('director');
     }
 }

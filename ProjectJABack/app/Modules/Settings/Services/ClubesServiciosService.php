@@ -4,6 +4,7 @@ namespace App\Modules\Settings\Services;
 
 use App\Models\User;
 use App\Modules\Events\Models\Event;
+use App\Modules\Events\Models\EventoParticipacionAbono;
 use App\Modules\Events\Models\EventoProductoServicio;
 use App\Modules\Events\Models\Icono;
 use App\Modules\Events\Models\ProductoServicio;
@@ -139,6 +140,7 @@ final class ClubesServiciosService
                 'id' => (int) $event->id,
                 'name' => $event->name,
                 'es_economica' => $event->isActividadEconomica(),
+                'tiene_abonos' => $this->eventoTieneAbonos($event),
             ],
             'catalogo' => $this->productos->listCatalog(true, $orgId)
                 ->map(fn (ProductoServicio $producto) => $this->productoPayload($producto))
@@ -161,9 +163,12 @@ final class ClubesServiciosService
         $orgId = $this->assertCanWrite($actor);
         $this->assertVisibleEvent($actor, $event);
 
+        $nextIds = array_values(array_unique(array_map('intval', $productoIds)));
+        $this->assertPuedeQuitarServicios($event, $nextIds);
+
         $catalog = $this->productos->listCatalog(false, $orgId)->keyBy('id');
         $items = [];
-        foreach (array_values(array_unique(array_map('intval', $productoIds))) as $productoId) {
+        foreach ($nextIds as $productoId) {
             $producto = $catalog->get($productoId);
             if (! $producto) {
                 throw ValidationException::withMessages([
@@ -225,6 +230,34 @@ final class ClubesServiciosService
             Response::HTTP_NOT_FOUND,
             'Este servicio no pertenece al club.',
         );
+    }
+
+    private function eventoTieneAbonos(Event $event): bool
+    {
+        return EventoParticipacionAbono::query()
+            ->where('evento_id', $event->id)
+            ->exists();
+    }
+
+    /**
+     * @param  list<int>  $nextIds
+     */
+    private function assertPuedeQuitarServicios(Event $event, array $nextIds): void
+    {
+        $actuales = EventoProductoServicio::query()
+            ->where('evento_id', $event->id)
+            ->where('activo', true)
+            ->pluck('producto_servicio_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        $quitados = array_values(array_diff($actuales, $nextIds));
+        if ($quitados === [] || ! $this->eventoTieneAbonos($event)) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'producto_servicio_ids' => ['Ya hay un abono en esta actividad. No se pueden quitar servicios.'],
+        ]);
     }
 
     private function assertVisibleEvent(User $actor, Event $event): void

@@ -442,6 +442,33 @@ class Event extends Model
         return ($this->tipoEvento?->slug ?? '') === TipoEvento::SLUG_ACTIVIDAD_ECONOMICA;
     }
 
+    public function isCampamento(): bool
+    {
+        $this->loadMissing('tipoEvento');
+
+        return ($this->tipoEvento?->slug ?? '') === TipoEvento::SLUG_CAMPAMENTO;
+    }
+
+    public function aceptaInscripcionClub(): bool
+    {
+        $this->loadMissing('tipoEvento');
+        $slug = $this->tipoEvento?->slug ?? '';
+        if (in_array($slug, TipoEvento::SLUGS_INSCRIPCION_CLUB, true)) {
+            return true;
+        }
+
+        return in_array(mb_strtolower($this->tipoEvento?->nombre ?? ''), [
+            'campamento',
+            'especialidad',
+            'investidura',
+        ], true);
+    }
+
+    public function inscripcionClubAbierta(): bool
+    {
+        return $this->aceptaInscripcionClub() && $this->estado === self::ESTADO_PUBLICADO;
+    }
+
     public function cuentaBancaria(): BelongsTo
     {
         return $this->belongsTo(CuentaBancaria::class, 'cuenta_bancaria_id');

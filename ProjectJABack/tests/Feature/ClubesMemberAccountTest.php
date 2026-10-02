@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Modules\Clubs\Models\Club;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
@@ -110,6 +111,18 @@ class ClubesMemberAccountTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_subdirector_cannot_impersonate(): void
+    {
+        $org = $this->createClubOrg('Club Autologin Sub');
+        $this->boardUser('director', $org, 'dir-auto-sub@test.local');
+        $subdirector = $this->boardUser('subdirector', $org, 'sub-auto@test.local');
+        $member = $this->memberWithUser($org, 'int-auto-sub@test.local');
+
+        Sanctum::actingAs($subdirector);
+        $this->postJson("/api/v1/auth/impersonate/{$member->user->id}")
+            ->assertForbidden();
+    }
+
     public function test_tesorero_cannot_impersonate_or_change_password(): void
     {
         $org = $this->createClubOrg('Club Tesorería');
@@ -125,6 +138,41 @@ class ClubesMemberAccountTest extends TestCase
 
         $this->postJson("/api/v1/auth/impersonate/{$member->user->id}")
             ->assertForbidden();
+    }
+
+    public function test_director_can_assign_board_role(): void
+    {
+        [$org, $club] = $this->createClub('Club Directiva');
+        $director = $this->boardUser('director', $org, 'dir-directiva@test.local');
+        $member = $this->member($org, 'tes-directiva@test.local');
+
+        Sanctum::actingAs($director);
+        $this->putJson("/api/v1/clubs/{$club->id}/directors", [
+            'directors' => [
+                'tesorero' => [
+                    'mode' => 'select',
+                    'persona_id' => $member->id,
+                ],
+            ],
+        ])->assertOk();
+    }
+
+    public function test_subdirector_cannot_assign_board_role(): void
+    {
+        [$org, $club] = $this->createClub('Club Directiva Sub');
+        $this->boardUser('director', $org, 'dir-directiva-sub@test.local');
+        $subdirector = $this->boardUser('subdirector', $org, 'sub-directiva@test.local');
+        $member = $this->member($org, 'int-directiva-sub@test.local');
+
+        Sanctum::actingAs($subdirector);
+        $this->putJson("/api/v1/clubs/{$club->id}/directors", [
+            'directors' => [
+                'tesorero' => [
+                    'mode' => 'select',
+                    'persona_id' => $member->id,
+                ],
+            ],
+        ])->assertForbidden();
     }
 
     private function ensureClubTipo(): void
@@ -152,6 +200,22 @@ class ClubesMemberAccountTest extends TestCase
             'codigo' => strtoupper(substr(md5($nombre.microtime()), 0, 8)),
             'estado' => true,
         ]);
+    }
+
+    /**
+     * @return array{0: Organizacion, 1: Club}
+     */
+    private function createClub(string $nombre): array
+    {
+        $org = $this->createClubOrg($nombre);
+        $club = Club::query()->create([
+            'organizacion_id' => $org->id,
+            'nombre' => $nombre,
+            'is_active' => true,
+            'tipos' => ['conquistadores'],
+        ]);
+
+        return [$org, $club];
     }
 
     private function boardUser(string $roleName, Organizacion $org, string $email): User

@@ -362,6 +362,89 @@ class ClubesServiciosParticipantesApiTest extends TestCase
         ]);
     }
 
+    public function test_cannot_remove_event_service_after_an_abono(): void
+    {
+        $org = $this->createClubOrg('Club Servicios Bloqueados');
+        $director = $this->boardUser('director', $org, 'dir-lock-serv@test.local');
+        $memberUser = $this->memberUser($org, 'mem-lock-serv@test.local');
+
+        Sanctum::actingAs($director);
+        $economicId = $this->postJson('/api/v1/settings/clubes/events', $this->eventPayload('Venta bloqueada', $this->economicTipoId()), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertCreated()->json('data.id');
+
+        $pescado = ProductoServicio::query()->create([
+            'organizacion_id' => $org->id,
+            'nombre' => 'Pescado',
+            'tipo' => ProductoServicio::TIPO_SERVICIO,
+            'precio' => 14500,
+            'activo' => true,
+        ]);
+        $hamburguesa = ProductoServicio::query()->create([
+            'organizacion_id' => $org->id,
+            'nombre' => 'Hamburguesa',
+            'tipo' => ProductoServicio::TIPO_SERVICIO,
+            'precio' => 16000,
+            'activo' => true,
+        ]);
+
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/servicios", [
+            'producto_servicio_ids' => [$pescado->id, $hamburguesa->id],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        Sanctum::actingAs($memberUser);
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/participantes/yo", [
+            'participa' => true,
+            'ventas' => [
+                ['producto_servicio_id' => $pescado->id, 'cantidad' => 1],
+            ],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        Sanctum::actingAs($director);
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/servicios", [
+            'producto_servicio_ids' => [$hamburguesa->id],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/servicios", [
+            'producto_servicio_ids' => [$pescado->id, $hamburguesa->id],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        $this->postJson('/api/v1/settings/clubes/abonos', [
+            'evento_id' => $economicId,
+            'persona_id' => $memberUser->persona_id,
+            'monto' => 5000,
+            'nota' => 'Primera cuota',
+            'modo' => 'integrante',
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        $this->getJson("/api/v1/settings/clubes/events/{$economicId}/servicios", [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()->assertJsonPath('data.evento.tiene_abonos', true);
+
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/servicios", [
+            'producto_servicio_ids' => [$hamburguesa->id],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['producto_servicio_ids']);
+
+        $this->assertDatabaseHas('evento_producto_servicio', [
+            'evento_id' => $economicId,
+            'producto_servicio_id' => $pescado->id,
+            'activo' => 1,
+        ]);
+    }
+
     /**
      * @return array<string, mixed>
      */

@@ -67,10 +67,6 @@ final class UserPolicy
 
     private function actorManagesClubMembers(User $actor): bool
     {
-        if ($actor->hasPermission('clubs.manage_members') || $actor->hasPermission('mi_club.manage_members')) {
-            return true;
-        }
-
-        return count(array_intersect($actor->roleNames(), ['director', 'subdirector'])) > 0;
+        return $actor->hasRole('director');
     }
 }
