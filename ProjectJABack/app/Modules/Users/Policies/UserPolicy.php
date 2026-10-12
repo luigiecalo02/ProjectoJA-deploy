@@ -29,6 +29,15 @@ final class UserPolicy
         return $actor->hasPermission('users.update') || $actor->id === $user->id;
     }
 
+    public function updateAvatar(User $actor, User $user): bool
+    {
+        if (! $this->update($actor, $user)) {
+            return false;
+        }
+
+        return ! ($actor->id === $user->id && in_array('miembro', $actor->roleNames(), true));
+    }
+
     public function delete(User $actor, User $user): bool
     {
         return $actor->hasPermission('users.delete') && $actor->id !== $user->id;

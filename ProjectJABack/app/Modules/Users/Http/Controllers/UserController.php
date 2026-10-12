@@ -77,6 +77,10 @@ final class UserController
             );
         }
 
+        if (! $actor->can('updateAvatar', $user)) {
+            unset($data['avatar_url']);
+        }
+
         $user = $this->userService->update($user, $data);
 
         return ApiResponse::success($this->payload($user), 'Usuario actualizado');

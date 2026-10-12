@@ -436,6 +436,10 @@ final class ClubesSettingsService
             return false;
         }
 
+        if ($actor->isSuperAdmin()) {
+            return true;
+        }
+
         return in_array('director', $actor->roleNames(), true);
     }
 

@@ -10,7 +10,7 @@ class UploadAvatarRequest extends FormRequest
     {
         $user = $this->route('user');
 
-        return $this->user()?->can('update', $user) ?? false;
+        return $this->user()?->can('updateAvatar', $user) ?? false;
     }
 
     public function rules(): array

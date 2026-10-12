@@ -68,6 +68,13 @@ final class SessionContextService
             }
         }
 
+        if ($user->isSuperAdmin()) {
+            $clubOption = $this->superAdminClubesOption();
+            if ($clubOption && ! $this->hasOption($options, $clubOption)) {
+                $options[] = $clubOption;
+            }
+        }
+
         if (! $user->persona_id) {
             return $options;
         }
@@ -180,6 +187,11 @@ final class SessionContextService
      */
     public function ensureContext(User $user, ?int $preferredOrganizacionId = null): User
     {
+        $pinned = $this->pinSuperAdminToClubesRoot($user);
+        if ($pinned instanceof User) {
+            return $pinned;
+        }
+
         if ($this->current($user) !== null) {
             return $user;
         }
@@ -352,6 +364,113 @@ final class SessionContextService
 
         return $request instanceof \Illuminate\Http\Request
             && $request->header('X-Clubes-Client') === 'clubes';
+    }
+
+    /**
+     * En este front, el superadministrador actúa como director del club del .env
+     * aunque no tenga membresía en esa organización.
+     */
+    private function pinSuperAdminToClubesRoot(User $user): ?User
+    {
+        if (! $user->isSuperAdmin() || ! $this->isClubesRequest()) {
+            return null;
+        }
+
+        $rootId = $this->clubesTenant->rootId();
+        if (! $rootId) {
+            return null;
+        }
+
+        $option = null;
+        foreach ($this->options($user) as $candidate) {
+            if ((int) ($candidate['organizacion_id'] ?? 0) === $rootId && ($candidate['rol_name'] ?? '') === 'director') {
+                $option = $candidate;
+                break;
+            }
+        }
+
+        if ($option === null) {
+            return null;
+        }
+
+        $current = $this->current($user);
+        if (
+            $current
+            && (int) ($current['organizacion_id'] ?? 0) === $rootId
+            && ($current['rol_name'] ?? '') === 'director'
+        ) {
+            return $user;
+        }
+
+        return $this->setContext($user, $rootId, (int) $option['rol_id']);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function superAdminClubesOption(): ?array
+    {
+        if (! $this->isClubesRequest()) {
+            return null;
+        }
+
+        $rootId = $this->clubesTenant->rootId();
+        if (! $rootId) {
+            return null;
+        }
+
+        $role = Role::query()->where('name', 'director')->first();
+        $org = Organizacion::query()
+            ->with('tipo:id,nombre')
+            ->find($rootId);
+        if (! $role || ! $org) {
+            return null;
+        }
+
+        $tipoId = (int) $org->tipo_organizacion_id;
+        $isClub = $this->isClubTipo($tipoId);
+        $club = $isClub
+            ? Club::query()
+                ->where('organizacion_id', $org->id)
+                ->first(['id', 'organizacion_id', 'nombre', 'logo', 'color_principal', 'color_secundario', 'tipos'])
+            : null;
+
+        return [
+            'key' => "org:{$org->id}:rol:{$role->id}",
+            'organizacion_id' => (int) $org->id,
+            'organizacion_nombre' => $org->nombre,
+            'organizacion_codigo' => $org->codigo,
+            'tipo_organizacion_id' => $tipoId,
+            'tipo_nombre' => $org->tipo?->nombre,
+            'rol_id' => (int) $role->id,
+            'rol_name' => $role->name,
+            'rol_display_name' => $role->display_name ?: 'Director',
+            'descripcion' => 'Acceso de director para el club configurado en este front.',
+            'theme' => $this->themeForTipo($tipoId),
+            'icon' => $role->icon ?: $this->iconForTipo($tipoId),
+            'is_platform' => false,
+            'is_club' => $isClub,
+            'club_id' => $club?->id ? (int) $club->id : null,
+            'club_tipos' => $isClub ? $this->clubTipos($club) : [],
+            'club_logo_url' => $this->publicFileUrl($club?->logo),
+            'color_principal' => $club?->color_principal,
+            'color_secundario' => $club?->color_secundario,
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $options
+     * @param  array<string, mixed>  $candidate
+     */
+    private function hasOption(array $options, array $candidate): bool
+    {
+        foreach ($options as $option) {
+            if (($option['key'] ?? null) === ($candidate['key'] ?? null)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

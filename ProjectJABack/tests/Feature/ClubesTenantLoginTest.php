@@ -66,7 +66,12 @@ class ClubesTenantLoginTest extends TestCase
             'password' => 'Password1!',
         ], $this->clubesHeaders($parent->id))
             ->assertOk()
-            ->assertJsonPath('data.user.is_super', true);
+            ->assertJsonPath('data.user.is_super', true)
+            ->assertJsonPath('data.user.contexto.organizacion_id', $parent->id)
+            ->assertJsonPath('data.user.contexto.rol_name', 'director')
+            ->assertJsonPath('data.user.requires_context', false)
+            ->assertJsonFragment(['mi_club.view'])
+            ->assertJsonFragment(['settings.update']);
     }
 
     /**
