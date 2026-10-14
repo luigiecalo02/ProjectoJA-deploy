@@ -19,7 +19,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class ClubesParticipantesService
 {
-    public function __construct(private readonly PublicFileService $publicFiles) {}
+    public function __construct(
+        private readonly PublicFileService $publicFiles,
+        private readonly AbonoPresentacion $presentacion,
+    ) {}
 
     /**
      * @return array<string, mixed>
@@ -132,6 +135,10 @@ final class ClubesParticipantesService
             'servicios' => $servicios,
             'integrante' => $this->mapIntegrante($persona, $row, $servicioIds),
             'recaudo' => $this->selfRecaudo($orgId, (int) $event->id, $personaId),
+            'ganancia' => [
+                'capital' => round((float) ($event->capital ?? 0), 2),
+                'proyeccion_otros' => $this->proyeccionOtros($orgId, (int) $event->id, $personaId, $servicioIds),
+            ],
         ];
     }
 
@@ -247,7 +254,7 @@ final class ClubesParticipantesService
         }
 
         $lista = collect($abonos ?? []);
-        $abonado = round((float) $lista->sum(fn (EventoParticipacionAbono $abono) => (float) $abono->monto), 2);
+        $abonado = round((float) $lista->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2);
 
         return [
             'persona_id' => (int) $persona->id,
@@ -257,12 +264,7 @@ final class ClubesParticipantesService
             'participa' => $row ? (bool) $row->participa : null,
             'ventas' => $ventas,
             'abonado' => $abonado,
-            'abonos' => $lista->map(fn (EventoParticipacionAbono $abono) => [
-                'id' => (int) $abono->id,
-                'monto' => (float) $abono->monto,
-                'nota' => $abono->nota,
-                'created_at' => $abono->created_at?->toIso8601String(),
-            ])->values()->all(),
+            'abonos' => $lista->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all(),
         ];
     }
 
@@ -298,6 +300,32 @@ final class ClubesParticipantesService
     }
 
     /**
+     * @param  list<int>  $servicioIds
+     */
+    private function proyeccionOtros(int $orgId, int $eventoId, int $personaId, array $servicioIds): float
+    {
+        $rows = EventoParticipacion::query()
+            ->with('ventas.producto')
+            ->where('evento_id', $eventoId)
+            ->where('organizacion_id', $orgId)
+            ->where('participa', true)
+            ->where('persona_id', '!=', $personaId)
+            ->get();
+
+        $total = $rows->sum(function (EventoParticipacion $row) use ($servicioIds) {
+            return $row->ventas->sum(function (EventoParticipacionVenta $venta) use ($servicioIds) {
+                if (! in_array((int) $venta->producto_servicio_id, $servicioIds, true)) {
+                    return 0;
+                }
+
+                return (int) $venta->cantidad * (float) ($venta->producto?->precio ?? 0);
+            });
+        });
+
+        return round((float) $total, 2);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function selfRecaudo(int $orgId, int $eventoId, int $personaId): array
@@ -310,13 +338,8 @@ final class ClubesParticipantesService
             ->get();
 
         return [
-            'abonado' => round((float) $abonos->sum(fn (EventoParticipacionAbono $abono) => (float) $abono->monto), 2),
-            'abonos' => $abonos->map(fn (EventoParticipacionAbono $abono) => [
-                'id' => (int) $abono->id,
-                'monto' => (float) $abono->monto,
-                'nota' => $abono->nota,
-                'created_at' => $abono->created_at?->toIso8601String(),
-            ])->values()->all(),
+            'abonado' => round((float) $abonos->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2),
+            'abonos' => $abonos->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all(),
         ];
     }
 

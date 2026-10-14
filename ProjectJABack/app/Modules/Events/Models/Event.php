@@ -52,6 +52,8 @@ class Event extends Model
         'orden',
         'organizacion_id',
         'tipo_evento_id',
+        'ganancia_eclesiastica_id',
+        'capital',
         'categoria_subevento_id',
         'categoria_ids',
         'criterio_disponible_ids',
@@ -172,6 +174,7 @@ class Event extends Model
             'permite_inscripcion_iglesia' => 'boolean',
             'latitud' => 'decimal:7',
             'longitud' => 'decimal:7',
+            'capital' => 'decimal:2',
             'puntaje_maximo' => 'decimal:2',
             'puntos_inscripcion_a_tiempo' => 'decimal:2',
             'puntos_inscripcion_fuera_tiempo' => 'decimal:2',
@@ -706,7 +709,7 @@ class Event extends Model
      */
     public static function inscritosCounts(array $eventIds): array
     {
-        $ids = array_values(array_unique(array_map('intval', $eventIds)));
+        $ids = self::normalizeIds($eventIds);
         if ($ids === []) {
             return [];
         }
@@ -723,6 +726,67 @@ class Event extends Model
             ->groupBy('evento_inscripcion.evento_id')
             ->pluck('total', 'evento_id');
 
+        return self::fillCounts($ids, $rows);
+    }
+
+    /**
+     * @param  list<int>  $eventIds
+     * @return array<int, int>
+     */
+    public static function participantesCounts(array $eventIds): array
+    {
+        $ids = self::normalizeIds($eventIds);
+        if ($ids === []) {
+            return [];
+        }
+
+        $rows = EventoParticipacion::query()
+            ->whereIn('evento_id', $ids)
+            ->where('participa', true)
+            ->selectRaw('evento_id, COUNT(*) as total')
+            ->groupBy('evento_id')
+            ->pluck('total', 'evento_id');
+
+        return self::fillCounts($ids, $rows);
+    }
+
+    /**
+     * @param  list<int>  $eventIds
+     * @return array<int, int>
+     */
+    public static function asistentesCounts(array $eventIds): array
+    {
+        $ids = self::normalizeIds($eventIds);
+        if ($ids === []) {
+            return [];
+        }
+
+        $rows = EventoAsistencia::query()
+            ->whereIn('evento_id', $ids)
+            ->whereIn('estado', [EventoAsistencia::ESTADO_PRESENTE, EventoAsistencia::ESTADO_PUNTUAL])
+            ->selectRaw('evento_id, COUNT(*) as total')
+            ->groupBy('evento_id')
+            ->pluck('total', 'evento_id');
+
+        return self::fillCounts($ids, $rows);
+    }
+
+    /**
+     * @param  list<int>  $eventIds
+     * @return list<int>
+     */
+    private static function normalizeIds(array $eventIds): array
+    {
+        return array_values(array_unique(array_map('intval', $eventIds)));
+    }
+
+    /**
+     * @param  list<int>  $ids
+     * @param  \Illuminate\Support\Collection<int|string, mixed>  $rows
+     * @return array<int, int>
+     */
+    private static function fillCounts(array $ids, $rows): array
+    {
         $counts = [];
         foreach ($ids as $id) {
             $counts[$id] = (int) ($rows[$id] ?? $rows[(string) $id] ?? 0);

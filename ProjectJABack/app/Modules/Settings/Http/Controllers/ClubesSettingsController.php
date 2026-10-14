@@ -127,6 +127,24 @@ final class ClubesSettingsController
         );
     }
 
+    public function updateEventEstado(Request $request, Event $event): JsonResponse
+    {
+        abort_unless(
+            $request->header('X-Clubes-Client') === 'clubes',
+            403,
+            'Este evento solo se puede actualizar desde el front de Clubes.',
+        );
+
+        $data = $request->validate([
+            'estado' => ['required', 'string', 'in:borrador,publicado,en_proceso,cerrado,cancelado'],
+        ]);
+
+        return ApiResponse::success(
+            $this->clubesSettings->changeEventEstado($request->user(), $event, $data['estado']),
+            'Estado actualizado',
+        );
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -139,6 +157,8 @@ final class ClubesSettingsController
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after_or_equal:starts_at'],
             'tipo_evento_id' => ['nullable', 'integer', 'exists:tipo_evento,id'],
+            'ganancia_eclesiastica_id' => ['nullable', 'integer', 'exists:clubes_ganancia_eclesiasticas,id'],
+            'capital' => ['nullable', 'numeric', 'min:0'],
             'estado' => ['nullable', 'string', 'in:borrador,publicado,en_proceso,cerrado,cancelado'],
             'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'banner' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],

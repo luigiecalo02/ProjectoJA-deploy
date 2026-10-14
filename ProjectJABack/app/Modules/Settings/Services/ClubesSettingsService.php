@@ -8,11 +8,13 @@ use App\Modules\Events\Models\Event;
 use App\Modules\Events\Services\EventService;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Settings\Models\AppSetting;
+use App\Modules\Settings\Models\ClubesGananciaEclesiastica;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
 use App\Modules\Shared\Services\ImageOptimizer;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 final class ClubesSettingsService
@@ -273,7 +275,7 @@ final class ClubesSettingsService
         }
 
         $estado = $this->safeEstado($data['estado'] ?? null) ?? Event::ESTADO_PUBLICADO;
-        $event = $this->eventService->create($actor, [
+        $createPayload = [
             'name' => $data['name'],
             'descripcion' => $data['descripcion'] ?? null,
             'lugar' => $data['lugar'] ?? null,
@@ -290,7 +292,12 @@ final class ClubesSettingsService
             'permite_inscripcion_organizacion' => true,
             'permite_inscribir_no_participantes' => true,
             'es_calificable' => false,
-        ]);
+        ];
+        if ($actor->isClubDirectiva()) {
+            $createPayload['ganancia_eclesiastica_id'] = $this->gananciaEclesiasticaId($data, $organizacionId);
+            $createPayload['capital'] = $this->capitalAmount($data);
+        }
+        $event = $this->eventService->create($actor, $createPayload);
 
         if ($logo) {
             $event = $this->eventService->storeImage($event, $logo, $actor);
@@ -299,7 +306,7 @@ final class ClubesSettingsService
             $event = $this->eventService->storeBanner($event, $banner, $actor);
         }
 
-        return $this->eventPayload($event);
+        return $this->eventPayload($event, 0, $actor);
     }
 
     /**
@@ -328,6 +335,10 @@ final class ClubesSettingsService
             'ends_at' => $data['ends_at'],
             'tipo_evento_id' => $data['tipo_evento_id'] ?? null,
         ];
+        if ($actor->isClubDirectiva()) {
+            $payload['ganancia_eclesiastica_id'] = $this->gananciaEclesiasticaId($data, $organizacionId);
+            $payload['capital'] = $this->capitalAmount($data);
+        }
         $estado = $this->safeEstado($data['estado'] ?? null);
         if ($estado) {
             $payload['estado'] = $estado;
@@ -349,7 +360,62 @@ final class ClubesSettingsService
             $event = $this->eventService->storeBanner($event, $banner, $actor);
         }
 
-        return $this->eventPayload($event, (int) ($event->inscritos_count ?? 0));
+        return $this->eventPayload($event, (int) ($event->inscritos_count ?? 0), $actor);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function changeEventEstado(User $actor, Event $event, string $estado): array
+    {
+        $organizacionId = $this->assertCanChangeClubEventEstado($actor);
+        abort_unless(
+            (int) $event->organizacion_id === $organizacionId,
+            Response::HTTP_FORBIDDEN,
+            'Este evento no pertenece a tu club.',
+        );
+
+        $next = $this->safeEstado($estado);
+        abort_unless($next, Response::HTTP_UNPROCESSABLE_ENTITY, 'El estado no es válido.');
+
+        $event = $this->eventService->update($event, $actor, [
+            'estado' => $next,
+            'is_active' => $this->estadoIsActive($next),
+        ]);
+
+        return $this->eventPayload($event, (int) ($event->inscritos_count ?? 0), $actor);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function gananciaEclesiasticaId(array $data, int $orgId): ?int
+    {
+        if (! array_key_exists('ganancia_eclesiastica_id', $data) || $data['ganancia_eclesiastica_id'] === null || $data['ganancia_eclesiastica_id'] === '') {
+            return null;
+        }
+
+        $id = (int) $data['ganancia_eclesiastica_id'];
+        $row = ClubesGananciaEclesiastica::query()->find($id);
+        if (! $row || (int) $row->organizacion_id !== $orgId) {
+            throw ValidationException::withMessages([
+                'ganancia_eclesiastica_id' => ['Elige una configuración de ganancias de este club.'],
+            ]);
+        }
+
+        return $id;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function capitalAmount(array $data): float
+    {
+        if (! array_key_exists('capital', $data) || $data['capital'] === null || $data['capital'] === '') {
+            return 0;
+        }
+
+        return round(max(0, (float) $data['capital']), 2);
     }
 
     private function safeEstado(mixed $value): ?string
@@ -371,6 +437,20 @@ final class ClubesSettingsService
         return in_array($estado, [Event::ESTADO_PUBLICADO, Event::ESTADO_EN_PROCESO], true);
     }
 
+    private function assertCanChangeClubEventEstado(User $actor): int
+    {
+        abort_unless(
+            $actor->isClubDirectiva() || $this->actorCanWriteClubEvent($actor),
+            Response::HTTP_FORBIDDEN,
+            'No tienes permiso para cambiar el estado de este evento.',
+        );
+
+        $organizacionId = AppSetting::resolveOrganizacionId();
+        abort_unless($organizacionId, Response::HTTP_FORBIDDEN, 'Debes tener una organización activa.');
+
+        return (int) $organizacionId;
+    }
+
     private function assertCanWriteClubEvent(User $actor): int
     {
         abort_unless(
@@ -388,9 +468,10 @@ final class ClubesSettingsService
     /**
      * @return array<string, mixed>
      */
-    private function eventPayload(Event $event, int $inscritosCount = 0): array
+    private function eventPayload(Event $event, int $inscritosCount = 0, ?User $viewer = null): array
     {
         $event->loadMissing(['organizacion:id,nombre,codigo', 'tipoEvento:id,nombre,slug,color,icono']);
+        $showGanancias = $viewer?->isClubDirectiva() === true;
 
         return [
             'id' => $event->id,
@@ -417,6 +498,10 @@ final class ClubesSettingsService
                     'codigo' => $event->organizacion->codigo,
                 ]
                 : null,
+            'ganancia_eclesiastica_id' => $showGanancias && $event->ganancia_eclesiastica_id
+                ? (int) $event->ganancia_eclesiastica_id
+                : null,
+            'capital' => $showGanancias ? round((float) ($event->capital ?? 0), 2) : null,
             'tipo_evento' => $event->tipoEvento
                 ? [
                     'id' => $event->tipoEvento->id,

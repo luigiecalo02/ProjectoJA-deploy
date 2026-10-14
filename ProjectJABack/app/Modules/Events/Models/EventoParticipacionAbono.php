@@ -10,6 +10,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class EventoParticipacionAbono extends Model
 {
+    public const ESTADO_PENDIENTE = 'pendiente';
+
+    public const ESTADO_APROBADO = 'aprobado';
+
+    public const ESTADO_RECHAZADO = 'rechazado';
+
     protected $table = 'evento_participacion_abono';
 
     protected $fillable = [
@@ -18,6 +24,8 @@ class EventoParticipacionAbono extends Model
         'persona_id',
         'monto',
         'nota',
+        'estado',
+        'comprobante_path',
         'registrado_por',
     ];
 
@@ -46,5 +54,12 @@ class EventoParticipacionAbono extends Model
     public function registrador(): BelongsTo
     {
         return $this->belongsTo(User::class, 'registrado_por');
+    }
+
+    public function montoContable(): float
+    {
+        $estado = $this->estado ?: self::ESTADO_APROBADO;
+
+        return $estado === self::ESTADO_APROBADO ? (float) $this->monto : 0.0;
     }
 }

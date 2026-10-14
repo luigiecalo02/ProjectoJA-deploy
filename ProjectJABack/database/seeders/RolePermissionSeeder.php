@@ -112,6 +112,19 @@ class RolePermissionSeeder extends Seeder
                 ],
             ],
             [
+                'key' => 'mis_abonos',
+                'name' => 'Mis abonos',
+                'route_name' => 'mis-abonos',
+                'icon' => 'pi pi-wallet',
+                'sort_order' => 44,
+                'front' => Page::FRONT_CLUBES,
+                'description' => 'Abonos de la persona en sesión',
+                'permissions' => [
+                    ['action' => 'view', 'display_name' => 'Ver mis abonos', 'sort_order' => 1],
+                    ['action' => 'update', 'display_name' => 'Registrar abonos', 'sort_order' => 2],
+                ],
+            ],
+            [
                 'key' => 'presupuesto',
                 'name' => 'Presupuesto',
                 'route_name' => 'presupuesto',
@@ -404,6 +417,8 @@ class RolePermissionSeeder extends Seeder
             'asistencia.update',
             'abonos.view',
             'abonos.update',
+            'mis_abonos.view',
+            'mis_abonos.update',
             'presupuesto.view',
             'presupuesto.update',
         ])->pluck('id');
@@ -431,6 +446,8 @@ class RolePermissionSeeder extends Seeder
                 'asistencia.update',
                 'abonos.view',
                 'abonos.update',
+                'mis_abonos.view',
+                'mis_abonos.update',
                 'presupuesto.view',
                 'presupuesto.update',
             ])->pluck('id')
@@ -454,6 +471,8 @@ class RolePermissionSeeder extends Seeder
                 'asistencia.update',
                 'abonos.view',
                 'abonos.update',
+                'mis_abonos.view',
+                'mis_abonos.update',
                 'presupuesto.view',
                 'presupuesto.update',
             ])->pluck('id')
@@ -471,6 +490,8 @@ class RolePermissionSeeder extends Seeder
                 'integrantes.view',
                 'abonos.view',
                 'abonos.update',
+                'mis_abonos.view',
+                'mis_abonos.update',
                 'presupuesto.view',
                 'presupuesto.update',
             ])->pluck('id')
@@ -499,6 +520,9 @@ class RolePermissionSeeder extends Seeder
                 'events.view',
                 'seguros_consulta.view',
                 'productos_servicios.view',
+                'abonos.view',
+                'mis_abonos.view',
+                'mis_abonos.update',
                 'cabanas.view',
                 'cabanas.self_assign',
             ])->pluck('id')
@@ -510,6 +534,8 @@ class RolePermissionSeeder extends Seeder
                 'events.view',
                 'mi_club.view',
                 'asistencia.view',
+                'mis_abonos.view',
+                'mis_abonos.update',
                 'seguros_consulta.view',
             ])->pluck('id')
         );

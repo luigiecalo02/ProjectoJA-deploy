@@ -94,10 +94,18 @@ final class ClubesServiciosController
         $data = $request->validate([
             'producto_servicio_ids' => ['present', 'array'],
             'producto_servicio_ids.*' => ['integer'],
+            'proyecciones' => ['sometimes', 'array'],
+            'proyecciones.*.producto_servicio_id' => ['required', 'integer'],
+            'proyecciones.*.cantidad' => ['required', 'integer', 'min:0'],
         ]);
 
         return ApiResponse::success(
-            $this->servicios->syncOfertas($request->user(), $event, $data['producto_servicio_ids'] ?? []),
+            $this->servicios->syncOfertas(
+                $request->user(),
+                $event,
+                $data['producto_servicio_ids'] ?? [],
+                $data['proyecciones'] ?? [],
+            ),
             'Servicios del evento actualizados',
         );
     }

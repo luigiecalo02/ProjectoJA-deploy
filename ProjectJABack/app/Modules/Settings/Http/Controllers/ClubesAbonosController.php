@@ -2,10 +2,12 @@
 
 namespace App\Modules\Settings\Http\Controllers;
 
+use App\Modules\Events\Models\EventoParticipacionAbono;
 use App\Modules\Settings\Services\ClubesAbonosService;
 use App\Modules\Shared\Http\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 
 final class ClubesAbonosController
 {
@@ -37,7 +39,10 @@ final class ClubesAbonosController
             'monto' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
             'nota' => ['nullable', 'string', 'max:255'],
             'modo' => ['nullable', 'in:integrante,actividad'],
+            'comprobante' => ['nullable', 'file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:8192'],
         ]);
+
+        $comprobante = $request->file('comprobante');
 
         return ApiResponse::success(
             $this->abonos->store(
@@ -47,8 +52,49 @@ final class ClubesAbonosController
                 (float) $data['monto'],
                 $data['nota'] ?? null,
                 $data['modo'] ?? 'integrante',
+                $comprobante instanceof UploadedFile ? $comprobante : null,
             ),
             'Abono registrado',
+        );
+    }
+
+    public function storeComprobante(Request $request): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'evento_id' => ['required', 'integer', 'exists:events,id'],
+            'comprobante' => ['required', 'file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:8192'],
+        ]);
+
+        $comprobante = $request->file('comprobante');
+        abort_unless($comprobante instanceof UploadedFile, 422, 'Adjunta el pantallazo del abono.');
+
+        return ApiResponse::success(
+            $this->abonos->submitComprobante(
+                $request->user(),
+                (int) $data['evento_id'],
+                $comprobante,
+            ),
+            'Abono pendiente de aprobación',
+        );
+    }
+
+    public function review(Request $request, EventoParticipacionAbono $abono): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'estado' => ['required', 'in:aprobado,rechazado'],
+            'monto' => ['exclude_unless:estado,aprobado', 'required', 'numeric', 'min:0.01', 'max:99999999.99'],
+        ]);
+
+        return ApiResponse::success(
+            $this->abonos->review(
+                $request->user(),
+                $abono,
+                $data['estado'],
+                isset($data['monto']) ? (float) $data['monto'] : null,
+            ),
+            $data['estado'] === 'aprobado' ? 'Abono aprobado' : 'Abono rechazado',
         );
     }
 

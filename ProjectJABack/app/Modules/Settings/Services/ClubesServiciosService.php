@@ -5,6 +5,7 @@ namespace App\Modules\Settings\Services;
 use App\Models\User;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoParticipacionAbono;
+use App\Modules\Events\Models\EventoParticipacionVenta;
 use App\Modules\Events\Models\EventoProductoServicio;
 use App\Modules\Events\Models\Icono;
 use App\Modules\Events\Models\ProductoServicio;
@@ -146,25 +147,38 @@ final class ClubesServiciosService
                 ->map(fn (ProductoServicio $producto) => $this->productoPayload($producto))
                 ->values()
                 ->all(),
-            'ofertas' => $this->productos->listOfertasEvento($event)
-                ->filter(fn (EventoProductoServicio $oferta) => (bool) $oferta->activo)
-                ->map(fn (EventoProductoServicio $oferta) => $this->ofertaPayload($oferta))
-                ->values()
-                ->all(),
+            'ofertas' => $this->ofertasDelEvento($actor, $event),
         ];
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    private function ofertasDelEvento(User $actor, Event $event): array
+    {
+        $directiva = $actor->isClubDirectiva();
+        $pedidos = $directiva ? $this->cantidadesSolicitadas($event) : [];
+
+        return $this->productos->listOfertasEvento($event)
+            ->filter(fn (EventoProductoServicio $oferta) => (bool) $oferta->activo)
+            ->map(fn (EventoProductoServicio $oferta) => $this->ofertaPayload($oferta, $directiva, $pedidos))
+            ->values()
+            ->all();
+    }
+
+    /**
      * @param  list<int>  $productoIds
+     * @param  list<array<string, mixed>>  $proyecciones
      * @return array<string, mixed>
      */
-    public function syncOfertas(User $actor, Event $event, array $productoIds): array
+    public function syncOfertas(User $actor, Event $event, array $productoIds, array $proyecciones = []): array
     {
         $orgId = $this->assertCanWrite($actor);
         $this->assertVisibleEvent($actor, $event);
 
         $nextIds = array_values(array_unique(array_map('intval', $productoIds)));
         $this->assertPuedeQuitarServicios($event, $nextIds);
+        $cantidades = $actor->isClubDirectiva() ? $this->cantidadesProyectadas($proyecciones) : [];
 
         $catalog = $this->productos->listCatalog(false, $orgId)->keyBy('id');
         $items = [];
@@ -179,12 +193,31 @@ final class ClubesServiciosService
                 'producto_servicio_id' => $productoId,
                 'precio' => $producto->precio,
                 'activo' => true,
+                'cantidad_proyectada' => $cantidades[$productoId] ?? null,
             ];
         }
 
         $this->productos->syncOfertasEvento($event, $items, $orgId, true);
 
         return $this->listOfertas($actor, $event->fresh());
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $proyecciones
+     * @return array<int, int>
+     */
+    private function cantidadesProyectadas(array $proyecciones): array
+    {
+        $cantidades = [];
+        foreach ($proyecciones as $row) {
+            $productoId = (int) ($row['producto_servicio_id'] ?? 0);
+            if ($productoId <= 0) {
+                continue;
+            }
+            $cantidades[$productoId] = max(0, (int) ($row['cantidad'] ?? 0));
+        }
+
+        return $cantidades;
     }
 
     private function assertCanView(User $actor): int
@@ -313,17 +346,47 @@ final class ClubesServiciosService
     }
 
     /**
+     * @param  array<int, int>  $pedidos
      * @return array<string, mixed>
      */
-    private function ofertaPayload(EventoProductoServicio $oferta): array
+    private function ofertaPayload(EventoProductoServicio $oferta, bool $includeProyeccion = false, array $pedidos = []): array
     {
+        $productoId = (int) $oferta->producto_servicio_id;
+
         return [
             'id' => (int) $oferta->id,
             'evento_id' => (int) $oferta->evento_id,
-            'producto_servicio_id' => (int) $oferta->producto_servicio_id,
+            'producto_servicio_id' => $productoId,
             'precio' => $oferta->precio,
+            'cantidad_proyectada' => $includeProyeccion ? (int) ($pedidos[$productoId] ?? 0) : null,
             'activo' => (bool) $oferta->activo,
             'producto' => $oferta->producto ? $this->productoPayload($oferta->producto) : null,
         ];
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function cantidadesSolicitadas(Event $event): array
+    {
+        $rows = EventoParticipacionVenta::query()
+            ->join(
+                'evento_participacion',
+                'evento_participacion.id',
+                '=',
+                'evento_participacion_venta.evento_participacion_id',
+            )
+            ->where('evento_participacion.evento_id', $event->id)
+            ->where('evento_participacion.participa', true)
+            ->groupBy('evento_participacion_venta.producto_servicio_id')
+            ->selectRaw('evento_participacion_venta.producto_servicio_id as producto_id, SUM(evento_participacion_venta.cantidad) as total')
+            ->get();
+
+        $totales = [];
+        foreach ($rows as $row) {
+            $totales[(int) $row->producto_id] = (int) $row->total;
+        }
+
+        return $totales;
     }
 }

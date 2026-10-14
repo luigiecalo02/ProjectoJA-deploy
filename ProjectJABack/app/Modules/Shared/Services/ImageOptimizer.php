@@ -50,6 +50,32 @@ final class ImageOptimizer
         return $this->describe($relative, 'image/jpeg');
     }
 
+    public function storeCompact(UploadedFile $file, string $directory, string $prefix = 'abono'): OptimizedStoredFile
+    {
+        $realPath = $file->getRealPath();
+        $raw = $realPath ? file_get_contents($realPath) : false;
+        $source = $raw !== false && function_exists('imagecreatefromstring') ? @imagecreatefromstring($raw) : false;
+        abort_unless($source !== false, 422, 'No se pudo leer el pantallazo.');
+
+        $width = imagesx($source);
+        $height = imagesy($source);
+        $scale = min(1, 640 / max($width, $height, 1));
+        $nextWidth = max(1, (int) round($width * $scale));
+        $nextHeight = max(1, (int) round($height * $scale));
+        $canvas = imagecreatetruecolor($nextWidth, $nextHeight);
+        $white = imagecolorallocate($canvas, 255, 255, 255);
+        imagefilledrectangle($canvas, 0, 0, $nextWidth, $nextHeight, $white);
+        imagecopyresampled($canvas, $source, 0, 0, 0, 0, $nextWidth, $nextHeight, $width, $height);
+        imagedestroy($source);
+
+        $relative = trim($directory, '/').'/'.uniqid($prefix.'_', true).'.jpg';
+        Storage::disk('public')->makeDirectory(dirname($relative));
+        imagejpeg($canvas, Storage::disk('public')->path($relative), 38);
+        imagedestroy($canvas);
+
+        return $this->describe($relative, 'image/jpeg');
+    }
+
     public function isOptimizable(UploadedFile $file): bool
     {
         $mime = (string) $file->getMimeType();

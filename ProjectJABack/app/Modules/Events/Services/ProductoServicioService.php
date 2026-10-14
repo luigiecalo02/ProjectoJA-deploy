@@ -93,15 +93,19 @@ final class ProductoServicioService
                     'productos' => ["Producto {$productoId} no existe."],
                 ]);
             }
+            $values = [
+                'precio' => $item['precio'] ?? $producto->precio ?? 0,
+                'activo' => $item['activo'] ?? true,
+            ];
+            if (array_key_exists('cantidad_proyectada', $item) && $item['cantidad_proyectada'] !== null) {
+                $values['cantidad_proyectada'] = max(0, (int) $item['cantidad_proyectada']);
+            }
             $oferta = EventoProductoServicio::query()->updateOrCreate(
                 [
                     'evento_id' => $evento->id,
                     'producto_servicio_id' => $productoId,
                 ],
-                [
-                    'precio' => $item['precio'] ?? $producto->precio ?? 0,
-                    'activo' => $item['activo'] ?? true,
-                ]
+                $values,
             );
             $keep[] = $oferta->id;
         }

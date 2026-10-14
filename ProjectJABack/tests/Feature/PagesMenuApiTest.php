@@ -41,13 +41,23 @@ class PagesMenuApiTest extends TestCase
         $this->assertDatabaseHas('permissions', ['name' => 'asistencia.update']);
         $this->assertDatabaseHas('permissions', ['name' => 'abonos.view']);
         $this->assertDatabaseHas('permissions', ['name' => 'abonos.update']);
+        $this->assertDatabaseHas('pages', [
+            'key' => 'mis_abonos',
+            'name' => 'Mis abonos',
+            'route_name' => 'mis-abonos',
+            'front' => Page::FRONT_CLUBES,
+            'is_active' => 1,
+        ]);
+        $this->assertDatabaseHas('permissions', ['name' => 'mis_abonos.view']);
+        $this->assertDatabaseHas('permissions', ['name' => 'mis_abonos.update']);
 
         Sanctum::actingAs($this->admin());
 
         $this->getJson('/api/v1/roles/pages')
             ->assertOk()
             ->assertJsonFragment(['key' => 'asistencia', 'front' => Page::FRONT_CLUBES])
-            ->assertJsonFragment(['key' => 'abonos', 'front' => Page::FRONT_CLUBES]);
+            ->assertJsonFragment(['key' => 'abonos', 'front' => Page::FRONT_CLUBES])
+            ->assertJsonFragment(['key' => 'mis_abonos', 'front' => Page::FRONT_CLUBES]);
 
         $projectKeys = collect($this->getJson('/api/v1/menu')->assertOk()->json('data'))->pluck('key');
         $this->assertNotContains('asistencia', $projectKeys->all());
@@ -58,6 +68,7 @@ class PagesMenuApiTest extends TestCase
         ])->assertOk()->json('data'))->pluck('key');
         $this->assertContains('asistencia', $clubesKeys->all());
         $this->assertContains('abonos', $clubesKeys->all());
+        $this->assertContains('mis_abonos', $clubesKeys->all());
     }
 
     public function test_clubes_page_is_hidden_from_project_menu(): void

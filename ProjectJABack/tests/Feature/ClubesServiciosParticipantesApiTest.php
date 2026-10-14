@@ -13,7 +13,9 @@ use App\Modules\Organizations\Models\PersonaOrganizacionRol;
 use App\Modules\Users\Models\Role;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -443,6 +445,90 @@ class ClubesServiciosParticipantesApiTest extends TestCase
             'producto_servicio_id' => $pescado->id,
             'activo' => 1,
         ]);
+    }
+
+    public function test_member_submits_a_receipt_that_stays_pending_until_the_board_approves_it(): void
+    {
+        Storage::fake('public');
+        $org = $this->createClubOrg('Club Pantallazo');
+        $director = $this->boardUser('director', $org, 'dir-shot@test.local');
+        $memberUser = $this->memberUser($org, 'mem-shot@test.local');
+
+        Sanctum::actingAs($director);
+        $economicId = $this->postJson('/api/v1/settings/clubes/events', $this->eventPayload('Venta con pantallazo', $this->economicTipoId()), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertCreated()->json('data.id');
+
+        Sanctum::actingAs($memberUser);
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/participantes/yo", [
+            'participa' => true,
+            'ventas' => [],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        $this->post('/api/v1/settings/clubes/abonos/comprobante', [
+            'evento_id' => $economicId,
+            'comprobante' => UploadedFile::fake()->image('pago.jpg', 1200, 1800),
+        ], [
+            'X-Clubes-Client' => 'clubes',
+            'Accept' => 'application/json',
+        ])->assertUnprocessable();
+
+        Event::query()->whereKey($economicId)->update(['estado' => Event::ESTADO_EN_PROCESO]);
+
+        $pending = $this->post('/api/v1/settings/clubes/abonos/comprobante', [
+            'evento_id' => $economicId,
+            'comprobante' => UploadedFile::fake()->image('pago.jpg', 1200, 1800),
+        ], [
+            'X-Clubes-Client' => 'clubes',
+            'Accept' => 'application/json',
+        ])->assertOk()
+            ->assertJsonPath('data.abonado', 0);
+
+        $abonoId = (int) $pending->json('data.abonos.0.id');
+        $this->assertNotSame('', (string) $pending->json('data.abonos.0.comprobante_url'));
+        $this->assertDatabaseHas('evento_participacion_abono', [
+            'id' => $abonoId,
+            'estado' => 'pendiente',
+            'monto' => 0,
+        ]);
+        $stored = DB::table('evento_participacion_abono')->where('id', $abonoId)->value('comprobante_path');
+        $this->assertIsString($stored);
+        Storage::disk('public')->assertExists($stored);
+        $this->assertLessThan(80_000, Storage::disk('public')->size($stored));
+
+        $this->patchJson("/api/v1/settings/clubes/abonos/{$abonoId}/revision", [
+            'estado' => 'aprobado',
+            'monto' => 15000,
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertForbidden();
+
+        Sanctum::actingAs($director);
+        $this->post('/api/v1/settings/clubes/abonos/comprobante', [
+            'evento_id' => $economicId,
+            'comprobante' => UploadedFile::fake()->image('pago.jpg'),
+        ], [
+            'X-Clubes-Client' => 'clubes',
+            'Accept' => 'application/json',
+        ])->assertForbidden();
+
+        $this->patchJson("/api/v1/settings/clubes/abonos/{$abonoId}/revision", [
+            'estado' => 'aprobado',
+            'monto' => 15000,
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.abonado', 15000)
+            ->assertJsonPath('data.abono.estado', 'aprobado');
+
+        $roster = $this->getJson("/api/v1/settings/clubes/events/{$economicId}/participantes", [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()->json('data.integrantes');
+        $mine = collect($roster)->firstWhere('persona_id', $memberUser->persona_id);
+        $this->assertNotNull($mine);
+        $this->assertEquals(15000, $mine['abonado']);
     }
 
     /**

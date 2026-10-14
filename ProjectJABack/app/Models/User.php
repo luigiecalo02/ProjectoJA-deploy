@@ -86,6 +86,16 @@ class User extends Authenticatable
         return $this->isSuperAdmin() || (bool) $this->is_admin;
     }
 
+    public function isClubDirectiva(): bool
+    {
+        return count(array_intersect($this->roleNames(), [
+            'director',
+            'subdirector',
+            'secretario',
+            'tesorero',
+        ])) > 0;
+    }
+
     public function hasRole(string $role): bool
     {
         if ($role === 'super_admin' && $this->isSuperAdmin()) {

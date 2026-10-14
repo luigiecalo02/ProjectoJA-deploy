@@ -37,6 +37,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('settings/clubes/assets/{asset}', [ClubesSettingsController::class, 'resetAsset']);
     Route::post('settings/clubes/events', [ClubesSettingsController::class, 'storeEvent']);
     Route::post('settings/clubes/events/{event}', [ClubesSettingsController::class, 'updateEvent']);
+    Route::patch('settings/clubes/events/{event}/estado', [ClubesSettingsController::class, 'updateEventEstado']);
     Route::get('settings/clubes/inscripciones/{evento}/yo', [ClubesInscripcionesController::class, 'me']);
     Route::put('settings/clubes/inscripciones/{evento}/yo', [ClubesInscripcionesController::class, 'join']);
     Route::get('settings/clubes/inscripciones/{evento}', [ClubesInscripcionesController::class, 'show']);
@@ -56,6 +57,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('settings/clubes/ganancias/{distribucion}', [ClubesGananciasController::class, 'destroy']);
     Route::get('settings/clubes/abonos', [ClubesAbonosController::class, 'board']);
     Route::post('settings/clubes/abonos', [ClubesAbonosController::class, 'store']);
+    Route::post('settings/clubes/abonos/comprobante', [ClubesAbonosController::class, 'storeComprobante']);
+    Route::patch('settings/clubes/abonos/{abono}/revision', [ClubesAbonosController::class, 'review']);
     Route::get('settings/clubes/presupuesto/eventos', [ClubesPresupuestoController::class, 'eventos']);
     Route::get('settings/clubes/presupuesto/{evento}', [ClubesPresupuestoController::class, 'show']);
     Route::put('settings/clubes/presupuesto/{evento}', [ClubesPresupuestoController::class, 'update']);

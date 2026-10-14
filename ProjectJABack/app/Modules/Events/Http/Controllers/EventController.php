@@ -44,9 +44,14 @@ final class EventController
             $pageIds,
         );
         $inscritosMap = Event::inscritosCounts($pageIds);
+        $participantesMap = Event::participantesCounts($pageIds);
+        $asistentesMap = Event::asistentesCounts($pageIds);
 
-        $paginator->getCollection()->transform(function (Event $event) use ($enrolledMap, $inscritosMap, $request) {
-            $event->setAttribute('inscritos_count', $inscritosMap[(int) $event->id] ?? 0);
+        $paginator->getCollection()->transform(function (Event $event) use ($enrolledMap, $inscritosMap, $participantesMap, $asistentesMap, $request) {
+            $eventId = (int) $event->id;
+            $event->setAttribute('inscritos_count', $inscritosMap[$eventId] ?? 0);
+            $event->setAttribute('participantes_count', $participantesMap[$eventId] ?? 0);
+            $event->setAttribute('asistentes_count', $asistentesMap[$eventId] ?? 0);
             $payload = $this->payload($event, $request->user());
             $payload['inscrito'] = (bool) ($enrolledMap[$event->id] ?? false);
 
@@ -297,6 +302,10 @@ final class EventController
             'orden' => (int) ($event->orden ?? 0),
             'organizacion_id' => $event->organizacion_id,
             'tipo_evento_id' => $event->tipo_evento_id,
+            'ganancia_eclesiastica_id' => $actor?->isClubDirectiva() && $event->ganancia_eclesiastica_id
+                ? (int) $event->ganancia_eclesiastica_id
+                : null,
+            'capital' => $actor?->isClubDirectiva() ? round((float) ($event->capital ?? 0), 2) : null,
             'tipo_evento' => $tipoEvento
                 ? [
                     'id' => $tipoEvento->id,
@@ -352,9 +361,9 @@ final class EventController
             'icono_tamano' => $event->icono_tamano !== null ? (int) $event->icono_tamano : null,
             'banner_url' => $event->banner_url,
             'archivos' => $this->archivos->list($event),
-            'inscritos_count' => array_key_exists('inscritos_count', $event->getAttributes())
-                ? (int) $event->getAttribute('inscritos_count')
-                : (Event::inscritosCounts([(int) $event->id])[(int) $event->id] ?? 0),
+            'inscritos_count' => $this->rosterCount($event, 'inscritos_count', 'inscritosCounts'),
+            'participantes_count' => $this->rosterCount($event, 'participantes_count', 'participantesCounts'),
+            'asistentes_count' => $this->rosterCount($event, 'asistentes_count', 'asistentesCounts'),
             'starts_at' => $event->starts_at?->toIso8601String(),
             'ends_at' => $event->ends_at?->toIso8601String(),
             'is_active' => (bool) $event->is_active,
@@ -504,5 +513,16 @@ final class EventController
         }
 
         return $payload;
+    }
+
+    private function rosterCount(Event $event, string $attribute, string $counter): int
+    {
+        if (array_key_exists($attribute, $event->getAttributes())) {
+            return (int) $event->getAttribute($attribute);
+        }
+
+        $id = (int) $event->id;
+
+        return (int) (Event::{$counter}([$id])[$id] ?? 0);
     }
 }

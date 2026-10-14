@@ -14,6 +14,7 @@ class EventoProductoServicio extends Model
         'evento_id',
         'producto_servicio_id',
         'precio',
+        'cantidad_proyectada',
         'activo',
     ];
 
@@ -21,6 +22,7 @@ class EventoProductoServicio extends Model
     {
         return [
             'precio' => 'decimal:2',
+            'cantidad_proyectada' => 'integer',
             'activo' => 'boolean',
         ];
     }
