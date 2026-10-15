@@ -6,6 +6,8 @@ use App\Models\User;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoAsistencia;
+use App\Modules\Events\Models\EventoInscripcion;
+use App\Modules\Events\Models\EventoInscripcionPersona;
 use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Models\AppSetting;
@@ -134,28 +136,46 @@ final class ClubesAttendanceService
             }
         }
 
-        DB::transaction(function () use ($event, $orgId, $memberIds, $presenteIds, $justificadoIds, $puntualIds, $actor) {
+        $inscritosIds = $this->inscritosIds((int) $event->id, $orgId);
+        $expectedIds = $inscritosIds !== [] ? $inscritosIds : $memberIds;
+
+        DB::transaction(function () use (
+            $event,
+            $orgId,
+            $memberIds,
+            $expectedIds,
+            $presenteIds,
+            $justificadoIds,
+            $puntualIds,
+            $actor,
+        ) {
             foreach ($memberIds as $personaId) {
-                $estado = EventoAsistencia::ESTADO_AUSENTE;
+                $estado = null;
                 if (in_array($personaId, $puntualIds, true)) {
                     $estado = EventoAsistencia::ESTADO_PUNTUAL;
                 } elseif (in_array($personaId, $presenteIds, true)) {
                     $estado = EventoAsistencia::ESTADO_PRESENTE;
                 } elseif (in_array($personaId, $justificadoIds, true)) {
                     $estado = EventoAsistencia::ESTADO_JUSTIFICADO;
+                } elseif (in_array($personaId, $expectedIds, true)) {
+                    $estado = EventoAsistencia::ESTADO_AUSENTE;
                 }
 
-                EventoAsistencia::query()->updateOrCreate(
-                    [
-                        'evento_id' => $event->id,
-                        'organizacion_id' => $orgId,
-                        'persona_id' => $personaId,
-                    ],
-                    [
-                        'estado' => $estado,
-                        'registrado_por' => $actor->id,
-                    ],
-                );
+                $keys = [
+                    'evento_id' => $event->id,
+                    'organizacion_id' => $orgId,
+                    'persona_id' => $personaId,
+                ];
+
+                if ($estado === null) {
+                    EventoAsistencia::query()->where($keys)->delete();
+                    continue;
+                }
+
+                EventoAsistencia::query()->updateOrCreate($keys, [
+                    'estado' => $estado,
+                    'registrado_por' => $actor->id,
+                ]);
             }
         });
 
@@ -252,24 +272,42 @@ final class ClubesAttendanceService
             ->get()
             ->keyBy(fn (EventoAsistencia $row) => (int) $row->evento_id);
 
-        $registros = $events->map(function (Event $event) use ($asistencias) {
-            $estado = $asistencias->get((int) $event->id)?->estado;
+        $inscritosPorEvento = $this->inscritosPorEvento(
+            $orgId,
+            $takenEventIds->map(fn ($id) => (int) $id)->all(),
+        );
+
+        $registros = $events->map(function (Event $event) use ($asistencias, $inscritosPorEvento, $personaId) {
+            $eventoId = (int) $event->id;
+            $estado = $asistencias->get($eventoId)?->estado;
+            $inscritos = $inscritosPorEvento[$eventoId] ?? [];
+            $tieneInscripciones = $inscritos !== [];
+            $inscrito = ! $tieneInscripciones || in_array($personaId, $inscritos, true);
+
+            // Si no estaba inscrito, una ausencia automática no cuenta como inasistencia.
+            if (! $inscrito && $estado === EventoAsistencia::ESTADO_AUSENTE) {
+                $estado = null;
+            }
 
             return [
                 ...$this->eventPayload($event),
                 'estado' => $estado,
+                'inscrito' => $inscrito,
                 'puntos' => $this->puntosPorEstado($estado),
             ];
         })->values()->all();
 
-        $presentes = collect($registros)->whereIn('estado', [
+        $conAsistencia = collect($registros)->filter(
+            fn (array $row) => $row['inscrito'] || $row['estado'] !== null,
+        );
+        $presentes = $conAsistencia->whereIn('estado', [
             EventoAsistencia::ESTADO_PRESENTE,
             EventoAsistencia::ESTADO_PUNTUAL,
         ])->count();
-        $puntuales = collect($registros)->where('estado', EventoAsistencia::ESTADO_PUNTUAL)->count();
-        $justificados = collect($registros)->where('estado', EventoAsistencia::ESTADO_JUSTIFICADO)->count();
-        $ausentes = collect($registros)->where('estado', EventoAsistencia::ESTADO_AUSENTE)->count();
-        $eventos = count($registros);
+        $puntuales = $conAsistencia->where('estado', EventoAsistencia::ESTADO_PUNTUAL)->count();
+        $justificados = $conAsistencia->where('estado', EventoAsistencia::ESTADO_JUSTIFICADO)->count();
+        $ausentes = $conAsistencia->where('estado', EventoAsistencia::ESTADO_AUSENTE)->count();
+        $eventos = $conAsistencia->count();
         $marcados = $presentes + $justificados + $ausentes;
 
         return [
@@ -288,6 +326,49 @@ final class ClubesAttendanceService
             'porcentaje' => $eventos > 0 ? (int) round(($presentes / $eventos) * 100) : 0,
             'registros' => $registros,
         ];
+    }
+
+    /**
+     * @param  list<int>  $eventoIds
+     * @return array<int, list<int>>
+     */
+    private function inscritosPorEvento(int $orgId, array $eventoIds): array
+    {
+        if ($eventoIds === []) {
+            return [];
+        }
+
+        $rows = EventoInscripcionPersona::query()
+            ->join('evento_inscripcion', 'evento_inscripcion.id', '=', 'evento_inscripcion_persona.inscripcion_id')
+            ->whereIn('evento_inscripcion.evento_id', $eventoIds)
+            ->where('evento_inscripcion.organizacion_id', $orgId)
+            ->whereNotIn('evento_inscripcion.estado', [
+                EventoInscripcion::ESTADO_NO_APROBADA,
+                EventoInscripcion::ESTADO_BORRADOR,
+            ])
+            ->where('evento_inscripcion_persona.estado', '!=', EventoInscripcionPersona::ESTADO_CANCELADA)
+            ->whereNotNull('evento_inscripcion_persona.persona_id')
+            ->get([
+                'evento_inscripcion.evento_id',
+                'evento_inscripcion_persona.persona_id',
+            ]);
+
+        $map = [];
+        foreach ($rows as $row) {
+            $eventoId = (int) $row->evento_id;
+            $map[$eventoId] ??= [];
+            $map[$eventoId][] = (int) $row->persona_id;
+        }
+
+        return $map;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function inscritosIds(int $eventoId, int $orgId): array
+    {
+        return $this->inscritosPorEvento($orgId, [$eventoId])[$eventoId] ?? [];
     }
 
     /**
