@@ -56,6 +56,42 @@ final class ProductoServicioService
         return $producto->fresh();
     }
 
+    /**
+     * @var array<int, array<int, float>>
+     */
+    /** @var array<int, array<int, array{precio: float, ganancia_unidad: float}>> */
+    private array $ofertasActivas = [];
+
+    public function precioDeOferta(int $eventoId, int $productoId, float $fallback = 0): float
+    {
+        return $this->ofertaActiva($eventoId, $productoId)['precio'] ?? $fallback;
+    }
+
+    public function gananciaUnidadDeOferta(int $eventoId, int $productoId): float
+    {
+        return $this->ofertaActiva($eventoId, $productoId)['ganancia_unidad'] ?? 0;
+    }
+
+    /**
+     * @return array{precio: float, ganancia_unidad: float}|null
+     */
+    private function ofertaActiva(int $eventoId, int $productoId): ?array
+    {
+        if (! array_key_exists($eventoId, $this->ofertasActivas)) {
+            $this->ofertasActivas[$eventoId] = EventoProductoServicio::query()
+                ->where('evento_id', $eventoId)
+                ->where('activo', true)
+                ->get(['producto_servicio_id', 'precio', 'ganancia_unidad'])
+                ->mapWithKeys(fn (EventoProductoServicio $oferta) => [(int) $oferta->producto_servicio_id => [
+                    'precio' => (float) $oferta->precio,
+                    'ganancia_unidad' => (float) $oferta->ganancia_unidad,
+                ]])
+                ->all();
+        }
+
+        return $this->ofertasActivas[$eventoId][$productoId] ?? null;
+    }
+
     public function listOfertasEvento(Event $evento): Collection
     {
         return EventoProductoServicio::query()
@@ -100,6 +136,10 @@ final class ProductoServicioService
             if (array_key_exists('cantidad_proyectada', $item) && $item['cantidad_proyectada'] !== null) {
                 $values['cantidad_proyectada'] = max(0, (int) $item['cantidad_proyectada']);
             }
+            if (array_key_exists('inversion', $item) && $item['inversion'] !== null && $item['inversion'] !== '') {
+                $values['inversion'] = round(max(0, (float) $item['inversion']), 2);
+            }
+            unset($this->ofertasActivas[$evento->id]);
             $oferta = EventoProductoServicio::query()->updateOrCreate(
                 [
                     'evento_id' => $evento->id,

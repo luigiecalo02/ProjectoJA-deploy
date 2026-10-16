@@ -26,6 +26,7 @@ final class ClubesServiciosService
         private readonly IconoCatalogService $iconos,
         private readonly ImageOptimizer $images,
         private readonly PublicFileService $publicFiles,
+        private readonly EventoGananciaRegistro $ganancias,
     ) {}
 
     /**
@@ -142,6 +143,7 @@ final class ClubesServiciosService
                 'name' => $event->name,
                 'es_economica' => $event->isActividadEconomica(),
                 'tiene_abonos' => $this->eventoTieneAbonos($event),
+                'ganancia_registro' => EventoGananciaRegistro::presentar($event),
             ],
             'catalogo' => $this->productos->listCatalog(true, $orgId)
                 ->map(fn (ProductoServicio $producto) => $this->productoPayload($producto))
@@ -171,14 +173,27 @@ final class ClubesServiciosService
      * @param  list<array<string, mixed>>  $proyecciones
      * @return array<string, mixed>
      */
-    public function syncOfertas(User $actor, Event $event, array $productoIds, array $proyecciones = []): array
-    {
+    public function syncOfertas(
+        User $actor,
+        Event $event,
+        array $productoIds,
+        array $proyecciones = [],
+        bool $syncConfiguracion = false,
+        ?int $gananciaEclesiasticaId = null,
+    ): array {
         $orgId = $this->assertCanWrite($actor);
         $this->assertVisibleEvent($actor, $event);
 
         $nextIds = array_values(array_unique(array_map('intval', $productoIds)));
         $this->assertPuedeQuitarServicios($event, $nextIds);
         $cantidades = $actor->isClubDirectiva() ? $this->cantidadesProyectadas($proyecciones) : [];
+        $inversiones = $actor->isClubDirectiva() ? $this->inversionesProyectadas($proyecciones) : [];
+        $puedeCambiarPrecio = $event->estado === Event::ESTADO_PUBLICADO;
+        $precios = $puedeCambiarPrecio ? $this->preciosProyectados($proyecciones) : [];
+        $existentes = EventoProductoServicio::query()
+            ->where('evento_id', $event->id)
+            ->get()
+            ->keyBy(fn (EventoProductoServicio $oferta) => (int) $oferta->producto_servicio_id);
 
         $catalog = $this->productos->listCatalog(false, $orgId)->keyBy('id');
         $items = [];
@@ -189,15 +204,25 @@ final class ClubesServiciosService
                     'producto_servicio_ids' => ['Hay servicios que no pertenecen a este club.'],
                 ]);
             }
+            $actual = $existentes->get($productoId);
+            $precio = array_key_exists($productoId, $precios)
+                ? $precios[$productoId]
+                : ($actual ? (float) $actual->precio : (float) $producto->precio);
             $items[] = [
                 'producto_servicio_id' => $productoId,
-                'precio' => $producto->precio,
+                'precio' => $precio,
                 'activo' => true,
                 'cantidad_proyectada' => $cantidades[$productoId] ?? null,
+                'inversion' => $inversiones[$productoId] ?? null,
             ];
         }
 
         $this->productos->syncOfertasEvento($event, $items, $orgId, true);
+        if ($syncConfiguracion && $this->puedeCambiarConfiguracion($actor)) {
+            $event->ganancia_eclesiastica_id = $gananciaEclesiasticaId ?: null;
+            $event->save();
+        }
+        $this->ganancias->registrar($event->fresh() ?? $event);
 
         return $this->listOfertas($actor, $event->fresh());
     }
@@ -218,6 +243,52 @@ final class ClubesServiciosService
         }
 
         return $cantidades;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $proyecciones
+     * @return array<int, float>
+     */
+    /**
+     * @param  list<array<string, mixed>>  $proyecciones
+     * @return array<int, float>
+     */
+    private function preciosProyectados(array $proyecciones): array
+    {
+        $precios = [];
+        foreach ($proyecciones as $row) {
+            if (! array_key_exists('precio', $row) || $row['precio'] === null || $row['precio'] === '') {
+                continue;
+            }
+            $productoId = (int) ($row['producto_servicio_id'] ?? 0);
+            if ($productoId <= 0) {
+                continue;
+            }
+            $precios[$productoId] = round(max(0, (float) $row['precio']), 2);
+        }
+
+        return $precios;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $proyecciones
+     * @return array<int, float>
+     */
+    private function inversionesProyectadas(array $proyecciones): array
+    {
+        $inversiones = [];
+        foreach ($proyecciones as $row) {
+            if (! array_key_exists('inversion', $row) || $row['inversion'] === null || $row['inversion'] === '') {
+                continue;
+            }
+            $productoId = (int) ($row['producto_servicio_id'] ?? 0);
+            if ($productoId <= 0) {
+                continue;
+            }
+            $inversiones[$productoId] = round(max(0, (float) $row['inversion']), 2);
+        }
+
+        return $inversiones;
     }
 
     private function assertCanView(User $actor): int
@@ -245,6 +316,11 @@ final class ClubesServiciosService
         );
 
         return $orgId;
+    }
+
+    private function puedeCambiarConfiguracion(User $actor): bool
+    {
+        return $actor->isSuperAdmin() || in_array('director', $actor->roleNames(), true);
     }
 
     private function actorManagesClub(User $actor): bool
@@ -359,6 +435,9 @@ final class ClubesServiciosService
             'producto_servicio_id' => $productoId,
             'precio' => $oferta->precio,
             'cantidad_proyectada' => $includeProyeccion ? (int) ($pedidos[$productoId] ?? 0) : null,
+            'inversion' => round((float) ($oferta->inversion ?? 0), 2),
+            'total' => round((float) ($oferta->total ?? 0), 2),
+            'ganancia_unidad' => round((float) ($oferta->ganancia_unidad ?? 0), 2),
             'activo' => (bool) $oferta->activo,
             'producto' => $oferta->producto ? $this->productoPayload($oferta->producto) : null,
         ];

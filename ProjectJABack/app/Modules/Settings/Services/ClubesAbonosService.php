@@ -8,6 +8,7 @@ use App\Modules\Events\Models\EventoParticipacion;
 use App\Modules\Events\Models\EventoParticipacionAbono;
 use App\Modules\Events\Models\EventoParticipacionVenta;
 use App\Modules\Events\Models\TipoEvento;
+use App\Modules\Events\Services\ProductoServicioService;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Models\AppSetting;
@@ -24,6 +25,7 @@ final class ClubesAbonosService
         private readonly PublicFileService $publicFiles,
         private readonly ImageOptimizer $images,
         private readonly AbonoPresentacion $presentacion,
+        private readonly ProductoServicioService $productos,
     ) {}
 
     /**
@@ -61,6 +63,7 @@ final class ClubesAbonosService
                 $lista = $abonos->get($clave, collect());
                 $comprometido = $this->comprometido($row);
                 $abonado = round((float) $lista->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2);
+                $ganancia = $this->gananciaReal($row, $comprometido, $abonado);
                 $detalle = ($modo === 'integrante' && $personaId) || ($modo === 'actividad' && $eventoId);
 
                 return [
@@ -75,6 +78,7 @@ final class ClubesAbonosService
                     'comprometido' => $comprometido,
                     'abonado' => $abonado,
                     'pendiente' => round($comprometido - $abonado, 2),
+                    'ganancia' => $ganancia,
                     'items' => 1,
                     'pendientes' => ($comprometido - $abonado) > 0.009 ? 1 : 0,
                     'pedidos' => $detalle ? $this->pedidos($row) : [],
@@ -314,11 +318,35 @@ final class ClubesAbonosService
             ->groupBy(fn (EventoParticipacionAbono $row) => $this->clave((int) $row->evento_id, (int) $row->persona_id));
     }
 
+    private function precioDeVenta(EventoParticipacionVenta $venta, int $eventoId): float
+    {
+        return $this->productos->precioDeOferta(
+            $eventoId,
+            (int) $venta->producto_servicio_id,
+            (float) ($venta->producto?->precio ?? 0),
+        );
+    }
+
     private function comprometido(EventoParticipacion $row): float
     {
-        return round((float) $row->ventas->sum(function (EventoParticipacionVenta $venta) {
-            return (int) $venta->cantidad * (float) ($venta->producto?->precio ?? 0);
-        }), 2);
+        return round((float) $row->ventas->sum(
+            fn (EventoParticipacionVenta $venta) => $venta->cantidadContable() * $this->precioDeVenta($venta, (int) $row->evento_id),
+        ), 2);
+    }
+
+    private function gananciaReal(EventoParticipacion $row, float $comprometido, float $abonado): float
+    {
+        $base = (float) $row->ventas->sum(function (EventoParticipacionVenta $venta) use ($row) {
+            $unidad = $this->productos->gananciaUnidadDeOferta((int) $row->evento_id, (int) $venta->producto_servicio_id);
+
+            return $venta->cantidadContable() * $unidad;
+        });
+        if ($comprometido <= 0 || $base <= 0) {
+            return 0;
+        }
+        $cobertura = min($comprometido, max(0, $abonado)) / $comprometido;
+
+        return (float) round($base * $cobertura);
     }
 
     /**
@@ -328,9 +356,9 @@ final class ClubesAbonosService
     {
         return $row->ventas
             ->filter(fn (EventoParticipacionVenta $venta) => (int) $venta->cantidad > 0)
-            ->map(function (EventoParticipacionVenta $venta) {
+            ->map(function (EventoParticipacionVenta $venta) use ($row) {
                 $cantidad = (int) $venta->cantidad;
-                $precio = (float) ($venta->producto?->precio ?? 0);
+                $precio = $this->precioDeVenta($venta, (int) $row->evento_id);
 
                 return [
                     'id' => (int) $venta->id,
@@ -356,6 +384,7 @@ final class ClubesAbonosService
             $first = $rows->first();
             $comprometido = round((float) $rows->sum('comprometido'), 2);
             $abonado = round((float) $rows->sum('abonado'), 2);
+            $ganancia = round((float) $rows->sum('ganancia'), 2);
 
             return [
                 'persona_id' => $first['persona_id'],
@@ -368,6 +397,7 @@ final class ClubesAbonosService
                 'comprometido' => $comprometido,
                 'abonado' => $abonado,
                 'pendiente' => round($comprometido - $abonado, 2),
+                'ganancia' => $ganancia,
                 'items' => $rows->count(),
                 'pendientes' => $rows->where('pendiente', '>', 0)->count(),
                 'abonos' => [],
@@ -385,6 +415,7 @@ final class ClubesAbonosService
             $first = $rows->first();
             $comprometido = round((float) $rows->sum('comprometido'), 2);
             $abonado = round((float) $rows->sum('abonado'), 2);
+            $ganancia = round((float) $rows->sum('ganancia'), 2);
 
             return [
                 'persona_id' => null,
@@ -398,6 +429,7 @@ final class ClubesAbonosService
                 'comprometido' => $comprometido,
                 'abonado' => $abonado,
                 'pendiente' => round($comprometido - $abonado, 2),
+                'ganancia' => $ganancia,
                 'items' => $rows->count(),
                 'pendientes' => $rows->where('pendiente', '>', 0)->count(),
                 'abonos' => [],
@@ -455,6 +487,7 @@ final class ClubesAbonosService
             'comprometido' => $comprometido,
             'abonado' => $abonado,
             'pendiente' => round($comprometido - $abonado, 2),
+            'ganancia' => round((float) $filas->sum('ganancia'), 2),
         ];
     }
 

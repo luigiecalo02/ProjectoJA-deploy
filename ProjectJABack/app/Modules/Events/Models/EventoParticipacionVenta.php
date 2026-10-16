@@ -13,13 +13,22 @@ class EventoParticipacionVenta extends Model
         'evento_participacion_id',
         'producto_servicio_id',
         'cantidad',
+        'cantidad_entregada',
     ];
 
     protected function casts(): array
     {
         return [
             'cantidad' => 'integer',
+            'cantidad_entregada' => 'integer',
         ];
+    }
+
+    public function cantidadContable(): int
+    {
+        return $this->cantidad_entregada === null
+            ? (int) $this->cantidad
+            : (int) $this->cantidad_entregada;
     }
 
     public function participacion(): BelongsTo

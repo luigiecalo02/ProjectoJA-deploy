@@ -12,6 +12,7 @@ use App\Modules\Events\Services\EventListEnricher;
 use App\Modules\Events\Services\EventParticipationService;
 use App\Modules\Events\Services\EventService;
 use App\Modules\Settings\Services\CuentaBancariaService;
+use App\Modules\Settings\Services\EventoGananciaRegistro;
 use App\Modules\Shared\Http\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -306,6 +307,7 @@ final class EventController
                 ? (int) $event->ganancia_eclesiastica_id
                 : null,
             'capital' => $actor?->isClubDirectiva() ? round((float) ($event->capital ?? 0), 2) : null,
+            'ganancia_registro' => $actor?->isClubDirectiva() ? EventoGananciaRegistro::presentar($event) : null,
             'tipo_evento' => $tipoEvento
                 ? [
                     'id' => $tipoEvento->id,

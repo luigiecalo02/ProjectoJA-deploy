@@ -294,7 +294,9 @@ final class ClubesSettingsService
             'es_calificable' => false,
         ];
         if ($actor->isClubDirectiva()) {
-            $createPayload['ganancia_eclesiastica_id'] = $this->gananciaEclesiasticaId($data, $organizacionId);
+            $createPayload['ganancia_eclesiastica_id'] = $this->canChangeEventGanancia($actor)
+                ? $this->gananciaEclesiasticaId($data, $organizacionId)
+                : $this->defaultGananciaEclesiasticaId($organizacionId);
             $createPayload['capital'] = $this->capitalAmount($data);
         }
         $event = $this->eventService->create($actor, $createPayload);
@@ -336,7 +338,9 @@ final class ClubesSettingsService
             'tipo_evento_id' => $data['tipo_evento_id'] ?? null,
         ];
         if ($actor->isClubDirectiva()) {
-            $payload['ganancia_eclesiastica_id'] = $this->gananciaEclesiasticaId($data, $organizacionId);
+            if ($this->canChangeEventGanancia($actor)) {
+                $payload['ganancia_eclesiastica_id'] = $this->gananciaEclesiasticaId($data, $organizacionId);
+            }
             $payload['capital'] = $this->capitalAmount($data);
         }
         $estado = $this->safeEstado($data['estado'] ?? null);
@@ -389,6 +393,22 @@ final class ClubesSettingsService
     /**
      * @param  array<string, mixed>  $data
      */
+    private function canChangeEventGanancia(User $actor): bool
+    {
+        return $actor->isSuperAdmin() || in_array('director', $actor->roleNames(), true);
+    }
+
+    private function defaultGananciaEclesiasticaId(int $orgId): ?int
+    {
+        $id = ClubesGananciaEclesiastica::query()
+            ->where('organizacion_id', $orgId)
+            ->orderByDesc('es_predeterminada')
+            ->orderBy('id')
+            ->value('id');
+
+        return $id ? (int) $id : null;
+    }
+
     private function gananciaEclesiasticaId(array $data, int $orgId): ?int
     {
         if (! array_key_exists('ganancia_eclesiastica_id', $data) || $data['ganancia_eclesiastica_id'] === null || $data['ganancia_eclesiastica_id'] === '') {

@@ -10,6 +10,7 @@ use App\Modules\Events\Models\EventoParticipacionAbono;
 use App\Modules\Events\Models\EventoParticipacionVenta;
 use App\Modules\Events\Models\EventoProductoServicio;
 use App\Modules\Events\Models\ProductoServicio;
+use App\Modules\Events\Services\ProductoServicioService;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Models\AppSetting;
 use App\Modules\Shared\Services\PublicFileService;
@@ -22,6 +23,7 @@ final class ClubesParticipantesService
     public function __construct(
         private readonly PublicFileService $publicFiles,
         private readonly AbonoPresentacion $presentacion,
+        private readonly ProductoServicioService $productos,
     ) {}
 
     /**
@@ -108,6 +110,65 @@ final class ClubesParticipantesService
                 );
 
                 $this->syncVentas($row, $entry['participa'] ? $entry['ventas'] : [], $servicioIds);
+            }
+        });
+
+        return $this->show($actor, $event->fresh());
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $ventas
+     * @return array<string, mixed>
+     */
+    public function entregar(User $actor, Event $event, int $personaId, array $ventas): array
+    {
+        $orgId = $this->assertCanUpdate($actor);
+        $this->assertEconomicEvent($actor, $event);
+        abort_unless(
+            $event->estado === Event::ESTADO_EN_PROCESO,
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+            'Solo puedes confirmar la entrega mientras la actividad está en proceso.',
+        );
+
+        $row = EventoParticipacion::query()
+            ->where('evento_id', $event->id)
+            ->where('organizacion_id', $orgId)
+            ->where('persona_id', $personaId)
+            ->where('participa', true)
+            ->first();
+        abort_unless(
+            $row instanceof EventoParticipacion,
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+            'Esa persona no está participando.',
+        );
+
+        $servicioIds = array_map(
+            fn (array $item) => (int) $item['id'],
+            $this->eventServices($event),
+        );
+
+        DB::transaction(function () use ($row, $ventas, $servicioIds) {
+            foreach ($ventas as $venta) {
+                $productoId = (int) ($venta['producto_servicio_id'] ?? 0);
+                $entregada = max(0, (int) ($venta['cantidad_entregada'] ?? 0));
+                if (! in_array($productoId, $servicioIds, true)) {
+                    throw ValidationException::withMessages([
+                        'ventas' => ['Hay servicios que no pertenecen a este evento.'],
+                    ]);
+                }
+
+                $linea = EventoParticipacionVenta::query()
+                    ->where('evento_participacion_id', $row->id)
+                    ->where('producto_servicio_id', $productoId)
+                    ->first();
+                if (! $linea || (int) $linea->cantidad <= 0) {
+                    throw ValidationException::withMessages([
+                        'ventas' => ['Solo puedes entregar cantidades que el participante pidió.'],
+                    ]);
+                }
+
+                $linea->cantidad_entregada = $entregada;
+                $linea->save();
             }
         });
 
@@ -248,6 +309,7 @@ final class ClubesParticipantesService
                 ->map(fn (EventoParticipacionVenta $venta) => [
                     'producto_servicio_id' => (int) $venta->producto_servicio_id,
                     'cantidad' => (int) $venta->cantidad,
+                    'cantidad_entregada' => $venta->cantidad_entregada === null ? null : (int) $venta->cantidad_entregada,
                 ])
                 ->values()
                 ->all();
@@ -312,13 +374,17 @@ final class ClubesParticipantesService
             ->where('persona_id', '!=', $personaId)
             ->get();
 
-        $total = $rows->sum(function (EventoParticipacion $row) use ($servicioIds) {
-            return $row->ventas->sum(function (EventoParticipacionVenta $venta) use ($servicioIds) {
+        $total = $rows->sum(function (EventoParticipacion $row) use ($servicioIds, $eventoId) {
+            return $row->ventas->sum(function (EventoParticipacionVenta $venta) use ($servicioIds, $eventoId) {
                 if (! in_array((int) $venta->producto_servicio_id, $servicioIds, true)) {
                     return 0;
                 }
 
-                return (int) $venta->cantidad * (float) ($venta->producto?->precio ?? 0);
+                return $venta->cantidadContable() * $this->productos->precioDeOferta(
+                    $eventoId,
+                    (int) $venta->producto_servicio_id,
+                    (float) ($venta->producto?->precio ?? 0),
+                );
             });
         });
 
@@ -362,7 +428,8 @@ final class ClubesParticipantesService
                 return [
                     'id' => (int) $producto->id,
                     'nombre' => $producto->nombre,
-                    'precio' => $producto->precio,
+                    'precio' => $oferta->precio,
+                    'ganancia_unidad' => round((float) ($oferta->ganancia_unidad ?? 0), 2),
                     'icono' => $producto->icono,
                     'image_url' => $this->publicFiles->url($producto->image_path),
                 ];

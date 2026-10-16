@@ -12,6 +12,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class ClubesGananciasService
 {
+    public function __construct(private readonly EventoGananciaRegistro $registro) {}
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -87,6 +89,8 @@ final class ClubesGananciasService
 
             return $row->fresh() ?? $row;
         });
+
+        $this->registro->registrarDistribucion((int) $row->id);
 
         return $this->distribucionPayload($row);
     }
@@ -187,6 +191,8 @@ final class ClubesGananciasService
             return $row->fresh(['distribucion']) ?? $row->load('distribucion');
         });
 
+        $this->registro->registrarConfiguracion((int) $row->id);
+
         return $this->eclesiasticaPayload($row);
     }
 
@@ -201,7 +207,9 @@ final class ClubesGananciasService
         $orgId = AppSetting::resolveOrganizacionId();
         abort_unless($orgId, Response::HTTP_FORBIDDEN, 'Debes tener una organización activa.');
         abort_unless(
-            $this->actorIsDirector($actor)
+            $actor->isSuperAdmin()
+            || $actor->isClubDirectiva()
+            || $this->actorIsDirector($actor)
             || $actor->hasPermission('settings.view')
             || $actor->hasPermission('settings.update'),
             Response::HTTP_FORBIDDEN,

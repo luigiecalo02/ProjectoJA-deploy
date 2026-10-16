@@ -97,6 +97,9 @@ final class ClubesServiciosController
             'proyecciones' => ['sometimes', 'array'],
             'proyecciones.*.producto_servicio_id' => ['required', 'integer'],
             'proyecciones.*.cantidad' => ['required', 'integer', 'min:0'],
+            'proyecciones.*.inversion' => ['sometimes', 'numeric', 'min:0'],
+            'proyecciones.*.precio' => ['sometimes', 'numeric', 'min:0'],
+            'ganancia_eclesiastica_id' => ['sometimes', 'nullable', 'integer'],
         ]);
 
         return ApiResponse::success(
@@ -105,6 +108,10 @@ final class ClubesServiciosController
                 $event,
                 $data['producto_servicio_ids'] ?? [],
                 $data['proyecciones'] ?? [],
+                array_key_exists('ganancia_eclesiastica_id', $data),
+                isset($data['ganancia_eclesiastica_id']) && $data['ganancia_eclesiastica_id'] !== ''
+                    ? (int) $data['ganancia_eclesiastica_id']
+                    : null,
             ),
             'Servicios del evento actualizados',
         );

@@ -72,6 +72,21 @@ final class ClubesParticipantesController
         );
     }
 
+    public function entregar(Request $request, Event $event, int $persona): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'ventas' => ['required', 'array', 'min:1'],
+            'ventas.*.producto_servicio_id' => ['required', 'integer', 'exists:productos_servicios,id'],
+            'ventas.*.cantidad_entregada' => ['required', 'integer', 'min:0', 'max:99999'],
+        ]);
+
+        return ApiResponse::success(
+            $this->participantes->entregar($request->user(), $event, $persona, $data['ventas']),
+            'Entrega confirmada',
+        );
+    }
+
     private function assertClubesClient(Request $request): void
     {
         abort_unless(

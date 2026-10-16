@@ -75,6 +75,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('settings/clubes/events/{event}/participantes/yo', [ClubesParticipantesController::class, 'join']);
     Route::get('settings/clubes/events/{event}/participantes', [ClubesParticipantesController::class, 'show']);
     Route::put('settings/clubes/events/{event}/participantes', [ClubesParticipantesController::class, 'sync']);
+    Route::put('settings/clubes/events/{event}/participantes/{persona}/entrega', [ClubesParticipantesController::class, 'entregar']);
     Route::get('settings/mail', [MailSettingsController::class, 'show']);
     Route::put('settings/mail', [MailSettingsController::class, 'update']);
     Route::post('settings/mail/test', [MailSettingsController::class, 'test']);
