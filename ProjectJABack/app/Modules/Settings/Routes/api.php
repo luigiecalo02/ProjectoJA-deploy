@@ -68,6 +68,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('settings/clubes/cuentas-bancarias', [ClubesCuentasBancariasController::class, 'store']);
     Route::put('settings/clubes/cuentas-bancarias/{cuenta}', [ClubesCuentasBancariasController::class, 'update']);
     Route::delete('settings/clubes/cuentas-bancarias/{cuenta}', [ClubesCuentasBancariasController::class, 'destroy']);
+    Route::post('settings/clubes/cuentas-bancarias/{cuenta}/qr', [ClubesCuentasBancariasController::class, 'uploadQr']);
+    Route::delete('settings/clubes/cuentas-bancarias/{cuenta}/qr', [ClubesCuentasBancariasController::class, 'deleteQr']);
     Route::get('settings/clubes/presupuesto/eventos', [ClubesPresupuestoController::class, 'eventos']);
     Route::get('settings/clubes/presupuesto/{evento}', [ClubesPresupuestoController::class, 'show']);
     Route::put('settings/clubes/presupuesto/{evento}', [ClubesPresupuestoController::class, 'update']);

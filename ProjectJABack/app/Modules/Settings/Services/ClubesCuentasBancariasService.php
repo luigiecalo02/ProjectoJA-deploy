@@ -5,11 +5,16 @@ namespace App\Modules\Settings\Services;
 use App\Models\User;
 use App\Modules\Settings\Models\AppSetting;
 use App\Modules\Settings\Models\CuentaBancaria;
+use App\Modules\Shared\Models\StoredFile;
+use App\Modules\Shared\Services\ImageOptimizer;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
 final class ClubesCuentasBancariasService
 {
+    public function __construct(private readonly ImageOptimizer $images) {}
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -60,7 +65,43 @@ final class ClubesCuentasBancariasService
     {
         $orgId = $this->assertCanWrite($actor);
         $cuenta = $this->owned($id, $orgId);
+        $this->deleteQrFile($cuenta);
         $cuenta->delete();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function storeQr(User $actor, int $id, UploadedFile $file): array
+    {
+        $orgId = $this->assertCanWrite($actor);
+        $cuenta = $this->owned($id, $orgId);
+        $stored = $this->images->store($file, 'cuentas-bancarias/'.$cuenta->id, 'qr');
+        $this->deleteQrFile($cuenta);
+        $record = StoredFile::query()->create([
+            'name' => $file->getClientOriginalName(),
+            'path' => $stored->path,
+            'size' => $stored->size,
+            'mime_type' => $stored->mime,
+            'hash' => $stored->hash,
+            'uploaded_by' => $actor->id,
+        ]);
+        $cuenta->update(['qr_file_id' => $record->id]);
+
+        return $this->payload($cuenta->fresh('qrFile') ?? $cuenta);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function deleteQr(User $actor, int $id): array
+    {
+        $orgId = $this->assertCanWrite($actor);
+        $cuenta = $this->owned($id, $orgId);
+        $this->deleteQrFile($cuenta);
+        $cuenta->update(['qr_file_id' => null]);
+
+        return $this->payload($cuenta->fresh('qrFile') ?? $cuenta);
     }
 
     /**
@@ -128,6 +169,19 @@ final class ClubesCuentasBancariasService
             'activo' => array_key_exists('activo', $data) ? (bool) $data['activo'] : ($cuenta?->activo ?? true),
             'orden' => isset($data['orden']) ? (int) $data['orden'] : ($cuenta?->orden ?? 0),
         ];
+    }
+
+    private function deleteQrFile(CuentaBancaria $cuenta): void
+    {
+        $cuenta->loadMissing('qrFile');
+        $file = $cuenta->qrFile;
+        if (! $file) {
+            return;
+        }
+        if ($file->path) {
+            Storage::disk('public')->delete($file->path);
+        }
+        $file->delete();
     }
 
     private function owned(int $id, int $orgId): CuentaBancaria

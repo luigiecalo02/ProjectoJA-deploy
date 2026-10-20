@@ -49,6 +49,29 @@ final class ClubesCuentasBancariasController
         return ApiResponse::success(null, 'Cuenta bancaria eliminada');
     }
 
+    public function uploadQr(Request $request, int $cuenta): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'qr' => ['required', 'file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:5120'],
+        ]);
+
+        return ApiResponse::success(
+            $this->cuentas->storeQr($request->user(), $cuenta, $data['qr']),
+            'QR de la cuenta actualizado',
+        );
+    }
+
+    public function deleteQr(Request $request, int $cuenta): JsonResponse
+    {
+        $this->assertClubesClient($request);
+
+        return ApiResponse::success(
+            $this->cuentas->deleteQr($request->user(), $cuenta),
+            'QR de la cuenta eliminado',
+        );
+    }
+
     /** @return array<string, mixed> */
     private function validated(Request $request): array
     {
