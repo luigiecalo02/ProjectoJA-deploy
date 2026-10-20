@@ -26,6 +26,8 @@ final class ClubesAbonosService
         private readonly ImageOptimizer $images,
         private readonly AbonoPresentacion $presentacion,
         private readonly ProductoServicioService $productos,
+        private readonly ClubesFinanzasService $finanzas,
+        private readonly ClubesCuentasBancariasService $cuentas,
     ) {}
 
     /**
@@ -58,13 +60,14 @@ final class ClubesAbonosService
         $filas = $participaciones
             ->when($personaId, fn (Collection $rows) => $rows->where('persona_id', $personaId))
             ->when($eventoId, fn (Collection $rows) => $rows->where('evento_id', $eventoId))
-            ->map(function (EventoParticipacion $row) use ($abonos, $modo, $personaId, $eventoId) {
+            ->map(function (EventoParticipacion $row) use ($abonos, $modo, $personaId, $eventoId, $actor) {
                 $clave = $this->clave((int) $row->evento_id, (int) $row->persona_id);
                 $lista = $abonos->get($clave, collect());
                 $comprometido = $this->comprometido($row);
                 $abonado = round((float) $lista->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2);
                 $ganancia = $this->gananciaReal($row, $comprometido, $abonado);
                 $detalle = ($modo === 'integrante' && $personaId) || ($modo === 'actividad' && $eventoId);
+                $visibles = $lista->filter(fn (EventoParticipacionAbono $abono) => $abono->visiblePara($actor));
 
                 return [
                     'persona_id' => (int) $row->persona_id,
@@ -81,8 +84,11 @@ final class ClubesAbonosService
                     'ganancia' => $ganancia,
                     'items' => 1,
                     'pendientes' => ($comprometido - $abonado) > 0.009 ? 1 : 0,
+                    'cuenta_bancaria' => $this->cuentas->toPayloadOrNull($row->evento?->cuentaBancaria),
                     'pedidos' => $detalle ? $this->pedidos($row) : [],
-                    'abonos' => $detalle ? $lista->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all() : [],
+                    'abonos' => $detalle
+                        ? $visibles->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all()
+                        : [],
                 ];
             })
             ->values();
@@ -107,18 +113,22 @@ final class ClubesAbonosService
     /**
      * @return array<string, mixed>
      */
+    /**
+     * @param  list<array{producto_servicio_id?: mixed, monto?: mixed}>|null  $partidas
+     * @return array<string, mixed>
+     */
     public function store(
         User $actor,
         int $eventoId,
         int $personaId,
-        float $monto,
+        ?float $monto,
         ?string $nota,
         string $modo = 'integrante',
         ?UploadedFile $comprobante = null,
-    ): array
-    {
+        ?int $productoServicioId = null,
+        ?array $partidas = null,
+    ): array {
         $orgId = $this->assertCanUpdate($actor);
-        abort_unless($monto > 0, Response::HTTP_UNPROCESSABLE_ENTITY, 'El abono debe ser mayor a cero.');
 
         $participacion = EventoParticipacion::query()
             ->with(['evento.tipoEvento', 'ventas.producto'])
@@ -151,20 +161,25 @@ final class ClubesAbonosService
             'La persona no es integrante de este club.',
         );
 
+        $lines = $this->normalizePartidas($participacion, $partidas, $monto, $productoServicioId);
         $stored = $comprobante
             ? $this->images->storeCompact($comprobante, 'abonos/'.$orgId, 'pantallazo')
             : null;
 
-        EventoParticipacionAbono::query()->create([
-            'evento_id' => $eventoId,
-            'organizacion_id' => $orgId,
-            'persona_id' => $personaId,
-            'monto' => round($monto, 2),
-            'nota' => $nota !== null && $nota !== '' ? $nota : null,
-            'estado' => EventoParticipacionAbono::ESTADO_APROBADO,
-            'comprobante_path' => $stored?->path,
-            'registrado_por' => $actor->id,
-        ]);
+        foreach ($lines as $line) {
+            $created = EventoParticipacionAbono::query()->create([
+                'evento_id' => $eventoId,
+                'organizacion_id' => $orgId,
+                'persona_id' => $personaId,
+                'producto_servicio_id' => $line['producto_servicio_id'],
+                'monto' => $line['monto'],
+                'nota' => $nota !== null && $nota !== '' ? $nota : null,
+                'estado' => EventoParticipacionAbono::ESTADO_APROBADO,
+                'comprobante_path' => $stored?->path,
+                'registrado_por' => $actor->id,
+            ]);
+            $this->finanzas->registrarAbonoAprobado($created->loadMissing(['evento', 'producto']));
+        }
 
         return $this->board(
             $actor,
@@ -175,10 +190,16 @@ final class ClubesAbonosService
     }
 
     /**
+     * @param  list<array{producto_servicio_id?: mixed, monto?: mixed}>|null  $partidas
      * @return array{abonado: float, abonos: list<array<string, mixed>>}
      */
-    public function submitComprobante(User $actor, int $eventoId, UploadedFile $file): array
-    {
+    public function submitComprobante(
+        User $actor,
+        int $eventoId,
+        UploadedFile $file,
+        ?int $productoServicioId = null,
+        ?array $partidas = null,
+    ): array {
         abort_unless(
             $actor->hasPermission('mis_abonos.update'),
             Response::HTTP_FORBIDDEN,
@@ -200,7 +221,7 @@ final class ClubesAbonosService
         );
 
         $participacion = EventoParticipacion::query()
-            ->with('evento.tipoEvento')
+            ->with(['evento.tipoEvento', 'ventas'])
             ->where('evento_id', $eventoId)
             ->where('organizacion_id', $orgId)
             ->where('persona_id', $personaId)
@@ -221,19 +242,114 @@ final class ClubesAbonosService
             'Solo se abona en actividades económicas vigentes.',
         );
 
+        $lines = $partidas
+            ? $this->normalizePartidas($participacion, $partidas, null, null)
+            : [[
+                'producto_servicio_id' => $this->assertProductoDeParticipacion($participacion, $productoServicioId),
+                'monto' => 0.0,
+            ]];
         $stored = $this->images->storeCompact($file, 'abonos/'.$orgId, 'pantallazo');
 
-        EventoParticipacionAbono::query()->create([
-            'evento_id' => $eventoId,
-            'organizacion_id' => $orgId,
-            'persona_id' => $personaId,
-            'monto' => 0,
-            'estado' => EventoParticipacionAbono::ESTADO_PENDIENTE,
-            'comprobante_path' => $stored->path,
-            'registrado_por' => $actor->id,
-        ]);
+        foreach ($lines as $line) {
+            EventoParticipacionAbono::query()->create([
+                'evento_id' => $eventoId,
+                'organizacion_id' => $orgId,
+                'persona_id' => $personaId,
+                'producto_servicio_id' => $line['producto_servicio_id'],
+                'monto' => $line['monto'],
+                'estado' => EventoParticipacionAbono::ESTADO_PENDIENTE,
+                'comprobante_path' => $stored->path,
+                'registrado_por' => $actor->id,
+            ]);
+        }
 
-        return $this->recaudo($orgId, $eventoId, $personaId);
+        return $this->recaudo($orgId, $eventoId, $personaId, $actor);
+    }
+
+    /**
+     * @param  list<array{producto_servicio_id?: mixed, monto?: mixed}>|null  $partidas
+     * @return list<array{producto_servicio_id: int|null, monto: float}>
+     */
+    private function normalizePartidas(
+        EventoParticipacion $participacion,
+        ?array $partidas,
+        ?float $monto,
+        ?int $productoServicioId,
+    ): array {
+        if (is_array($partidas) && $partidas !== []) {
+            $lines = [];
+            foreach ($partidas as $index => $partida) {
+                $productoId = $this->assertProductoDeParticipacion(
+                    $participacion,
+                    isset($partida['producto_servicio_id']) ? (int) $partida['producto_servicio_id'] : null,
+                );
+                $value = round((float) ($partida['monto'] ?? 0), 2);
+                if ($productoId === null || $value <= 0) {
+                    throw ValidationException::withMessages([
+                        "partidas.$index.monto" => ['Indica un valor mayor a cero para cada producto.'],
+                    ]);
+                }
+                $lines[] = [
+                    'producto_servicio_id' => $productoId,
+                    'monto' => $value,
+                ];
+            }
+
+            return $lines;
+        }
+
+        abort_unless(($monto ?? 0) > 0, Response::HTTP_UNPROCESSABLE_ENTITY, 'El abono debe ser mayor a cero.');
+
+        return [[
+            'producto_servicio_id' => $this->assertProductoDeParticipacion($participacion, $productoServicioId),
+            'monto' => round((float) $monto, 2),
+        ]];
+    }
+
+    private function assertProductoDeParticipacion(EventoParticipacion $participacion, ?int $productoServicioId): ?int
+    {
+        if ($productoServicioId === null || $productoServicioId <= 0) {
+            return null;
+        }
+
+        $venta = $participacion->ventas
+            ->first(fn (EventoParticipacionVenta $row) => (int) $row->producto_servicio_id === $productoServicioId);
+
+        if (! $venta || (int) $venta->cantidad <= 0) {
+            throw ValidationException::withMessages([
+                'producto_servicio_id' => ['Ese producto no está en el pedido de este participante.'],
+            ]);
+        }
+
+        return $productoServicioId;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function updateMonto(User $actor, EventoParticipacionAbono $abono, float $monto): array
+    {
+        $orgId = $this->assertDirector($actor);
+        abort_unless((int) $abono->organizacion_id === $orgId, Response::HTTP_NOT_FOUND);
+        $estado = $abono->estado ?: EventoParticipacionAbono::ESTADO_APROBADO;
+        abort_unless(
+            $estado === EventoParticipacionAbono::ESTADO_APROBADO,
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+            'Solo se cambia el valor de un abono ya aprobado.',
+        );
+
+        $abono->monto = round($monto, 2);
+        $abono->save();
+        $this->finanzas->registrarAbonoAprobado($abono->loadMissing(['evento', 'producto']));
+
+        $recaudo = $this->recaudo((int) $abono->organizacion_id, (int) $abono->evento_id, (int) $abono->persona_id, $actor);
+
+        return [
+            'abono' => $this->presentacion->movimiento($abono->fresh() ?? $abono),
+            'persona_id' => (int) $abono->persona_id,
+            'evento_id' => (int) $abono->evento_id,
+            'abonado' => $recaudo['abonado'],
+        ];
     }
 
     /**
@@ -241,6 +357,10 @@ final class ClubesAbonosService
      */
     public function review(User $actor, EventoParticipacionAbono $abono, string $estado, ?float $monto): array
     {
+        if ($estado === EventoParticipacionAbono::ESTADO_ELIMINADO) {
+            return $this->eliminar($actor, $abono);
+        }
+
         $orgId = $this->assertCanUpdate($actor);
         abort_unless((int) $abono->organizacion_id === $orgId, Response::HTTP_NOT_FOUND);
         abort_unless(
@@ -257,8 +377,39 @@ final class ClubesAbonosService
             $abono->estado = EventoParticipacionAbono::ESTADO_RECHAZADO;
         }
         $abono->save();
+        if ($abono->estado === EventoParticipacionAbono::ESTADO_APROBADO) {
+            $this->finanzas->registrarAbonoAprobado($abono->loadMissing(['evento', 'producto']));
+        }
 
-        $recaudo = $this->recaudo((int) $abono->organizacion_id, (int) $abono->evento_id, (int) $abono->persona_id);
+        $recaudo = $this->recaudo((int) $abono->organizacion_id, (int) $abono->evento_id, (int) $abono->persona_id, $actor);
+
+        return [
+            'abono' => $this->presentacion->movimiento($abono->fresh() ?? $abono),
+            'persona_id' => (int) $abono->persona_id,
+            'evento_id' => (int) $abono->evento_id,
+            'abonado' => $recaudo['abonado'],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function eliminar(User $actor, EventoParticipacionAbono $abono): array
+    {
+        $orgId = $this->assertDirector($actor);
+        abort_unless((int) $abono->organizacion_id === $orgId, Response::HTTP_NOT_FOUND);
+        $estado = $abono->estado ?: EventoParticipacionAbono::ESTADO_APROBADO;
+        abort_unless(
+            $estado === EventoParticipacionAbono::ESTADO_APROBADO,
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+            'Solo se eliminan abonos ya aprobados.',
+        );
+
+        $abono->estado = EventoParticipacionAbono::ESTADO_ELIMINADO;
+        $abono->save();
+        $this->finanzas->anularAbono($abono->loadMissing(['evento', 'producto']));
+
+        $recaudo = $this->recaudo((int) $abono->organizacion_id, (int) $abono->evento_id, (int) $abono->persona_id, $actor);
 
         return [
             'abono' => $this->presentacion->movimiento($abono->fresh() ?? $abono),
@@ -271,18 +422,21 @@ final class ClubesAbonosService
     /**
      * @return array{abonado: float, abonos: list<array<string, mixed>>}
      */
-    private function recaudo(int $orgId, int $eventoId, int $personaId): array
+    private function recaudo(int $orgId, int $eventoId, int $personaId, ?User $viewer = null): array
     {
         $abonos = EventoParticipacionAbono::query()
+            ->with('producto')
             ->where('organizacion_id', $orgId)
             ->where('evento_id', $eventoId)
             ->where('persona_id', $personaId)
             ->orderByDesc('created_at')
             ->get();
 
+        $visibles = $abonos->filter(fn (EventoParticipacionAbono $abono) => $abono->visiblePara($viewer));
+
         return [
             'abonado' => round((float) $abonos->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2),
-            'abonos' => $abonos->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all(),
+            'abonos' => $visibles->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all(),
         ];
     }
 
@@ -292,7 +446,7 @@ final class ClubesAbonosService
     private function participaciones(int $orgId): Collection
     {
         return EventoParticipacion::query()
-            ->with(['persona.user', 'evento.tipoEvento', 'ventas.producto'])
+            ->with(['persona.user', 'evento.tipoEvento', 'evento.cuentaBancaria.qrFile', 'ventas.producto'])
             ->where('organizacion_id', $orgId)
             ->where('participa', true)
             ->whereHas('evento', function ($query) {
@@ -312,6 +466,7 @@ final class ClubesAbonosService
     private function abonosPorClave(int $orgId): Collection
     {
         return EventoParticipacionAbono::query()
+            ->with('producto')
             ->where('organizacion_id', $orgId)
             ->orderByDesc('created_at')
             ->get()
@@ -432,6 +587,7 @@ final class ClubesAbonosService
                 'ganancia' => $ganancia,
                 'items' => $rows->count(),
                 'pendientes' => $rows->where('pendiente', '>', 0)->count(),
+                'cuenta_bancaria' => $first['cuenta_bancaria'] ?? null,
                 'abonos' => [],
             ];
         })->sortByDesc('starts_at')->values();
@@ -514,6 +670,18 @@ final class ClubesAbonosService
             $actor->hasPermission('abonos.view') || $actor->hasPermission('mis_abonos.view'),
             Response::HTTP_FORBIDDEN,
             'No puedes ver los abonos del club.',
+        );
+
+        return $orgId;
+    }
+
+    private function assertDirector(User $actor): int
+    {
+        $orgId = $this->assertCanView($actor);
+        abort_unless(
+            $actor->isSuperAdmin() || in_array('director', $actor->roleNames(), true),
+            Response::HTTP_FORBIDDEN,
+            'Solo el director puede cambiar o eliminar el abono.',
         );
 
         return $orgId;

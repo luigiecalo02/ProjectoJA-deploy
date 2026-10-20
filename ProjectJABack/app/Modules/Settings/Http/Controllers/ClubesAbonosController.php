@@ -33,12 +33,17 @@ final class ClubesAbonosController
     public function store(Request $request): JsonResponse
     {
         $this->assertClubesClient($request);
+        $this->mergePartidas($request);
         $data = $request->validate([
             'evento_id' => ['required', 'integer', 'exists:events,id'],
             'persona_id' => ['required', 'integer', 'exists:personas,id'],
-            'monto' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
+            'monto' => ['required_without:partidas', 'nullable', 'numeric', 'min:0.01', 'max:99999999.99'],
             'nota' => ['nullable', 'string', 'max:255'],
             'modo' => ['nullable', 'in:integrante,actividad'],
+            'producto_servicio_id' => ['nullable', 'integer', 'exists:productos_servicios,id'],
+            'partidas' => ['nullable', 'array', 'min:1'],
+            'partidas.*.producto_servicio_id' => ['required', 'integer', 'exists:productos_servicios,id'],
+            'partidas.*.monto' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
             'comprobante' => ['nullable', 'file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:8192'],
         ]);
 
@@ -49,10 +54,12 @@ final class ClubesAbonosController
                 $request->user(),
                 (int) $data['evento_id'],
                 (int) $data['persona_id'],
-                (float) $data['monto'],
+                isset($data['monto']) ? (float) $data['monto'] : null,
                 $data['nota'] ?? null,
                 $data['modo'] ?? 'integrante',
                 $comprobante instanceof UploadedFile ? $comprobante : null,
+                isset($data['producto_servicio_id']) ? (int) $data['producto_servicio_id'] : null,
+                $data['partidas'] ?? null,
             ),
             'Abono registrado',
         );
@@ -61,8 +68,13 @@ final class ClubesAbonosController
     public function storeComprobante(Request $request): JsonResponse
     {
         $this->assertClubesClient($request);
+        $this->mergePartidas($request);
         $data = $request->validate([
             'evento_id' => ['required', 'integer', 'exists:events,id'],
+            'producto_servicio_id' => ['nullable', 'integer', 'exists:productos_servicios,id'],
+            'partidas' => ['nullable', 'array', 'min:1'],
+            'partidas.*.producto_servicio_id' => ['required', 'integer', 'exists:productos_servicios,id'],
+            'partidas.*.monto' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
             'comprobante' => ['required', 'file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:8192'],
         ]);
 
@@ -74,8 +86,36 @@ final class ClubesAbonosController
                 $request->user(),
                 (int) $data['evento_id'],
                 $comprobante,
+                isset($data['producto_servicio_id']) ? (int) $data['producto_servicio_id'] : null,
+                $data['partidas'] ?? null,
             ),
             'Abono pendiente de aprobación',
+        );
+    }
+
+    private function mergePartidas(Request $request): void
+    {
+        $raw = $request->input('partidas');
+        if (! is_string($raw) || $raw === '') {
+            return;
+        }
+
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            $request->merge(['partidas' => $decoded]);
+        }
+    }
+
+    public function updateMonto(Request $request, EventoParticipacionAbono $abono): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'monto' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
+        ]);
+
+        return ApiResponse::success(
+            $this->abonos->updateMonto($request->user(), $abono, (float) $data['monto']),
+            'Valor del abono actualizado',
         );
     }
 
@@ -83,9 +123,15 @@ final class ClubesAbonosController
     {
         $this->assertClubesClient($request);
         $data = $request->validate([
-            'estado' => ['required', 'in:aprobado,rechazado'],
+            'estado' => ['required', 'in:aprobado,rechazado,eliminado'],
             'monto' => ['exclude_unless:estado,aprobado', 'required', 'numeric', 'min:0.01', 'max:99999999.99'],
         ]);
+
+        $mensaje = match ($data['estado']) {
+            'aprobado' => 'Abono aprobado',
+            'rechazado' => 'Abono rechazado',
+            default => 'Abono eliminado',
+        };
 
         return ApiResponse::success(
             $this->abonos->review(
@@ -94,7 +140,7 @@ final class ClubesAbonosController
                 $data['estado'],
                 isset($data['monto']) ? (float) $data['monto'] : null,
             ),
-            $data['estado'] === 'aprobado' ? 'Abono aprobado' : 'Abono rechazado',
+            $mensaje,
         );
     }
 

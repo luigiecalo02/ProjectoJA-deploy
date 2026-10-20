@@ -158,6 +158,7 @@ final class ClubesSettingsController
             'ends_at' => ['required', 'date', 'after_or_equal:starts_at'],
             'tipo_evento_id' => ['nullable', 'integer', 'exists:tipo_evento,id'],
             'ganancia_eclesiastica_id' => ['nullable', 'integer', 'exists:clubes_ganancia_eclesiasticas,id'],
+            'cuenta_bancaria_id' => ['nullable', 'integer', 'exists:cuentas_bancarias,id'],
             'capital' => ['nullable', 'numeric', 'min:0'],
             'estado' => ['nullable', 'string', 'in:borrador,publicado,en_proceso,cerrado,cancelado'],
             'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],

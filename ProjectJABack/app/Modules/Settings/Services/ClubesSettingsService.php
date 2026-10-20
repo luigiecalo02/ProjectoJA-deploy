@@ -9,6 +9,7 @@ use App\Modules\Events\Services\EventService;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Settings\Models\AppSetting;
 use App\Modules\Settings\Models\ClubesGananciaEclesiastica;
+use App\Modules\Settings\Models\CuentaBancaria;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
 use App\Modules\Shared\Services\ImageOptimizer;
@@ -24,6 +25,7 @@ final class ClubesSettingsService
         private readonly ImageOptimizer $imageOptimizer,
         private readonly AuditLogger $auditLogger,
         private readonly EventService $eventService,
+        private readonly ClubesCuentasBancariasService $cuentas,
     ) {}
 
     /**
@@ -297,6 +299,7 @@ final class ClubesSettingsService
             $createPayload['ganancia_eclesiastica_id'] = $this->canChangeEventGanancia($actor)
                 ? $this->gananciaEclesiasticaId($data, $organizacionId)
                 : $this->defaultGananciaEclesiasticaId($organizacionId);
+            $createPayload['cuenta_bancaria_id'] = $this->cuentaBancariaId($data, $organizacionId);
             $createPayload['capital'] = $this->capitalAmount($data);
         }
         $event = $this->eventService->create($actor, $createPayload);
@@ -341,6 +344,7 @@ final class ClubesSettingsService
             if ($this->canChangeEventGanancia($actor)) {
                 $payload['ganancia_eclesiastica_id'] = $this->gananciaEclesiasticaId($data, $organizacionId);
             }
+            $payload['cuenta_bancaria_id'] = $this->cuentaBancariaId($data, $organizacionId);
             $payload['capital'] = $this->capitalAmount($data);
         }
         $estado = $this->safeEstado($data['estado'] ?? null);
@@ -429,6 +433,26 @@ final class ClubesSettingsService
     /**
      * @param  array<string, mixed>  $data
      */
+    private function cuentaBancariaId(array $data, int $orgId): ?int
+    {
+        if (! array_key_exists('cuenta_bancaria_id', $data) || $data['cuenta_bancaria_id'] === null || $data['cuenta_bancaria_id'] === '') {
+            return null;
+        }
+
+        $id = (int) $data['cuenta_bancaria_id'];
+        $row = CuentaBancaria::query()->find($id);
+        if (! $row || (int) ($row->organizacion_id ?? 0) !== $orgId) {
+            throw ValidationException::withMessages([
+                'cuenta_bancaria_id' => ['Elige una cuenta bancaria de este club.'],
+            ]);
+        }
+
+        return $id;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
     private function capitalAmount(array $data): float
     {
         if (! array_key_exists('capital', $data) || $data['capital'] === null || $data['capital'] === '') {
@@ -490,7 +514,11 @@ final class ClubesSettingsService
      */
     private function eventPayload(Event $event, int $inscritosCount = 0, ?User $viewer = null): array
     {
-        $event->loadMissing(['organizacion:id,nombre,codigo', 'tipoEvento:id,nombre,slug,color,icono']);
+        $event->loadMissing([
+            'organizacion:id,nombre,codigo',
+            'tipoEvento:id,nombre,slug,color,icono',
+            'cuentaBancaria.qrFile',
+        ]);
         $showGanancias = $viewer?->isClubDirectiva() === true;
 
         return [
@@ -521,6 +549,10 @@ final class ClubesSettingsService
             'ganancia_eclesiastica_id' => $showGanancias && $event->ganancia_eclesiastica_id
                 ? (int) $event->ganancia_eclesiastica_id
                 : null,
+            'cuenta_bancaria_id' => $showGanancias && $event->cuenta_bancaria_id
+                ? (int) $event->cuenta_bancaria_id
+                : null,
+            'cuenta_bancaria' => $this->cuentas->toPayloadOrNull($event->cuentaBancaria),
             'capital' => $showGanancias ? round((float) ($event->capital ?? 0), 2) : null,
             'tipo_evento' => $event->tipoEvento
                 ? [

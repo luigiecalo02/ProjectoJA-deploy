@@ -3,6 +3,8 @@
 use App\Modules\Settings\Http\Controllers\BrandSettingsController;
 use App\Modules\Settings\Http\Controllers\ClubesAbonosController;
 use App\Modules\Settings\Http\Controllers\ClubesAttendanceController;
+use App\Modules\Settings\Http\Controllers\ClubesCuentasBancariasController;
+use App\Modules\Settings\Http\Controllers\ClubesFinanzasController;
 use App\Modules\Settings\Http\Controllers\ClubesGananciasController;
 use App\Modules\Settings\Http\Controllers\ClubesInscripcionesController;
 use App\Modules\Settings\Http\Controllers\ClubesPresupuestoController;
@@ -59,6 +61,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('settings/clubes/abonos', [ClubesAbonosController::class, 'store']);
     Route::post('settings/clubes/abonos/comprobante', [ClubesAbonosController::class, 'storeComprobante']);
     Route::patch('settings/clubes/abonos/{abono}/revision', [ClubesAbonosController::class, 'review']);
+    Route::patch('settings/clubes/abonos/{abono}', [ClubesAbonosController::class, 'updateMonto']);
+    Route::get('settings/clubes/finanzas', [ClubesFinanzasController::class, 'resumen']);
+    Route::post('settings/clubes/finanzas/movimientos', [ClubesFinanzasController::class, 'storeMovimiento']);
+    Route::get('settings/clubes/cuentas-bancarias', [ClubesCuentasBancariasController::class, 'index']);
+    Route::post('settings/clubes/cuentas-bancarias', [ClubesCuentasBancariasController::class, 'store']);
+    Route::put('settings/clubes/cuentas-bancarias/{cuenta}', [ClubesCuentasBancariasController::class, 'update']);
+    Route::delete('settings/clubes/cuentas-bancarias/{cuenta}', [ClubesCuentasBancariasController::class, 'destroy']);
     Route::get('settings/clubes/presupuesto/eventos', [ClubesPresupuestoController::class, 'eventos']);
     Route::get('settings/clubes/presupuesto/{evento}', [ClubesPresupuestoController::class, 'show']);
     Route::put('settings/clubes/presupuesto/{evento}', [ClubesPresupuestoController::class, 'update']);

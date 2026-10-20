@@ -13,6 +13,7 @@ use App\Modules\Events\Models\ProductoServicio;
 use App\Modules\Events\Services\ProductoServicioService;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Models\AppSetting;
+use App\Modules\Settings\Models\ClubesGananciaEclesiastica;
 use App\Modules\Shared\Services\PublicFileService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -24,6 +25,7 @@ final class ClubesParticipantesService
         private readonly PublicFileService $publicFiles,
         private readonly AbonoPresentacion $presentacion,
         private readonly ProductoServicioService $productos,
+        private readonly ClubesCuentasBancariasService $cuentas,
     ) {}
 
     /**
@@ -56,6 +58,7 @@ final class ClubesParticipantesService
                 $marcados->get((int) $persona->id),
                 $servicioIds,
                 $abonos->get((int) $persona->id),
+                $actor,
             )
         )->values()->all();
 
@@ -194,11 +197,13 @@ final class ClubesParticipantesService
         return [
             'evento' => $this->eventPayload($event),
             'servicios' => $servicios,
-            'integrante' => $this->mapIntegrante($persona, $row, $servicioIds),
-            'recaudo' => $this->selfRecaudo($orgId, (int) $event->id, $personaId),
+            'integrante' => $this->mapIntegrante($persona, $row, $servicioIds, null, $actor),
+            'recaudo' => $this->selfRecaudo($orgId, (int) $event->id, $personaId, $actor),
             'ganancia' => [
                 'capital' => round((float) ($event->capital ?? 0), 2),
                 'proyeccion_otros' => $this->proyeccionOtros($orgId, (int) $event->id, $personaId, $servicioIds),
+                'reparto' => $this->repartoConfig($event),
+                ...$this->capitalVenta($event, $personaId),
             ],
         ];
     }
@@ -300,8 +305,13 @@ final class ClubesParticipantesService
      * @param  \Illuminate\Support\Collection<int, EventoParticipacionAbono>|null  $abonos
      * @return array<string, mixed>
      */
-    private function mapIntegrante(Persona $persona, ?EventoParticipacion $row, array $servicioIds, $abonos = null): array
-    {
+    private function mapIntegrante(
+        Persona $persona,
+        ?EventoParticipacion $row,
+        array $servicioIds,
+        $abonos = null,
+        ?User $viewer = null,
+    ): array {
         $ventas = [];
         if ($row) {
             $ventas = $row->ventas
@@ -317,6 +327,7 @@ final class ClubesParticipantesService
 
         $lista = collect($abonos ?? []);
         $abonado = round((float) $lista->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2);
+        $visibles = $lista->filter(fn (EventoParticipacionAbono $abono) => $abono->visiblePara($viewer));
 
         return [
             'persona_id' => (int) $persona->id,
@@ -326,7 +337,7 @@ final class ClubesParticipantesService
             'participa' => $row ? (bool) $row->participa : null,
             'ventas' => $ventas,
             'abonado' => $abonado,
-            'abonos' => $lista->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all(),
+            'abonos' => $visibles->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all(),
         ];
     }
 
@@ -394,18 +405,20 @@ final class ClubesParticipantesService
     /**
      * @return array<string, mixed>
      */
-    private function selfRecaudo(int $orgId, int $eventoId, int $personaId): array
+    private function selfRecaudo(int $orgId, int $eventoId, int $personaId, ?User $viewer = null): array
     {
         $abonos = EventoParticipacionAbono::query()
+            ->with('producto')
             ->where('organizacion_id', $orgId)
             ->where('evento_id', $eventoId)
             ->where('persona_id', $personaId)
             ->orderByDesc('created_at')
             ->get();
+        $visibles = $abonos->filter(fn (EventoParticipacionAbono $abono) => $abono->visiblePara($viewer));
 
         return [
             'abonado' => round((float) $abonos->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2),
-            'abonos' => $abonos->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all(),
+            'abonos' => $visibles->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all(),
         ];
     }
 
@@ -429,6 +442,8 @@ final class ClubesParticipantesService
                     'id' => (int) $producto->id,
                     'nombre' => $producto->nombre,
                     'precio' => $oferta->precio,
+                    'inversion' => round((float) ($oferta->inversion ?? 0), 2),
+                    'cantidad_proyectada' => (int) ($oferta->cantidad_proyectada ?? 0),
                     'ganancia_unidad' => round((float) ($oferta->ganancia_unidad ?? 0), 2),
                     'icono' => $producto->icono,
                     'image_url' => $this->publicFiles->url($producto->image_path),
@@ -554,11 +569,80 @@ final class ClubesParticipantesService
     }
 
     /**
+     * Capital de cada producto: inversión dividida entre la cantidad proyectada.
+     *
+     * @return array{capital_propio: float, unidades: int, capital_unidad: float}
+     */
+    private function capitalVenta(Event $event, int $personaId): array
+    {
+        $ofertas = EventoProductoServicio::query()
+            ->where('evento_id', $event->id)
+            ->where('activo', true)
+            ->get()
+            ->keyBy('producto_servicio_id');
+        $row = EventoParticipacion::query()
+            ->with('ventas')
+            ->where('evento_id', $event->id)
+            ->where('persona_id', $personaId)
+            ->where('participa', true)
+            ->first();
+
+        $capital = 0;
+        $own = 0;
+        $unit = 0;
+        foreach ($row?->ventas ?? [] as $venta) {
+            $qty = $venta->cantidadContable();
+            $own += $qty;
+            $oferta = $ofertas->get($venta->producto_servicio_id);
+            $proyectada = (int) ($oferta?->cantidad_proyectada ?? 0);
+            $inversion = (float) ($oferta?->inversion ?? 0);
+            $unitCost = $proyectada > 0 ? (int) round($inversion / $proyectada) : 0;
+            $capital += $qty * $unitCost;
+            $unit = $unitCost;
+        }
+
+        return [
+            'capital_propio' => (float) $capital,
+            'unidades' => $own,
+            'capital_unidad' => $own > 0 && $capital > 0 ? round($capital / $own, 2) : (float) $unit,
+        ];
+    }
+
+    /**
+     * @return array{ofrenda: float, diezmo: float, resto: float, miembros: float, club: float, extras: float}|null
+     */
+    private function repartoConfig(Event $event): ?array
+    {
+        $id = (int) ($event->ganancia_eclesiastica_id ?? 0);
+        if ($id <= 0) {
+            return null;
+        }
+
+        $config = ClubesGananciaEclesiastica::query()->with('distribucion')->find($id);
+        if (! $config) {
+            return null;
+        }
+
+        $diezmo = (float) $config->diezmo;
+        $ofrenda = (float) $config->ofrenda;
+        $dist = $config->distribucion;
+
+        return [
+            'ofrenda' => $ofrenda,
+            'diezmo' => $diezmo,
+            'resto' => round(100 - $diezmo - $ofrenda, 2),
+            'miembros' => (float) ($dist->miembros ?? 0),
+            'club' => (float) ($dist->club ?? 0),
+            'extras' => (float) ($dist->extras ?? 0),
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function eventPayload(Event $event): array
     {
-        $event->loadMissing('tipoEvento:id,nombre,slug,color,icono');
+        $event->loadMissing(['tipoEvento:id,nombre,slug,color,icono', 'cuentaBancaria.qrFile']);
 
         return [
             'id' => (int) $event->id,
@@ -568,6 +652,10 @@ final class ClubesParticipantesService
             'starts_at' => $event->starts_at?->toIso8601String(),
             'ends_at' => $event->ends_at?->toIso8601String(),
             'estado' => $event->estado,
+            'cuenta_bancaria_id' => $event->cuenta_bancaria_id
+                ? (int) $event->cuenta_bancaria_id
+                : null,
+            'cuenta_bancaria' => $this->cuentas->toPayloadOrNull($event->cuentaBancaria),
             'tipo_evento' => $event->tipoEvento
                 ? [
                     'id' => $event->tipoEvento->id,
