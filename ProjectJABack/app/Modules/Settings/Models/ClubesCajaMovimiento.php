@@ -27,6 +27,7 @@ class ClubesCajaMovimiento extends Model
     protected $fillable = [
         'organizacion_id',
         'cuenta_id',
+        'cuenta_bancaria_id',
         'tipo',
         'origen',
         'monto',
@@ -54,6 +55,11 @@ class ClubesCajaMovimiento extends Model
     public function cuenta(): BelongsTo
     {
         return $this->belongsTo(ClubesCajaCuenta::class, 'cuenta_id');
+    }
+
+    public function cuentaBancaria(): BelongsTo
+    {
+        return $this->belongsTo(CuentaBancaria::class, 'cuenta_bancaria_id');
     }
 
     public function evento(): BelongsTo

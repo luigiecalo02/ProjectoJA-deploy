@@ -34,7 +34,7 @@ final class ClubesFinanzasController
     {
         $this->assertClubesClient($request);
         $data = $request->validate([
-            'cuenta_id' => ['required', 'integer', 'exists:clubes_caja_cuentas,id'],
+            'cuenta_bancaria_id' => ['required', 'integer', 'exists:cuentas_bancarias,id'],
             'tipo' => ['required', Rule::in([ClubesCajaMovimiento::TIPO_INGRESO, ClubesCajaMovimiento::TIPO_EGRESO])],
             'origen' => ['nullable', Rule::in([
                 ClubesCajaMovimiento::ORIGEN_MANUAL,

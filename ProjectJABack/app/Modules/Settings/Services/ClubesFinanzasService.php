@@ -27,12 +27,13 @@ final class ClubesFinanzasService
         $orgId = $this->assertCanView($actor);
         $this->ensureCuentas($orgId);
         $this->syncAbonosPendientes($orgId);
+        $this->syncCuentaBancariaEnAbonos($orgId);
 
         $from = $desde ? Carbon::parse($desde)->startOfDay() : now()->startOfYear();
         $to = $hasta ? Carbon::parse($hasta)->endOfDay() : now()->endOfDay();
 
         $movimientos = ClubesCajaMovimiento::query()
-            ->with(['cuenta', 'evento'])
+            ->with(['cuenta', 'cuentaBancaria', 'evento'])
             ->where('organizacion_id', $orgId)
             ->whereBetween('occurred_at', [$from, $to])
             ->tap(fn ($query) => $this->applyCuentaBancariaScope($query, $orgId, $cuentaBancariaId))
@@ -87,12 +88,16 @@ final class ClubesFinanzasService
         $orgId = $this->assertCanUpdate($actor);
         $this->ensureCuentas($orgId);
 
-        $cuentaId = (int) ($data['cuenta_id'] ?? 0);
-        $cuenta = ClubesCajaCuenta::query()
-            ->where('organizacion_id', $orgId)
-            ->where('id', $cuentaId)
-            ->where('activa', true)
-            ->firstOrFail();
+        $cuentaBancaria = $this->cuentaBancariaDeOrg($orgId, (int) ($data['cuenta_bancaria_id'] ?? 0));
+        abort_unless(
+            $cuentaBancaria instanceof CuentaBancaria,
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+            'Elige la cuenta bancaria de donde sale o entra el dinero.',
+        );
+
+        $cuenta = $this->cuentaPorTipo($orgId, ClubesCajaCuenta::TIPO_BANCO)
+            ?? $this->cuentaPorTipo($orgId, ClubesCajaCuenta::TIPO_CAJA);
+        abort_unless($cuenta, Response::HTTP_UNPROCESSABLE_ENTITY, 'No hay una cuenta de caja para registrar el movimiento.');
 
         $eventoId = isset($data['evento_id']) ? (int) $data['evento_id'] : null;
         if ($eventoId) {
@@ -107,6 +112,7 @@ final class ClubesFinanzasService
         $movimiento = ClubesCajaMovimiento::query()->create([
             'organizacion_id' => $orgId,
             'cuenta_id' => $cuenta->id,
+            'cuenta_bancaria_id' => $cuentaBancaria->id,
             'tipo' => $data['tipo'],
             'origen' => $data['origen'] ?? ClubesCajaMovimiento::ORIGEN_MANUAL,
             'monto' => round((float) $data['monto'], 2),
@@ -118,7 +124,7 @@ final class ClubesFinanzasService
                 : now(),
         ]);
 
-        return $this->presentMovimiento($movimiento->load(['cuenta', 'evento']));
+        return $this->presentMovimiento($movimiento->load(['cuenta', 'cuentaBancaria', 'evento']));
     }
 
     public function deleteMovimiento(User $actor, int $id): void
@@ -169,7 +175,8 @@ final class ClubesFinanzasService
 
         $orgId = (int) $abono->organizacion_id;
         $this->ensureCuentas($orgId);
-        $cuenta = $this->cuentaPorTipo($orgId, ClubesCajaCuenta::TIPO_CAJA);
+        $cuentaBancariaId = $this->cuentaBancariaIdDelEvento($abono->evento, $orgId);
+        $cuenta = $this->cajaCuentaParaMovimiento($orgId, $cuentaBancariaId);
         if (! $cuenta) {
             return;
         }
@@ -186,6 +193,7 @@ final class ClubesFinanzasService
                 'monto' => round((float) $abono->monto, 2),
                 'concepto' => $this->conceptoAbono($abono),
                 'evento_id' => (int) $abono->evento_id,
+                'cuenta_bancaria_id' => $cuentaBancariaId,
                 'occurred_at' => $abono->updated_at ?? now(),
             ]);
 
@@ -195,6 +203,7 @@ final class ClubesFinanzasService
         ClubesCajaMovimiento::query()->create([
             'organizacion_id' => $orgId,
             'cuenta_id' => $cuenta->id,
+            'cuenta_bancaria_id' => $cuentaBancariaId,
             'tipo' => ClubesCajaMovimiento::TIPO_INGRESO,
             'origen' => ClubesCajaMovimiento::ORIGEN_ABONO,
             'monto' => round((float) $abono->monto, 2),
@@ -213,9 +222,11 @@ final class ClubesFinanzasService
             return;
         }
 
+        $abono->loadMissing('evento');
         $orgId = (int) $abono->organizacion_id;
         $this->ensureCuentas($orgId);
-        $cuenta = $this->cuentaPorTipo($orgId, ClubesCajaCuenta::TIPO_CAJA);
+        $cuentaBancariaId = $this->cuentaBancariaIdDelEvento($abono->evento, $orgId);
+        $cuenta = $this->cajaCuentaParaMovimiento($orgId, $cuentaBancariaId);
         if (! $cuenta) {
             return;
         }
@@ -243,6 +254,9 @@ final class ClubesFinanzasService
         ClubesCajaMovimiento::query()->create([
             'organizacion_id' => $orgId,
             'cuenta_id' => $cuenta->id,
+            'cuenta_bancaria_id' => $ingreso->cuenta_bancaria_id
+                ? (int) $ingreso->cuenta_bancaria_id
+                : $cuentaBancariaId,
             'tipo' => ClubesCajaMovimiento::TIPO_EGRESO,
             'origen' => ClubesCajaMovimiento::ORIGEN_AJUSTE,
             'monto' => round((float) $ingreso->monto, 2),
@@ -306,6 +320,37 @@ final class ClubesFinanzasService
             ->when($synced !== [], fn ($query) => $query->whereNotIn('id', $synced))
             ->orderBy('id')
             ->each(fn (EventoParticipacionAbono $abono) => $this->registrarAbonoAprobado($abono));
+    }
+
+    private function syncCuentaBancariaEnAbonos(int $orgId): void
+    {
+        if (! $this->tablesReady()) {
+            return;
+        }
+
+        ClubesCajaMovimiento::query()
+            ->with(['evento.padre'])
+            ->where('organizacion_id', $orgId)
+            ->where(function ($query) {
+                $query->where('origen', ClubesCajaMovimiento::ORIGEN_ABONO)
+                    ->orWhere(function ($inner) {
+                        $inner->where('origen', ClubesCajaMovimiento::ORIGEN_AJUSTE)
+                            ->where('referencia_tipo', EventoParticipacionAbono::class);
+                    });
+            })
+            ->whereNull('cuenta_bancaria_id')
+            ->orderBy('id')
+            ->each(function (ClubesCajaMovimiento $row) use ($orgId) {
+                $cuentaBancariaId = $this->cuentaBancariaIdDelEvento($row->evento, $orgId);
+                if (! $cuentaBancariaId) {
+                    return;
+                }
+                $caja = $this->cajaCuentaParaMovimiento($orgId, $cuentaBancariaId);
+                $row->update(array_filter([
+                    'cuenta_bancaria_id' => $cuentaBancariaId,
+                    'cuenta_id' => $caja?->id,
+                ]));
+            });
     }
 
     /**
@@ -465,48 +510,57 @@ final class ClubesFinanzasService
      */
     private function opcionesEventos(int $orgId): array
     {
-        return Event::query()
+        $events = Event::query()
+            ->with(['gananciaEclesiastica.distribucion'])
             ->where('organizacion_id', $orgId)
             ->whereNull('evento_padre_id')
             ->tap(fn ($query) => $this->whereEventNotCancelled($query))
             ->whereHas('tipoEvento', fn ($tipo) => $tipo->where('slug', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA))
             ->orderByDesc('starts_at')
-            ->get(['id', 'name', 'starts_at'])
-            ->map(fn (Event $event) => [
-                'id' => (int) $event->id,
-                'nombre' => $event->name,
-                'starts_at' => $event->starts_at?->toIso8601String(),
-            ])
+            ->get([
+                'id',
+                'name',
+                'starts_at',
+                'estado',
+                'capital',
+                'ganancia_diezmo',
+                'ganancia_ofrenda',
+                'ganancia_eclesiastica_id',
+            ]);
+
+        $recogido = (new EventoGananciaRegistro())->recogidoPorEventos($events);
+
+        return $events
+            ->map(function (Event $event) use ($recogido) {
+                $eventoId = (int) $event->id;
+                $caja = $recogido[$eventoId] ?? ['capital' => 0.0, 'diezmo' => 0.0, 'ofrenda' => 0.0];
+
+                return [
+                    'id' => $eventoId,
+                    'nombre' => $event->name,
+                    'starts_at' => $event->starts_at?->toIso8601String(),
+                    'capital' => round((float) ($event->capital ?? 0), 2),
+                    'diezmo' => round((float) ($event->ganancia_diezmo ?? 0), 2),
+                    'ofrenda' => round((float) ($event->ganancia_ofrenda ?? 0), 2),
+                    'capital_recogido' => $caja['capital'],
+                    'diezmo_recogido' => $caja['diezmo'],
+                    'ofrenda_recogido' => $caja['ofrenda'],
+                ];
+            })
             ->values()
             ->all();
     }
 
     /**
-     * Cuentas bancarias distintas ya asignadas a actividades económicas del club.
+     * Cuentas bancarias del club para filtrar y para registrar de dónde sale o entra el dinero.
      *
      * @return list<array<string, mixed>>
      */
     private function opcionesCuentasBancariasUsadas(int $orgId): array
     {
-        $cuentaIds = Event::query()
-            ->where('organizacion_id', $orgId)
-            ->whereNull('evento_padre_id')
-            ->whereNotNull('cuenta_bancaria_id')
-            ->tap(fn ($query) => $this->whereEventNotCancelled($query))
-            ->whereHas('tipoEvento', fn ($tipo) => $tipo->where('slug', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA))
-            ->select('cuenta_bancaria_id')
-            ->groupBy('cuenta_bancaria_id')
-            ->pluck('cuenta_bancaria_id')
-            ->map(fn ($id) => (int) $id)
-            ->all();
-
         $cuentas = CuentaBancaria::query()
             ->where('organizacion_id', $orgId)
-            ->when(
-                $cuentaIds !== [],
-                fn ($query) => $query->whereIn('id', $cuentaIds),
-                fn ($query) => $query->where('activo', true),
-            )
+            ->where('activo', true)
             ->orderBy('orden')
             ->orderBy('nombre')
             ->get();
@@ -536,10 +590,16 @@ final class ClubesFinanzasService
             return $query;
         }
 
-        return $query->whereHas(
-            'evento',
-            fn ($evento) => $this->whereEventoDeCuentaBancaria($evento, $orgId, $cuentaBancariaId),
-        );
+        return $query->where(function ($inner) use ($orgId, $cuentaBancariaId) {
+            $inner->where('cuenta_bancaria_id', $cuentaBancariaId)
+                ->orWhere(function ($legacy) use ($orgId, $cuentaBancariaId) {
+                    $legacy->whereNull('cuenta_bancaria_id')
+                        ->whereHas(
+                            'evento',
+                            fn ($evento) => $this->whereEventoDeCuentaBancaria($evento, $orgId, $cuentaBancariaId),
+                        );
+                });
+        });
     }
 
     private function whereEventoDeCuentaBancaria($query, int $orgId, int $cuentaBancariaId)
@@ -593,7 +653,10 @@ final class ClubesFinanzasService
             'monto' => (float) $row->monto,
             'concepto' => $row->concepto,
             'cuenta_id' => (int) $row->cuenta_id,
-            'cuenta_nombre' => $row->cuenta?->nombre,
+            'cuenta_bancaria_id' => $row->cuenta_bancaria_id !== null ? (int) $row->cuenta_bancaria_id : null,
+            'cuenta_nombre' => $row->cuentaBancaria
+                ? $this->etiquetaCuentaBancaria($row->cuentaBancaria)
+                : $row->cuenta?->nombre,
             'evento_id' => $row->evento_id !== null ? (int) $row->evento_id : null,
             'evento_nombre' => $row->evento?->name,
             'occurred_at' => $row->occurred_at?->toIso8601String(),
@@ -606,6 +669,49 @@ final class ClubesFinanzasService
         $producto = $abono->producto?->nombre;
 
         return $producto ? "Abono · {$evento} · {$producto}" : "Abono · {$evento}";
+    }
+
+    private function cuentaBancariaIdDelEvento(?Event $event, int $orgId): ?int
+    {
+        if ($event) {
+            $event->loadMissing('padre');
+            $id = (int) ($event->cuenta_bancaria_id ?: $event->padre?->cuenta_bancaria_id ?: 0);
+            if ($id > 0) {
+                return $id;
+            }
+        }
+
+        $fallback = CuentaBancaria::query()
+            ->where('organizacion_id', $orgId)
+            ->where('activo', true)
+            ->orderBy('orden')
+            ->orderBy('id')
+            ->value('id');
+
+        return $fallback ? (int) $fallback : null;
+    }
+
+    private function cajaCuentaParaMovimiento(int $orgId, ?int $cuentaBancariaId): ?ClubesCajaCuenta
+    {
+        if ($cuentaBancariaId) {
+            return $this->cuentaPorTipo($orgId, ClubesCajaCuenta::TIPO_BANCO)
+                ?? $this->cuentaPorTipo($orgId, ClubesCajaCuenta::TIPO_CAJA);
+        }
+
+        return $this->cuentaPorTipo($orgId, ClubesCajaCuenta::TIPO_CAJA);
+    }
+
+    private function cuentaBancariaDeOrg(int $orgId, int $cuentaBancariaId): ?CuentaBancaria
+    {
+        if ($cuentaBancariaId <= 0) {
+            return null;
+        }
+
+        return CuentaBancaria::query()
+            ->where('organizacion_id', $orgId)
+            ->where('id', $cuentaBancariaId)
+            ->where('activo', true)
+            ->first();
     }
 
     private function cuentaPorTipo(int $orgId, string $tipo): ?ClubesCajaCuenta

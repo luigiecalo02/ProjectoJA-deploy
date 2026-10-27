@@ -3,9 +3,11 @@
 namespace App\Modules\Settings\Services;
 
 use App\Modules\Events\Models\Event;
+use App\Modules\Events\Models\EventoParticipacionAbono;
 use App\Modules\Events\Models\EventoParticipacionVenta;
 use App\Modules\Events\Models\EventoProductoServicio;
 use App\Modules\Settings\Models\ClubesGananciaEclesiastica;
+use Illuminate\Support\Collection;
 
 final class EventoGananciaRegistro
 {
@@ -143,6 +145,111 @@ final class EventoGananciaRegistro
             'club' => (float) ($dist?->club ?? 0),
             'extras' => (float) ($dist?->extras ?? 0),
         ];
+    }
+
+    /**
+     * Capital, diezmo y ofrenda ya cubiertos por abonos (cascada por persona y producto).
+     *
+     * @param  Collection<int, Event>  $events
+     * @return array<int, array{capital: float, diezmo: float, ofrenda: float}>
+     */
+    public function recogidoPorEventos(Collection $events): array
+    {
+        $ids = $events->map(fn (Event $event) => (int) $event->id)->all();
+        $vacio = ['capital' => 0.0, 'diezmo' => 0.0, 'ofrenda' => 0.0];
+        $out = [];
+        foreach ($ids as $id) {
+            $out[$id] = $vacio;
+        }
+        if ($ids === []) {
+            return $out;
+        }
+
+        $ofertas = EventoProductoServicio::query()
+            ->whereIn('evento_id', $ids)
+            ->where('activo', true)
+            ->get()
+            ->groupBy(fn (EventoProductoServicio $row) => (int) $row->evento_id);
+
+        $ventas = EventoParticipacionVenta::query()
+            ->join(
+                'evento_participacion',
+                'evento_participacion.id',
+                '=',
+                'evento_participacion_venta.evento_participacion_id',
+            )
+            ->whereIn('evento_participacion.evento_id', $ids)
+            ->where('evento_participacion.participa', true)
+            ->get([
+                'evento_participacion.evento_id',
+                'evento_participacion.persona_id',
+                'evento_participacion_venta.producto_servicio_id',
+                'evento_participacion_venta.cantidad',
+                'evento_participacion_venta.cantidad_entregada',
+            ])
+            ->groupBy(fn (EventoParticipacionVenta $row) => (int) $row->evento_id);
+
+        $pagado = [];
+        EventoParticipacionAbono::query()
+            ->whereIn('evento_id', $ids)
+            ->get()
+            ->each(function (EventoParticipacionAbono $abono) use (&$pagado): void {
+                $monto = $abono->montoContable();
+                if ($monto <= 0) {
+                    return;
+                }
+                $eventoId = (int) $abono->evento_id;
+                $personaId = (int) $abono->persona_id;
+                $productoId = (int) $abono->producto_servicio_id;
+                $pagado[$eventoId][$personaId][$productoId] = ($pagado[$eventoId][$personaId][$productoId] ?? 0) + $monto;
+            });
+
+        foreach ($events as $event) {
+            $eventoId = (int) $event->id;
+            $reparto = $this->repartoDe($event);
+            $listaVentas = $ventas->get($eventoId, collect());
+            $totales = [];
+            foreach ($listaVentas as $venta) {
+                $productoId = (int) $venta->producto_servicio_id;
+                $totales[$productoId] = ($totales[$productoId] ?? 0) + $venta->cantidadContable();
+            }
+
+            $capitalUnidad = [];
+            foreach ($ofertas->get($eventoId, collect()) as $oferta) {
+                $productoId = (int) $oferta->producto_servicio_id;
+                $proyectada = (int) ($totales[$productoId] ?? $oferta->cantidad_proyectada ?? 0);
+                $inversion = (float) ($oferta->inversion ?? 0);
+                $capitalUnidad[$productoId] = $proyectada > 0 ? (int) round($inversion / $proyectada) : 0;
+            }
+
+            $capital = 0.0;
+            $diezmo = 0.0;
+            $ofrenda = 0.0;
+            foreach ($listaVentas as $venta) {
+                $productoId = (int) $venta->producto_servicio_id;
+                $qty = $venta->cantidadContable();
+                if ($qty <= 0) {
+                    continue;
+                }
+                $costo = $qty * ($capitalUnidad[$productoId] ?? 0);
+                $abonado = (float) ($pagado[$eventoId][(int) $venta->persona_id][$productoId] ?? 0);
+                $cubierto = min($abonado, $costo);
+                $ganancia = max(0, $abonado - $costo);
+                $capital += $cubierto;
+                if ($reparto !== null) {
+                    $diezmo += $this->share($ganancia, (float) $reparto['diezmo']);
+                    $ofrenda += $this->share($ganancia, (float) $reparto['ofrenda']);
+                }
+            }
+
+            $out[$eventoId] = [
+                'capital' => round($capital, 2),
+                'diezmo' => round($diezmo, 2),
+                'ofrenda' => round($ofrenda, 2),
+            ];
+        }
+
+        return $out;
     }
 
     /**
