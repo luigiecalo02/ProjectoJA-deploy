@@ -30,6 +30,21 @@ final class ClubesAbonosController
         ));
     }
 
+    public function distribucion(Request $request): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'evento_id' => ['required', 'integer', 'exists:events,id'],
+            'persona_id' => ['nullable', 'integer', 'exists:personas,id'],
+        ]);
+
+        return ApiResponse::success($this->abonos->distribucion(
+            $request->user(),
+            (int) $data['evento_id'],
+            isset($data['persona_id']) ? (int) $data['persona_id'] : null,
+        ));
+    }
+
     public function store(Request $request): JsonResponse
     {
         $this->assertClubesClient($request);
@@ -90,6 +105,29 @@ final class ClubesAbonosController
                 $data['partidas'] ?? null,
             ),
             'Abono pendiente de aprobación',
+        );
+    }
+
+    public function attachComprobante(Request $request, EventoParticipacionAbono $abono): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'comprobante' => ['required', 'file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:8192'],
+            'ids' => ['nullable', 'array'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $comprobante = $request->file('comprobante');
+        abort_unless($comprobante instanceof UploadedFile, 422, 'Adjunta el pantallazo del abono.');
+
+        return ApiResponse::success(
+            $this->abonos->attachComprobante(
+                $request->user(),
+                $abono,
+                $comprobante,
+                array_map('intval', $data['ids'] ?? []),
+            ),
+            'Comprobante adjuntado',
         );
     }
 

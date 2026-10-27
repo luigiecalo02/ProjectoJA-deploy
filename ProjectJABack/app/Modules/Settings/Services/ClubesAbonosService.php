@@ -7,6 +7,7 @@ use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoParticipacion;
 use App\Modules\Events\Models\EventoParticipacionAbono;
 use App\Modules\Events\Models\EventoParticipacionVenta;
+use App\Modules\Events\Models\EventoProductoServicio;
 use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Events\Services\ProductoServicioService;
 use App\Modules\Clubs\Models\Persona;
@@ -28,6 +29,7 @@ final class ClubesAbonosService
         private readonly ProductoServicioService $productos,
         private readonly ClubesFinanzasService $finanzas,
         private readonly ClubesCuentasBancariasService $cuentas,
+        private readonly EventoGananciaRegistro $ganancias,
     ) {}
 
     /**
@@ -65,7 +67,7 @@ final class ClubesAbonosService
                 $lista = $abonos->get($clave, collect());
                 $comprometido = $this->comprometido($row);
                 $abonado = round((float) $lista->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2);
-                $ganancia = $this->gananciaReal($row, $comprometido, $abonado);
+                $ganancia = $this->gananciaReal($row, $lista);
                 $detalle = ($modo === 'integrante' && $personaId) || ($modo === 'actividad' && $eventoId);
                 $visibles = $lista->filter(fn (EventoParticipacionAbono $abono) => $abono->visiblePara($actor));
 
@@ -114,6 +116,133 @@ final class ClubesAbonosService
     /**
      * @return array<string, mixed>
      */
+    public function distribucion(User $actor, int $eventoId, ?int $personaId = null): array
+    {
+        $orgId = $this->assertCanView($actor);
+        $event = Event::query()
+            ->with('gananciaEclesiastica.distribucion')
+            ->where('organizacion_id', $orgId)
+            ->whereKey($eventoId)
+            ->first();
+        abort_unless(
+            $event instanceof Event && $event->isActividadEconomica(),
+            Response::HTTP_NOT_FOUND,
+            'No se encontró la actividad económica.',
+        );
+
+        $ownOnly = ! $actor->hasPermission('abonos.view');
+        $ownId = (int) ($actor->persona_id ?? 0);
+        if ($ownOnly) {
+            abort_unless($ownId > 0, Response::HTTP_UNPROCESSABLE_ENTITY, 'Tu usuario no está vinculado a una persona.');
+            abort_unless($personaId === null || $personaId === $ownId, Response::HTTP_FORBIDDEN, 'Solo puedes ver la distribución de tus actividades.');
+            $personaId = $ownId;
+        }
+
+        $participantes = EventoParticipacion::query()
+            ->with('ventas')
+            ->where('evento_id', $eventoId)
+            ->where('organizacion_id', $orgId)
+            ->where('participa', true)
+            ->when($personaId, fn ($query) => $query->where('persona_id', $personaId))
+            ->get();
+        abort_unless(
+            $participantes->isNotEmpty(),
+            $ownOnly ? Response::HTTP_FORBIDDEN : Response::HTTP_NOT_FOUND,
+            $ownOnly
+                ? 'Solo puedes ver la distribución de tus actividades.'
+                : ($personaId
+                    ? 'Esa persona no está marcada como participante de la actividad.'
+                    : 'No hay participantes en esta actividad.'),
+        );
+
+        $totalesEvento = EventoParticipacionVenta::totalesPorProducto(
+            $eventoId,
+            $event->cuentaUnidadesEntregadas(),
+        );
+        $servicios = EventoProductoServicio::query()
+            ->with('producto')
+            ->where('evento_id', $eventoId)
+            ->where('activo', true)
+            ->get()
+            ->map(function (EventoProductoServicio $oferta) use ($totalesEvento) {
+                $producto = $oferta->producto;
+                $productoId = (int) $oferta->producto_servicio_id;
+
+                return [
+                    'id' => $productoId,
+                    'nombre' => $producto?->nombre ?? 'Producto',
+                    'precio' => (float) $oferta->precio,
+                    'inversion' => (float) ($oferta->inversion ?? 0),
+                    'cantidad_proyectada' => (int) ($totalesEvento[$productoId] ?? $oferta->cantidad_proyectada ?? 0),
+                ];
+            })
+            ->values();
+
+        $qtyByProduct = [];
+        $participantes->each(function (EventoParticipacion $row) use (&$qtyByProduct) {
+            foreach ($row->ventas as $venta) {
+                $id = (int) $venta->producto_servicio_id;
+                $qtyByProduct[$id] = ($qtyByProduct[$id] ?? 0) + $venta->cantidadContable();
+            }
+        });
+
+        $abonosPorProducto = [];
+        $ingreso = 0.0;
+        EventoParticipacionAbono::query()
+            ->where('organizacion_id', $orgId)
+            ->where('evento_id', $eventoId)
+            ->when($personaId, fn ($query) => $query->where('persona_id', $personaId))
+            ->get()
+            ->each(function (EventoParticipacionAbono $abono) use (&$abonosPorProducto, &$ingreso) {
+                $monto = $abono->montoContable();
+                if ($monto <= 0) {
+                    return;
+                }
+                $ingreso += $monto;
+                $productoId = (int) ($abono->producto_servicio_id ?? 0);
+                if ($productoId > 0) {
+                    $abonosPorProducto[(string) $productoId] = ($abonosPorProducto[(string) $productoId] ?? 0) + $monto;
+                }
+            });
+
+        $lineas = $servicios
+            ->map(function (array $servicio) use ($qtyByProduct, $abonosPorProducto) {
+                $qty = (int) ($qtyByProduct[$servicio['id']] ?? 0);
+                $abonado = (float) ($abonosPorProducto[(string) $servicio['id']] ?? 0);
+                if ($qty <= 0 && $abonado <= 0) {
+                    return null;
+                }
+
+                return [
+                    'id' => $servicio['id'],
+                    'nombre' => $servicio['nombre'],
+                    'qty' => $qty,
+                ];
+            })
+            ->filter()
+            ->values();
+
+        $abonosPorProducto = $this->repartirAbonosSinProducto(
+            $abonosPorProducto,
+            $ingreso,
+            $lineas,
+            $servicios,
+        );
+
+        return [
+            'evento_id' => (int) $event->id,
+            'evento_name' => $event->name,
+            'ganancia_eclesiastica_id' => $event->ganancia_eclesiastica_id
+                ? (int) $event->ganancia_eclesiastica_id
+                : null,
+            'reparto' => $this->ganancias->repartoDe($event),
+            'ingreso' => round($ingreso, 2),
+            'servicios' => $servicios->all(),
+            'lineas' => $lineas->all(),
+            'abonos_por_producto' => $abonosPorProducto,
+        ];
+    }
+
     /**
      * @param  list<array{producto_servicio_id?: mixed, monto?: mixed}>|null  $partidas
      * @return array<string, mixed>
@@ -253,6 +382,65 @@ final class ClubesAbonosService
         }
 
         return $this->recaudo($orgId, $eventoId, $personaId, $actor);
+    }
+
+    /**
+     * @param  list<int>  $ids
+     * @return array<string, mixed>
+     */
+    public function attachComprobante(
+        User $actor,
+        EventoParticipacionAbono $abono,
+        UploadedFile $file,
+        array $ids = [],
+    ): array {
+        $orgId = $this->assertCanUpdate($actor);
+        abort_unless((int) $abono->organizacion_id === $orgId, Response::HTTP_NOT_FOUND);
+        $this->assertEventoAbonable($abono->loadMissing(['evento.tipoEvento'])->evento, $actor);
+
+        $estado = $abono->estado ?: EventoParticipacionAbono::ESTADO_APROBADO;
+        abort_unless(
+            $estado !== EventoParticipacionAbono::ESTADO_ELIMINADO,
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+            'No se adjunta comprobante a un abono eliminado.',
+        );
+        abort_unless(
+            blank($abono->comprobante_path),
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+            'Este abono ya tiene comprobante.',
+        );
+
+        $wanted = array_values(array_unique(array_map('intval', array_merge([(int) $abono->id], $ids))));
+        $targets = EventoParticipacionAbono::query()
+            ->where('organizacion_id', $orgId)
+            ->where('evento_id', $abono->evento_id)
+            ->where('persona_id', $abono->persona_id)
+            ->whereIn('id', $wanted)
+            ->get()
+            ->filter(function (EventoParticipacionAbono $row) {
+                $rowEstado = $row->estado ?: EventoParticipacionAbono::ESTADO_APROBADO;
+
+                return $rowEstado !== EventoParticipacionAbono::ESTADO_ELIMINADO && blank($row->comprobante_path);
+            });
+
+        abort_unless($targets->isNotEmpty(), Response::HTTP_UNPROCESSABLE_ENTITY, 'No hay abonos sin comprobante.');
+
+        $stored = $this->images->storeCompact($file, 'abonos/'.$orgId, 'pantallazo');
+        foreach ($targets as $row) {
+            $row->comprobante_path = $stored->path;
+            $row->save();
+        }
+
+        $abono->refresh()->loadMissing('producto');
+        $recaudo = $this->recaudo((int) $abono->organizacion_id, (int) $abono->evento_id, (int) $abono->persona_id, $actor);
+
+        return [
+            'abono' => $this->presentacion->movimiento($abono),
+            'abonos' => $recaudo['abonos'],
+            'persona_id' => (int) $abono->persona_id,
+            'evento_id' => (int) $abono->evento_id,
+            'abonado' => $recaudo['abonado'],
+        ];
     }
 
     /**
@@ -436,7 +624,13 @@ final class ClubesAbonosService
     private function participaciones(int $orgId): Collection
     {
         return EventoParticipacion::query()
-            ->with(['persona.user', 'evento.tipoEvento', 'evento.cuentaBancaria.qrFile', 'ventas.producto'])
+            ->with([
+                'persona.user',
+                'evento.tipoEvento',
+                'evento.cuentaBancaria.qrFile',
+                'evento.gananciaEclesiastica.distribucion',
+                'ventas.producto',
+            ])
             ->where('organizacion_id', $orgId)
             ->where('participa', true)
             ->whereHas('evento', function ($query) {
@@ -498,19 +692,36 @@ final class ClubesAbonosService
         ), 2);
     }
 
-    private function gananciaReal(EventoParticipacion $row, float $comprometido, float $abonado): float
+    /**
+     * @param  Collection<int, EventoParticipacionAbono>  $lista
+     */
+    private function gananciaReal(EventoParticipacion $row, Collection $lista): float
     {
-        $base = (float) $row->ventas->sum(function (EventoParticipacionVenta $venta) use ($row) {
-            $unidad = $this->productos->gananciaUnidadDeOferta((int) $row->evento_id, (int) $venta->producto_servicio_id);
+        $event = $row->evento instanceof Event ? $row->evento : null;
+        $reparto = $this->ganancias->repartoDe($event);
+        $abonadoPorProducto = $lista
+            ->groupBy(fn (EventoParticipacionAbono $abono) => (int) ($abono->producto_servicio_id ?? 0))
+            ->map(fn (Collection $group) => round(
+                (float) $group->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()),
+                2,
+            ));
 
-            return $venta->cantidadContable() * $unidad;
-        });
-        if ($comprometido <= 0 || $base <= 0) {
-            return 0;
-        }
-        $cobertura = min($comprometido, max(0, $abonado)) / $comprometido;
+        return (float) round($row->ventas->sum(function (EventoParticipacionVenta $venta) use ($row, $reparto, $abonadoPorProducto) {
+            $qty = $venta->cantidadContable();
+            if ($qty <= 0) {
+                return 0;
+            }
+            $brutaUnidad = $this->productos->gananciaBrutaUnidadDeOferta(
+                (int) $row->evento_id,
+                (int) $venta->producto_servicio_id,
+            );
+            $precio = $this->precioDeVenta($venta, (int) $row->evento_id);
+            $capital = max(0, ($precio - $brutaUnidad) * $qty);
+            $abonado = (float) ($abonadoPorProducto->get((int) $venta->producto_servicio_id) ?? 0);
+            $realizada = max(0, $abonado - $capital);
 
-        return (float) round($base * $cobertura);
+            return $this->ganancias->parteParticipante($realizada, $reparto);
+        }));
     }
 
     /**
@@ -524,8 +735,12 @@ final class ClubesAbonosService
                 $cantidad = (int) $venta->cantidad;
                 $precio = $this->precioDeVenta($venta, (int) $row->evento_id);
 
+                $productoId = (int) $venta->producto_servicio_id;
+
                 return [
-                    'id' => (int) $venta->id,
+                    'id' => $productoId,
+                    'venta_id' => (int) $venta->id,
+                    'producto_servicio_id' => $productoId,
                     'nombre' => $venta->producto?->nombre ?? 'Servicio',
                     'cantidad' => $cantidad,
                     'precio' => $precio,
@@ -655,6 +870,66 @@ final class ClubesAbonosService
             'pendiente' => round($comprometido - $abonado, 2),
             'ganancia' => round((float) $filas->sum('ganancia'), 2),
         ];
+    }
+
+    /**
+     * @param  array<string, float>  $abonosPorProducto
+     * @param  Collection<int, array{id: int, nombre: string, qty: int}>  $lineas
+     * @param  Collection<int, array{id: int, nombre: string, precio: float, inversion: float, cantidad_proyectada: int}>  $servicios
+     * @return array<string, float>
+     */
+    private function repartirAbonosSinProducto(
+        array $abonosPorProducto,
+        float $ingreso,
+        Collection $lineas,
+        Collection $servicios,
+    ): array {
+        if ($lineas->isEmpty()) {
+            return $abonosPorProducto;
+        }
+
+        $asignado = array_sum($abonosPorProducto);
+        $sinProducto = round(max(0, $ingreso - $asignado), 2);
+        if ($sinProducto <= 0) {
+            return $abonosPorProducto;
+        }
+
+        $pesos = [];
+        $totalPeso = 0.0;
+        foreach ($lineas as $linea) {
+            $servicio = $servicios->firstWhere('id', $linea['id']);
+            $peso = max(0, (int) $linea['qty']) * (float) ($servicio['precio'] ?? 0);
+            $pesos[(int) $linea['id']] = $peso;
+            $totalPeso += $peso;
+        }
+
+        $ids = $lineas->pluck('id')->map(fn ($id) => (int) $id)->all();
+        if ($totalPeso <= 0) {
+            $n = count($ids);
+            $share = $n > 0 ? round($sinProducto / $n, 2) : 0.0;
+            foreach ($ids as $index => $id) {
+                $extra = $index === $n - 1
+                    ? round($sinProducto - $share * ($n - 1), 2)
+                    : $share;
+                $abonosPorProducto[(string) $id] = ($abonosPorProducto[(string) $id] ?? 0) + $extra;
+            }
+
+            return $abonosPorProducto;
+        }
+
+        $repartido = 0.0;
+        $lastId = (int) end($ids);
+        foreach ($pesos as $id => $peso) {
+            $extra = round($sinProducto * $peso / $totalPeso, 2);
+            $abonosPorProducto[(string) $id] = ($abonosPorProducto[(string) $id] ?? 0) + $extra;
+            $repartido += $extra;
+        }
+        $diff = round($sinProducto - $repartido, 2);
+        if (abs($diff) >= 0.01) {
+            $abonosPorProducto[(string) $lastId] = ($abonosPorProducto[(string) $lastId] ?? 0) + $diff;
+        }
+
+        return $abonosPorProducto;
     }
 
     private function clave(int $eventoId, int $personaId): string

@@ -531,6 +531,73 @@ class ClubesServiciosParticipantesApiTest extends TestCase
         $this->assertEquals(15000, $mine['abonado']);
     }
 
+    public function test_director_can_attach_a_receipt_to_an_approved_abono_without_one(): void
+    {
+        Storage::fake('public');
+        $org = $this->createClubOrg('Club Adjuntar');
+        $director = $this->boardUser('director', $org, 'dir-attach@test.local');
+        $memberUser = $this->memberUser($org, 'mem-attach@test.local');
+
+        Sanctum::actingAs($director);
+        $economicId = $this->postJson('/api/v1/settings/clubes/events', $this->eventPayload('Venta sin pantallazo', $this->economicTipoId()), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertCreated()->json('data.id');
+
+        Sanctum::actingAs($memberUser);
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/participantes/yo", [
+            'participa' => true,
+            'ventas' => [],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        Sanctum::actingAs($director);
+        $stored = $this->postJson('/api/v1/settings/clubes/abonos', [
+            'evento_id' => $economicId,
+            'persona_id' => $memberUser->persona_id,
+            'monto' => 50000,
+            'modo' => 'actividad',
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        $fila = collect($stored->json('data.filas'))->firstWhere('persona_id', $memberUser->persona_id);
+        $this->assertIsArray($fila);
+        $this->assertNotEmpty($fila['abonos'] ?? []);
+        $abonoId = (int) $fila['abonos'][0]['id'];
+        $this->assertTrue(blank($fila['abonos'][0]['comprobante_url'] ?? null));
+
+        Sanctum::actingAs($memberUser);
+        $this->post("/api/v1/settings/clubes/abonos/{$abonoId}/comprobante", [
+            'comprobante' => UploadedFile::fake()->image('pago.jpg', 800, 1200),
+        ], [
+            'X-Clubes-Client' => 'clubes',
+            'Accept' => 'application/json',
+        ])->assertForbidden();
+
+        Sanctum::actingAs($director);
+        $attached = $this->post("/api/v1/settings/clubes/abonos/{$abonoId}/comprobante", [
+            'comprobante' => UploadedFile::fake()->image('pago.jpg', 800, 1200),
+            'ids' => [$abonoId],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+            'Accept' => 'application/json',
+        ])->assertOk()
+            ->assertJsonPath('data.abono.id', $abonoId);
+
+        $this->assertNotSame('', (string) $attached->json('data.abono.comprobante_url'));
+        $path = DB::table('evento_participacion_abono')->where('id', $abonoId)->value('comprobante_path');
+        $this->assertIsString($path);
+        Storage::disk('public')->assertExists($path);
+
+        $this->post("/api/v1/settings/clubes/abonos/{$abonoId}/comprobante", [
+            'comprobante' => UploadedFile::fake()->image('otro.jpg'),
+        ], [
+            'X-Clubes-Client' => 'clubes',
+            'Accept' => 'application/json',
+        ])->assertUnprocessable();
+    }
+
     /**
      * @return array<string, mixed>
      */

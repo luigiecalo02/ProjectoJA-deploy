@@ -26,6 +26,7 @@ final class ClubesParticipantesService
         private readonly AbonoPresentacion $presentacion,
         private readonly ProductoServicioService $productos,
         private readonly ClubesCuentasBancariasService $cuentas,
+        private readonly EventoGananciaRegistro $ganancias,
     ) {}
 
     /**
@@ -116,7 +117,7 @@ final class ClubesParticipantesService
             }
         });
 
-        return $this->show($actor, $event->fresh());
+        return $this->show($actor, $this->refrescarGanancias($event));
     }
 
     /**
@@ -175,7 +176,7 @@ final class ClubesParticipantesService
             }
         });
 
-        return $this->show($actor, $event->fresh());
+        return $this->show($actor, $this->refrescarGanancias($event));
     }
 
     /**
@@ -234,7 +235,7 @@ final class ClubesParticipantesService
             $this->syncVentas($row, $participa ? $normalized : [], $servicioIds);
         });
 
-        return $this->self($actor, $event->fresh());
+        return $this->self($actor, $this->refrescarGanancias($event));
     }
 
     /**
@@ -427,23 +428,29 @@ final class ClubesParticipantesService
      */
     private function eventServices(Event $event): array
     {
+        $cantidades = EventoParticipacionVenta::totalesPorProducto(
+            (int) $event->id,
+            $event->cuentaUnidadesEntregadas(),
+        );
+
         return EventoProductoServicio::query()
             ->where('evento_id', $event->id)
             ->where('activo', true)
             ->with('producto')
             ->get()
-            ->map(function (EventoProductoServicio $oferta) {
+            ->map(function (EventoProductoServicio $oferta) use ($cantidades) {
                 $producto = $oferta->producto;
                 if (! $producto instanceof ProductoServicio) {
                     return null;
                 }
+                $productoId = (int) $producto->id;
 
                 return [
-                    'id' => (int) $producto->id,
+                    'id' => $productoId,
                     'nombre' => $producto->nombre,
                     'precio' => $oferta->precio,
                     'inversion' => round((float) ($oferta->inversion ?? 0), 2),
-                    'cantidad_proyectada' => (int) ($oferta->cantidad_proyectada ?? 0),
+                    'cantidad_proyectada' => (int) ($cantidades[$productoId] ?? $oferta->cantidad_proyectada ?? 0),
                     'ganancia_unidad' => round((float) ($oferta->ganancia_unidad ?? 0), 2),
                     'icono' => $producto->icono,
                     'image_url' => $this->publicFiles->url($producto->image_path),
@@ -452,6 +459,13 @@ final class ClubesParticipantesService
             ->filter()
             ->values()
             ->all();
+    }
+
+    private function refrescarGanancias(Event $event): Event
+    {
+        $this->ganancias->registrar($event->fresh() ?? $event);
+
+        return $event->fresh() ?? $event;
     }
 
     private function assertCanView(User $actor): int
@@ -580,6 +594,10 @@ final class ClubesParticipantesService
             ->where('activo', true)
             ->get()
             ->keyBy('producto_servicio_id');
+        $totales = EventoParticipacionVenta::totalesPorProducto(
+            (int) $event->id,
+            $event->cuentaUnidadesEntregadas(),
+        );
         $row = EventoParticipacion::query()
             ->with('ventas')
             ->where('evento_id', $event->id)
@@ -593,8 +611,9 @@ final class ClubesParticipantesService
         foreach ($row?->ventas ?? [] as $venta) {
             $qty = $venta->cantidadContable();
             $own += $qty;
-            $oferta = $ofertas->get($venta->producto_servicio_id);
-            $proyectada = (int) ($oferta?->cantidad_proyectada ?? 0);
+            $productoId = (int) $venta->producto_servicio_id;
+            $oferta = $ofertas->get($productoId);
+            $proyectada = (int) ($totales[$productoId] ?? $oferta?->cantidad_proyectada ?? 0);
             $inversion = (float) ($oferta?->inversion ?? 0);
             $unitCost = $proyectada > 0 ? (int) round($inversion / $proyectada) : 0;
             $capital += $qty * $unitCost;
@@ -652,6 +671,11 @@ final class ClubesParticipantesService
             'starts_at' => $event->starts_at?->toIso8601String(),
             'ends_at' => $event->ends_at?->toIso8601String(),
             'estado' => $event->estado,
+            'ganancia_eclesiastica_id' => $event->ganancia_eclesiastica_id
+                ? (int) $event->ganancia_eclesiastica_id
+                : null,
+            'capital' => round((float) ($event->capital ?? 0), 2),
+            'ganancia_registro' => EventoGananciaRegistro::presentar($event),
             'cuenta_bancaria_id' => $event->cuenta_bancaria_id
                 ? (int) $event->cuenta_bancaria_id
                 : null,

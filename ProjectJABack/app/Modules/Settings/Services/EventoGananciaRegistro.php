@@ -3,11 +3,17 @@
 namespace App\Modules\Settings\Services;
 
 use App\Modules\Events\Models\Event;
+use App\Modules\Events\Models\EventoParticipacionVenta;
 use App\Modules\Events\Models\EventoProductoServicio;
 use App\Modules\Settings\Models\ClubesGananciaEclesiastica;
 
 final class EventoGananciaRegistro
 {
+    /**
+     * @var array<int, array{ofrenda: float, diezmo: float, resto: float, miembros: float, club: float, extras: float}|null>
+     */
+    private array $repartos = [];
+
     /**
      * @return array<string, float>
      */
@@ -22,10 +28,15 @@ final class EventoGananciaRegistro
             ->where('activo', true)
             ->get();
 
+        $cantidades = EventoParticipacionVenta::totalesPorProducto(
+            (int) $event->id,
+            $event->cuentaUnidadesEntregadas(),
+        );
         $proyeccion = 0.0;
         $capital = 0.0;
         foreach ($ofertas as $oferta) {
-            $cantidad = max(0, (int) ($oferta->cantidad_proyectada ?? 0));
+            $productoId = (int) $oferta->producto_servicio_id;
+            $cantidad = max(0, (int) ($cantidades[$productoId] ?? $oferta->cantidad_proyectada ?? 0));
             $total = round($cantidad * (float) $oferta->precio, 2);
             $neta = $total - (float) ($oferta->inversion ?? 0);
             $baseLinea = max(0, $neta);
@@ -97,8 +108,64 @@ final class EventoGananciaRegistro
         ];
     }
 
+    /**
+     * @return array{ofrenda: float, diezmo: float, resto: float, miembros: float, club: float, extras: float}|null
+     */
+    public function repartoDe(?Event $event): ?array
+    {
+        $id = (int) ($event?->ganancia_eclesiastica_id ?? 0);
+        if ($id <= 0) {
+            return null;
+        }
+        if (array_key_exists($id, $this->repartos)) {
+            return $this->repartos[$id];
+        }
+
+        $config = $event instanceof Event && $event->relationLoaded('gananciaEclesiastica')
+            ? $event->gananciaEclesiastica
+            : ClubesGananciaEclesiastica::query()->with('distribucion')->find($id);
+        if (! $config instanceof ClubesGananciaEclesiastica) {
+            return $this->repartos[$id] = null;
+        }
+
+        if (! $config->relationLoaded('distribucion')) {
+            $config->load('distribucion');
+        }
+        $diezmo = (float) $config->diezmo;
+        $ofrenda = (float) $config->ofrenda;
+        $dist = $config->distribucion;
+
+        return $this->repartos[$id] = [
+            'ofrenda' => $ofrenda,
+            'diezmo' => $diezmo,
+            'resto' => round(100 - $diezmo - $ofrenda, 2),
+            'miembros' => (float) ($dist?->miembros ?? 0),
+            'club' => (float) ($dist?->club ?? 0),
+            'extras' => (float) ($dist?->extras ?? 0),
+        ];
+    }
+
+    /**
+     * Parte de la ganancia bruta que corresponde a los participantes
+     * después de diezmo y ofrenda.
+     *
+     * @param  array{ofrenda: float, diezmo: float, resto: float, miembros: float, club: float, extras: float}|null  $reparto
+     */
+    public function parteParticipante(float $gananciaBruta, ?array $reparto): int
+    {
+        $base = max(0, $gananciaBruta);
+        if ($reparto === null) {
+            return (int) round($base);
+        }
+        $ofrenda = $this->share($base, (float) $reparto['ofrenda']);
+        $diezmo = $this->share($base, (float) $reparto['diezmo']);
+        $resto = max(0, $base - $ofrenda - $diezmo);
+
+        return $this->share($resto, (float) $reparto['miembros']);
+    }
+
     private function share(float $total, float $percent): int
     {
-        return (int) round(($total * $percent) / 100);
+        return (int) round((max(0, $total) * max(0, $percent)) / 100);
     }
 }

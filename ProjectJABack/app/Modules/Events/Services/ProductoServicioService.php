@@ -3,6 +3,7 @@
 namespace App\Modules\Events\Services;
 
 use App\Modules\Events\Models\Event;
+use App\Modules\Events\Models\EventoParticipacionVenta;
 use App\Modules\Events\Models\EventoProductoServicio;
 use App\Modules\Events\Models\ProductoServicio;
 use Illuminate\Support\Collection;
@@ -57,10 +58,12 @@ final class ProductoServicioService
     }
 
     /**
-     * @var array<int, array<int, float>>
+     * @var array<int, array<int, array{precio: float, ganancia_unidad: float, inversion: float, cantidad_proyectada: int}>>
      */
-    /** @var array<int, array<int, array{precio: float, ganancia_unidad: float}>> */
     private array $ofertasActivas = [];
+
+    /** @var array<int, array<int, int>> */
+    private array $unidadesContables = [];
 
     public function precioDeOferta(int $eventoId, int $productoId, float $fallback = 0): float
     {
@@ -72,8 +75,38 @@ final class ProductoServicioService
         return $this->ofertaActiva($eventoId, $productoId)['ganancia_unidad'] ?? 0;
     }
 
+    public function gananciaBrutaUnidadDeOferta(int $eventoId, int $productoId): float
+    {
+        $oferta = $this->ofertaActiva($eventoId, $productoId);
+        if ($oferta === null) {
+            return 0;
+        }
+        $unidades = $this->unidadesContables($eventoId)[$productoId]
+            ?? (int) ($oferta['cantidad_proyectada'] ?? 0);
+        $precio = (int) round((float) $oferta['precio']);
+        $capitalUnidad = $unidades > 0 ? (int) round(((float) $oferta['inversion']) / $unidades) : 0;
+
+        return (float) max(0, $precio - $capitalUnidad);
+    }
+
     /**
-     * @return array{precio: float, ganancia_unidad: float}|null
+     * @return array<int, int>
+     */
+    private function unidadesContables(int $eventoId): array
+    {
+        if (! array_key_exists($eventoId, $this->unidadesContables)) {
+            $event = Event::query()->find($eventoId);
+            $this->unidadesContables[$eventoId] = EventoParticipacionVenta::totalesPorProducto(
+                $eventoId,
+                $event instanceof Event && $event->cuentaUnidadesEntregadas(),
+            );
+        }
+
+        return $this->unidadesContables[$eventoId];
+    }
+
+    /**
+     * @return array{precio: float, ganancia_unidad: float, inversion: float, cantidad_proyectada: int}|null
      */
     private function ofertaActiva(int $eventoId, int $productoId): ?array
     {
@@ -81,10 +114,12 @@ final class ProductoServicioService
             $this->ofertasActivas[$eventoId] = EventoProductoServicio::query()
                 ->where('evento_id', $eventoId)
                 ->where('activo', true)
-                ->get(['producto_servicio_id', 'precio', 'ganancia_unidad'])
+                ->get(['producto_servicio_id', 'precio', 'ganancia_unidad', 'inversion', 'cantidad_proyectada'])
                 ->mapWithKeys(fn (EventoProductoServicio $oferta) => [(int) $oferta->producto_servicio_id => [
                     'precio' => (float) $oferta->precio,
                     'ganancia_unidad' => (float) $oferta->ganancia_unidad,
+                    'inversion' => (float) ($oferta->inversion ?? 0),
+                    'cantidad_proyectada' => (int) ($oferta->cantidad_proyectada ?? 0),
                 ]])
                 ->all();
         }

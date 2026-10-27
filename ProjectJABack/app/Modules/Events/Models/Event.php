@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Events\Services\EventVisibilityService;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Lugares\Models\Lugar;
+use App\Modules\Settings\Models\ClubesGananciaEclesiastica;
 use App\Modules\Settings\Models\CuentaBancaria;
 use App\Modules\Organizations\Models\TipoOrganizacion;
 use Carbon\CarbonInterface;
@@ -493,6 +494,11 @@ class Event extends Model
         return $this->belongsTo(CuentaBancaria::class, 'cuenta_bancaria_id');
     }
 
+    public function gananciaEclesiastica(): BelongsTo
+    {
+        return $this->belongsTo(ClubesGananciaEclesiastica::class, 'ganancia_eclesiastica_id');
+    }
+
     public function catalogLugar(): BelongsTo
     {
         return $this->belongsTo(Lugar::class, 'lugar_id');
@@ -568,6 +574,11 @@ class Event extends Model
     public function isLive(): bool
     {
         return in_array($this->estado, [self::ESTADO_PUBLICADO, self::ESTADO_EN_PROCESO], true);
+    }
+
+    public function cuentaUnidadesEntregadas(): bool
+    {
+        return in_array($this->estado, [self::ESTADO_EN_PROCESO, self::ESTADO_CERRADO], true);
     }
 
     public function locksDirectorModifications(): bool

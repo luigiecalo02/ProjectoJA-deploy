@@ -60,8 +60,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('settings/clubes/ganancias/{distribucion}', [ClubesGananciasController::class, 'update']);
     Route::delete('settings/clubes/ganancias/{distribucion}', [ClubesGananciasController::class, 'destroy']);
     Route::get('settings/clubes/abonos', [ClubesAbonosController::class, 'board']);
+    Route::get('settings/clubes/abonos/distribucion', [ClubesAbonosController::class, 'distribucion']);
     Route::post('settings/clubes/abonos', [ClubesAbonosController::class, 'store']);
     Route::post('settings/clubes/abonos/comprobante', [ClubesAbonosController::class, 'storeComprobante']);
+    Route::post('settings/clubes/abonos/{abono}/comprobante', [ClubesAbonosController::class, 'attachComprobante']);
     Route::patch('settings/clubes/abonos/{abono}/revision', [ClubesAbonosController::class, 'review']);
     Route::patch('settings/clubes/abonos/{abono}', [ClubesAbonosController::class, 'updateMonto']);
     Route::get('settings/clubes/finanzas', [ClubesFinanzasController::class, 'resumen']);

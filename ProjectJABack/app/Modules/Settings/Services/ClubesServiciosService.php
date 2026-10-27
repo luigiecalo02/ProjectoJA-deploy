@@ -428,15 +428,18 @@ final class ClubesServiciosService
     private function ofertaPayload(EventoProductoServicio $oferta, bool $includeProyeccion = false, array $pedidos = []): array
     {
         $productoId = (int) $oferta->producto_servicio_id;
+        $qty = $includeProyeccion
+            ? (int) ($pedidos[$productoId] ?? 0)
+            : (int) ($oferta->cantidad_proyectada ?? 0);
 
         return [
             'id' => (int) $oferta->id,
             'evento_id' => (int) $oferta->evento_id,
             'producto_servicio_id' => $productoId,
             'precio' => $oferta->precio,
-            'cantidad_proyectada' => $includeProyeccion ? (int) ($pedidos[$productoId] ?? 0) : null,
+            'cantidad_proyectada' => $includeProyeccion ? $qty : null,
             'inversion' => round((float) ($oferta->inversion ?? 0), 2),
-            'total' => round((float) ($oferta->total ?? 0), 2),
+            'total' => round($includeProyeccion ? $qty * (float) $oferta->precio : (float) ($oferta->total ?? 0), 2),
             'ganancia_unidad' => round((float) ($oferta->ganancia_unidad ?? 0), 2),
             'activo' => (bool) $oferta->activo,
             'producto' => $oferta->producto ? $this->productoPayload($oferta->producto) : null,
@@ -448,24 +451,9 @@ final class ClubesServiciosService
      */
     private function cantidadesSolicitadas(Event $event): array
     {
-        $rows = EventoParticipacionVenta::query()
-            ->join(
-                'evento_participacion',
-                'evento_participacion.id',
-                '=',
-                'evento_participacion_venta.evento_participacion_id',
-            )
-            ->where('evento_participacion.evento_id', $event->id)
-            ->where('evento_participacion.participa', true)
-            ->groupBy('evento_participacion_venta.producto_servicio_id')
-            ->selectRaw('evento_participacion_venta.producto_servicio_id as producto_id, SUM(evento_participacion_venta.cantidad) as total')
-            ->get();
-
-        $totales = [];
-        foreach ($rows as $row) {
-            $totales[(int) $row->producto_id] = (int) $row->total;
-        }
-
-        return $totales;
+        return EventoParticipacionVenta::totalesPorProducto(
+            (int) $event->id,
+            $event->cuentaUnidadesEntregadas(),
+        );
     }
 }
