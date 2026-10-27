@@ -153,6 +153,32 @@ class ClubesInviteActivationTest extends TestCase
         );
     }
 
+    public function test_disabled_invite_link_cannot_be_opened(): void
+    {
+        $club = $this->createOrg('Club Halcones', Organizacion::TIPO_CLUB);
+        $director = $this->director($club);
+        $headers = [
+            'X-Clubes-Client' => 'clubes',
+            'X-Clubes-Root-Id' => (string) $club->id,
+            'Origin' => 'http://localhost:5173',
+        ];
+
+        Sanctum::actingAs($director);
+        $url = $this->postJson('/api/v1/settings/clubes/invite-link', [], $headers)
+            ->assertOk()
+            ->json('data.url');
+        parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+        $token = $query['token'] ?? '';
+
+        $this->deleteJson('/api/v1/settings/clubes/invite-link', [], $headers)
+            ->assertOk()
+            ->assertJsonPath('data.activo', false);
+
+        $this->getJson('/api/v1/settings/clubes/public/activate?token='.urlencode($token), $headers)
+            ->assertStatus(422)
+            ->assertJsonPath('errors.token.0', 'El enlace de inscripción no está habilitado. Pídele uno al director.');
+    }
+
     private function director(Organizacion $org): User
     {
         $persona = Persona::query()->create([

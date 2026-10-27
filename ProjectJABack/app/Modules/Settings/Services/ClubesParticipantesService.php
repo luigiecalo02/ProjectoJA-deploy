@@ -655,7 +655,10 @@ final class ClubesParticipantesService
             'cuenta_bancaria_id' => $event->cuenta_bancaria_id
                 ? (int) $event->cuenta_bancaria_id
                 : null,
-            'cuenta_bancaria' => $this->cuentas->toPayloadOrNull($event->cuentaBancaria),
+            'cuenta_bancaria' => $this->cuentas->forAbono(
+                $event->cuentaBancaria,
+                (int) $event->organizacion_id,
+            ),
             'tipo_evento' => $event->tipoEvento
                 ? [
                     'id' => $event->tipoEvento->id,

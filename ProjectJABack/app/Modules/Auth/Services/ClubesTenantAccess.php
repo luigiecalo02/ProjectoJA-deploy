@@ -16,10 +16,28 @@ final class ClubesTenantAccess
         private readonly ClubesHostMap $hosts,
     ) {}
 
+    public function isClubesRequest(?Request $request = null): bool
+    {
+        $request ??= request();
+        if (! $request instanceof Request) {
+            return false;
+        }
+
+        if ($request->header('X-Clubes-Client') === 'clubes') {
+            return true;
+        }
+
+        if ((int) $request->header('X-Clubes-Root-Id') > 0) {
+            return true;
+        }
+
+        return $this->hosts->idForRequest($request) !== null;
+    }
+
     public function rootId(?Request $request = null): ?int
     {
         $request ??= request();
-        if (! $request instanceof Request || $request->header('X-Clubes-Client') !== 'clubes') {
+        if (! $request instanceof Request || ! $this->isClubesRequest($request)) {
             return null;
         }
 
@@ -103,8 +121,30 @@ final class ClubesTenantAccess
         return count(array_intersect($memberships, $allowed)) > 0;
     }
 
+    /**
+     * Organización efectiva de este request. En Clubes el superadmin usa el club
+     * del subdominio / header, aunque no tenga membresía ni contexto guardado.
+     */
+    public function resolveActorOrganizacionId(?User $user, ?Request $request = null): ?int
+    {
+        if (! $user) {
+            return null;
+        }
+
+        $rootId = $this->rootId($request);
+        if ($user->isSuperAdmin()) {
+            return $rootId ?: $this->positiveId($user->active_organizacion_id);
+        }
+
+        return $this->organizationIdForUser($user, $request);
+    }
+
     public function organizationIdForUser(User $user, ?Request $request = null): ?int
     {
+        if ($user->isSuperAdmin()) {
+            return $this->resolveActorOrganizacionId($user, $request);
+        }
+
         $allowed = $this->allowedOrganizationIds($request);
         $active = (int) ($user->active_organizacion_id ?? 0);
         if ($active > 0 && ($allowed === null || in_array($active, $allowed, true))) {
@@ -155,7 +195,7 @@ final class ClubesTenantAccess
     public function filterOptions(User $user, array $options, ?Request $request = null): array
     {
         $allowed = $this->allowedOrganizationIds($request);
-        if ($allowed === null || $user->isSuperAdmin()) {
+        if ($allowed === null) {
             return $options;
         }
 
@@ -197,6 +237,9 @@ final class ClubesTenantAccess
         $decorated = [];
         foreach ($options as $option) {
             $orgId = (int) ($option['organizacion_id'] ?? 0);
+            if ($currentRoot !== null && $orgId <= 0) {
+                continue;
+            }
             $mappedRoot = $orgId > 0 ? ($rootByOrg[$orgId] ?? null) : null;
             $host = $mappedRoot ? $this->hosts->preferredHostForRoot($mappedRoot, $currentHost) : null;
             $inAllowed = $allowed === null
@@ -298,5 +341,12 @@ final class ClubesTenantAccess
         }
 
         return $map;
+    }
+
+    private function positiveId(mixed $id): ?int
+    {
+        $value = (int) $id;
+
+        return $value > 0 ? $value : null;
     }
 }

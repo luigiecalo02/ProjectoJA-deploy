@@ -18,6 +18,7 @@ final class ClubesPublicSignupService
     public function __construct(
         private readonly ClubesTenantAccess $tenant,
         private readonly AccountMailService $accountMail,
+        private readonly ClubesInviteService $invite,
     ) {}
 
     /**
@@ -40,10 +41,10 @@ final class ClubesPublicSignupService
      */
     public function register(array $data): array
     {
-        $club = $this->orgInTenant((int) $data['organizacion_id']);
+        $club = $this->invite->orgFromActiveToken((string) ($data['token'] ?? ''));
         if (! $club->isClubTipo()) {
             throw ValidationException::withMessages([
-                'organizacion_id' => ['Debes elegir un club para registrarte.'],
+                'token' => ['Este enlace no corresponde a un club.'],
             ]);
         }
 

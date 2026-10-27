@@ -412,6 +412,7 @@ final class PersonaService
         return DB::transaction(function () use ($persona, $data, $hasOrgs, $orgIds, $actor, $soloTipoClub) {
             $old = $persona->toArray();
             $persona->update($data);
+            $this->syncLinkedUserEmail($persona, $data);
 
             if ($hasOrgs) {
                 $this->syncOrganizaciones($persona, $orgIds ?? [], $actor, $soloTipoClub);
@@ -421,6 +422,32 @@ final class PersonaService
 
             return $persona->fresh(['user', 'organizaciones.organizacion']);
         });
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function syncLinkedUserEmail(Persona $persona, array $data): void
+    {
+        if (! array_key_exists('correo', $data)) {
+            return;
+        }
+
+        $email = filled($data['correo']) ? strtolower(trim((string) $data['correo'])) : '';
+        if ($email === '') {
+            return;
+        }
+
+        $user = $persona->user()->withTrashed()->first();
+        if (! $user) {
+            return;
+        }
+
+        if (strcasecmp((string) $user->email, $email) === 0) {
+            return;
+        }
+
+        $user->forceFill(['email' => $email])->save();
     }
 
     public function updatePassword(Persona $persona, string $password, User $actor): User

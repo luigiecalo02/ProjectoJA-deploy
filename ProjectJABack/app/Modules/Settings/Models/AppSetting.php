@@ -3,6 +3,7 @@
 namespace App\Modules\Settings\Models;
 
 use App\Models\User;
+use App\Modules\Auth\Services\ClubesTenantAccess;
 use App\Modules\Organizations\Models\Organizacion;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -312,13 +313,11 @@ class AppSetting extends Model
     public static function resolveOrganizacionId(): ?int
     {
         $user = auth()->user();
-        if (! $user) {
+        if (! $user instanceof User) {
             return null;
         }
 
-        $id = $user->active_organizacion_id ?? null;
-
-        return $id ? (int) $id : null;
+        return app(ClubesTenantAccess::class)->resolveActorOrganizacionId($user);
     }
 
     /**

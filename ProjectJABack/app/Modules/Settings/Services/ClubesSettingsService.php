@@ -552,7 +552,10 @@ final class ClubesSettingsService
             'cuenta_bancaria_id' => $showGanancias && $event->cuenta_bancaria_id
                 ? (int) $event->cuenta_bancaria_id
                 : null,
-            'cuenta_bancaria' => $this->cuentas->toPayloadOrNull($event->cuentaBancaria),
+            'cuenta_bancaria' => $this->cuentas->forAbono(
+                $event->cuentaBancaria,
+                (int) $event->organizacion_id,
+            ),
             'capital' => $showGanancias ? round((float) ($event->capital ?? 0), 2) : null,
             'tipo_evento' => $event->tipoEvento
                 ? [
@@ -569,7 +572,7 @@ final class ClubesSettingsService
 
     private function actorIsDirector(?User $actor): bool
     {
-        if (! $actor || ! AppSetting::resolveOrganizacionId()) {
+        if (! $actor) {
             return false;
         }
 
@@ -577,12 +580,24 @@ final class ClubesSettingsService
             return true;
         }
 
+        if (! AppSetting::resolveOrganizacionId()) {
+            return false;
+        }
+
         return in_array('director', $actor->roleNames(), true);
     }
 
     private function actorCanWriteClubEvent(?User $actor): bool
     {
-        if (! $actor || ! AppSetting::resolveOrganizacionId()) {
+        if (! $actor) {
+            return false;
+        }
+
+        if ($actor->isSuperAdmin()) {
+            return AppSetting::resolveOrganizacionId() !== null;
+        }
+
+        if (! AppSetting::resolveOrganizacionId()) {
             return false;
         }
 

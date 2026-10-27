@@ -20,7 +20,7 @@ final class EventVisibilityService
 
     public function isVisibleTo(Event $event, User $actor): bool
     {
-        if ($actor->isSuperAdmin() || $this->organizationAccess->bypassesOrganizationScope($actor)) {
+        if ($this->organizationAccess->bypassesOrganizationScope($actor)) {
             return true;
         }
 
@@ -54,7 +54,7 @@ final class EventVisibilityService
 
     public function applyVisibleScope(Builder $query, User $actor): Builder
     {
-        if ($actor->isSuperAdmin() || $this->organizationAccess->bypassesOrganizationScope($actor)) {
+        if ($this->organizationAccess->bypassesOrganizationScope($actor)) {
             return $query;
         }
 

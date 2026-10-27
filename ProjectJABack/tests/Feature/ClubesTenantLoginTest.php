@@ -61,17 +61,27 @@ class ClubesTenantLoginTest extends TestCase
         ]);
         $user->forceFill(['is_super' => true, 'is_admin' => true])->save();
 
-        $this->postJson('/api/v1/auth/login', [
+        $response = $this->postJson('/api/v1/auth/login', [
             'email' => 'super@test.local',
             'password' => 'Password1!',
-        ], $this->clubesHeaders($parent->id))
+        ], $this->clubesHeaders($parent->id));
+
+        $response
             ->assertOk()
             ->assertJsonPath('data.user.is_super', true)
             ->assertJsonPath('data.user.contexto.organizacion_id', $parent->id)
             ->assertJsonPath('data.user.contexto.rol_name', 'director')
             ->assertJsonPath('data.user.requires_context', false)
             ->assertJsonFragment(['mi_club.view'])
-            ->assertJsonFragment(['settings.update']);
+            ->assertJsonFragment(['settings.update'])
+            ->assertJsonFragment(['users.view'])
+            ->assertJsonFragment(['finanzas.view'])
+            ->assertJsonMissing(['is_platform' => true]);
+
+        $payload = $response->json('data.user');
+        $this->assertContains('super_admin', $payload['roles'] ?? []);
+        $this->assertContains('director', $payload['roles'] ?? []);
+        $this->assertSame($parent->id, $payload['contexto']['organizacion_id'] ?? null);
     }
 
     /**

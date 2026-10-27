@@ -7,13 +7,17 @@ use App\Modules\Settings\Models\AppSetting;
 use App\Modules\Settings\Models\CuentaBancaria;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\ImageOptimizer;
+use App\Modules\Shared\Services\PublicFileService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
 final class ClubesCuentasBancariasService
 {
-    public function __construct(private readonly ImageOptimizer $images) {}
+    public function __construct(
+        private readonly ImageOptimizer $images,
+        private readonly PublicFileService $publicFiles,
+    ) {}
 
     /**
      * @return list<array<string, mixed>>
@@ -121,6 +125,26 @@ final class ClubesCuentasBancariasService
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    public function forAbono(?CuentaBancaria $cuenta, int $orgId): ?array
+    {
+        if ($cuenta) {
+            return $this->payload($cuenta);
+        }
+
+        $fallback = CuentaBancaria::query()
+            ->with('qrFile')
+            ->where('organizacion_id', $orgId)
+            ->where('activo', true)
+            ->orderBy('orden')
+            ->orderBy('id')
+            ->first();
+
+        return $fallback ? $this->payload($fallback) : null;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function payload(CuentaBancaria $cuenta): array
@@ -138,9 +162,7 @@ final class ClubesCuentasBancariasService
             'identificacion_titular' => $cuenta->identificacion_titular,
             'activo' => (bool) $cuenta->activo,
             'orden' => (int) $cuenta->orden,
-            'qr_url' => $cuenta->qrFile?->path
-                ? Storage::disk('public')->url($cuenta->qrFile->path)
-                : null,
+            'qr_url' => $this->publicFiles->url($cuenta->qrFile?->path),
         ];
     }
 

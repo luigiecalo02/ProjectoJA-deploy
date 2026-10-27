@@ -78,13 +78,14 @@ final class ClubesAbonosService
                     'image_url' => $row->evento?->image_url,
                     'banner_url' => $row->evento?->banner_url,
                     'starts_at' => $row->evento?->starts_at?->toIso8601String(),
+                    'evento_estado' => $row->evento?->estado,
                     'comprometido' => $comprometido,
                     'abonado' => $abonado,
                     'pendiente' => round($comprometido - $abonado, 2),
                     'ganancia' => $ganancia,
                     'items' => 1,
                     'pendientes' => ($comprometido - $abonado) > 0.009 ? 1 : 0,
-                    'cuenta_bancaria' => $this->cuentas->toPayloadOrNull($row->evento?->cuentaBancaria),
+                    'cuenta_bancaria' => $this->cuentas->forAbono($row->evento?->cuentaBancaria, $orgId),
                     'pedidos' => $detalle ? $this->pedidos($row) : [],
                     'abonos' => $detalle
                         ? $visibles->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all()
@@ -144,13 +145,7 @@ final class ClubesAbonosService
             ]);
         }
 
-        $event = $participacion->evento;
-        abort_unless($event instanceof Event, Response::HTTP_NOT_FOUND);
-        abort_unless(
-            $event->estado !== Event::ESTADO_CANCELADO && $event->isVisibleTo($actor) && $event->isActividadEconomica(),
-            Response::HTTP_UNPROCESSABLE_ENTITY,
-            'Solo se abona en actividades económicas vigentes.',
-        );
+        $this->assertEventoAbonable($participacion->evento, $actor);
         abort_unless(
             PersonaOrganizacion::query()
                 ->where('organizacion_id', $orgId)
@@ -234,13 +229,7 @@ final class ClubesAbonosService
             ]);
         }
 
-        $event = $participacion->evento;
-        abort_unless($event instanceof Event, Response::HTTP_NOT_FOUND);
-        abort_unless(
-            $event->estado !== Event::ESTADO_CANCELADO && $event->isVisibleTo($actor) && $event->isActividadEconomica(),
-            Response::HTTP_UNPROCESSABLE_ENTITY,
-            'Solo se abona en actividades económicas vigentes.',
-        );
+        $this->assertEventoAbonable($participacion->evento, $actor);
 
         $lines = $partidas
             ? $this->normalizePartidas($participacion, $partidas, null, null)
@@ -331,6 +320,7 @@ final class ClubesAbonosService
     {
         $orgId = $this->assertDirector($actor);
         abort_unless((int) $abono->organizacion_id === $orgId, Response::HTTP_NOT_FOUND);
+        $this->assertEventoAbonable($abono->loadMissing(['evento.tipoEvento'])->evento, $actor);
         $estado = $abono->estado ?: EventoParticipacionAbono::ESTADO_APROBADO;
         abort_unless(
             $estado === EventoParticipacionAbono::ESTADO_APROBADO,
@@ -368,8 +358,8 @@ final class ClubesAbonosService
             Response::HTTP_UNPROCESSABLE_ENTITY,
             'Este abono ya fue revisado.',
         );
-
         if ($estado === EventoParticipacionAbono::ESTADO_APROBADO) {
+            $this->assertEventoAbonable($abono->loadMissing(['evento.tipoEvento'])->evento, $actor);
             abort_unless($monto !== null && $monto > 0, Response::HTTP_UNPROCESSABLE_ENTITY, 'Indica el valor del abono.');
             $abono->monto = round($monto, 2);
             $abono->estado = EventoParticipacionAbono::ESTADO_APROBADO;
@@ -451,13 +441,32 @@ final class ClubesAbonosService
             ->where('participa', true)
             ->whereHas('evento', function ($query) {
                 $query->whereNull('evento_padre_id')
-                    ->where('estado', '!=', Event::ESTADO_CANCELADO)
+                    ->whereRaw('LOWER(estado) != ?', [Event::ESTADO_CANCELADO])
                     ->whereHas(
                         'tipoEvento',
                         fn ($tipo) => $tipo->where('slug', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA),
                     );
             })
-            ->get();
+            ->get()
+            ->filter(function (EventoParticipacion $row) {
+                $event = $row->evento;
+
+                return $event instanceof Event
+                    && strcasecmp((string) $event->estado, Event::ESTADO_CANCELADO) !== 0;
+            })
+            ->values();
+    }
+
+    private function assertEventoAbonable(?Event $event, User $actor): void
+    {
+        abort_unless($event instanceof Event, Response::HTTP_NOT_FOUND);
+        abort_unless(
+            strcasecmp((string) $event->estado, Event::ESTADO_CANCELADO) !== 0
+                && $event->isVisibleTo($actor)
+                && $event->isActividadEconomica(),
+            Response::HTTP_UNPROCESSABLE_ENTITY,
+            'Esta actividad está cancelada. No se registra en abonos ni en caja.',
+        );
     }
 
     /**
@@ -581,6 +590,7 @@ final class ClubesAbonosService
                 'image_url' => $first['image_url'] ?? null,
                 'banner_url' => $first['banner_url'] ?? null,
                 'starts_at' => $first['starts_at'],
+                'evento_estado' => $first['evento_estado'] ?? null,
                 'comprometido' => $comprometido,
                 'abonado' => $abonado,
                 'pendiente' => round($comprometido - $abonado, 2),

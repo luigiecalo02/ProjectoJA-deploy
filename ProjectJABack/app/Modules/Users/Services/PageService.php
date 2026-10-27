@@ -117,7 +117,7 @@ final class PageService
 
     private function actorCanSeePage(User $actor, Page $page): bool
     {
-        if ($actor->isSuperAdmin() && $actor->active_organizacion_id === null) {
+        if ($actor->isSuperAdmin()) {
             return true;
         }
 

@@ -19,14 +19,14 @@ final class ClubesFinanzasController
         $data = $request->validate([
             'desde' => ['nullable', 'date'],
             'hasta' => ['nullable', 'date', 'after_or_equal:desde'],
-            'evento_id' => ['nullable', 'integer', 'exists:events,id'],
+            'cuenta_bancaria_id' => ['nullable', 'integer', 'exists:cuentas_bancarias,id'],
         ]);
 
         return ApiResponse::success($this->finanzas->resumen(
             $request->user(),
             $data['desde'] ?? null,
             $data['hasta'] ?? null,
-            isset($data['evento_id']) ? (int) $data['evento_id'] : null,
+            isset($data['cuenta_bancaria_id']) ? (int) $data['cuenta_bancaria_id'] : null,
         ));
     }
 
@@ -51,6 +51,14 @@ final class ClubesFinanzasController
             $this->finanzas->storeMovimiento($request->user(), $data),
             'Movimiento registrado',
         );
+    }
+
+    public function destroyMovimiento(Request $request, int $movimiento): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $this->finanzas->deleteMovimiento($request->user(), $movimiento);
+
+        return ApiResponse::success(null, 'Movimiento eliminado');
     }
 
     private function assertClubesClient(Request $request): void

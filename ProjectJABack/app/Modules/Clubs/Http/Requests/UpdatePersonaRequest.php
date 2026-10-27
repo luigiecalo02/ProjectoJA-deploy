@@ -33,6 +33,9 @@ class UpdatePersonaRequest extends FormRequest
     public function rules(): array
     {
         $persona = $this->route('persona');
+        if ($persona instanceof Persona) {
+            $persona->loadMissing('user');
+        }
         $personaId = $persona instanceof Persona ? $persona->id : null;
 
         return [

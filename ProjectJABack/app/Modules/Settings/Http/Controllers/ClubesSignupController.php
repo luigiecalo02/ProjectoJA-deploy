@@ -32,7 +32,7 @@ final class ClubesSignupController
     {
         $this->assertClubesClient($request);
         $data = $request->validate([
-            'organizacion_id' => ['required', 'integer', 'min:1'],
+            'token' => ['required', 'string'],
             'nombre1' => ['required', 'string', 'max:80'],
             'apellido1' => ['required', 'string', 'max:80'],
             'correo' => ['required', 'email', 'max:160'],
@@ -59,12 +59,29 @@ final class ClubesSignupController
         );
     }
 
+    public function showInvite(Request $request): JsonResponse
+    {
+        $this->assertClubesClient($request);
+
+        return ApiResponse::success($this->invite->current($request->user(), $this->frontOrigin($request)));
+    }
+
     public function createInvite(Request $request): JsonResponse
     {
         $this->assertClubesClient($request);
         return ApiResponse::success(
             $this->invite->createLink($request->user(), $this->frontOrigin($request)),
-            'Enlace de activación listo.',
+            'Enlace de inscripción habilitado.',
+        );
+    }
+
+    public function disableInvite(Request $request): JsonResponse
+    {
+        $this->assertClubesClient($request);
+
+        return ApiResponse::success(
+            $this->invite->disable($request->user(), $this->frontOrigin($request)),
+            'Enlace de inscripción desactivado.',
         );
     }
 

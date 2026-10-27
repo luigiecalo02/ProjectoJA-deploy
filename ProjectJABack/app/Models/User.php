@@ -126,7 +126,7 @@ class User extends Authenticatable
 
     public function hasPermission(string $permission): bool
     {
-        if ($this->isSuperAdmin() && $this->active_organizacion_id === null) {
+        if ($this->isSuperAdmin()) {
             return true;
         }
 
@@ -144,7 +144,7 @@ class User extends Authenticatable
      */
     public function permissionNames(): array
     {
-        if ($this->isSuperAdmin() && $this->active_organizacion_id === null) {
+        if ($this->isSuperAdmin()) {
             return Cache::remember('permissions:all:names', now()->addMinutes(30), function () {
                 return Permission::query()
                     ->orderBy('name')
@@ -217,8 +217,13 @@ class User extends Authenticatable
      */
     public function roleNames(): array
     {
+        $names = collect();
+
+        if ($this->is_super) {
+            $names->push('super_admin');
+        }
+
         if ($this->active_rol_id) {
-            $names = collect();
             $roleName = Role::query()->where('id', $this->active_rol_id)->value('name');
             if ($roleName) {
                 $names->push($roleName);
@@ -227,11 +232,6 @@ class User extends Authenticatable
             return $names->unique()->values()->all();
         }
 
-        $names = collect();
-
-        if ($this->is_super) {
-            $names->push('super_admin');
-        }
         if ($this->is_admin) {
             $names->push('admin');
         }

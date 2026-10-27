@@ -33,7 +33,9 @@ Route::post('settings/clubes/public/activate', [ClubesSignupController::class, '
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('settings/clubes', [ClubesSettingsController::class, 'show']);
+    Route::get('settings/clubes/invite-link', [ClubesSignupController::class, 'showInvite']);
     Route::post('settings/clubes/invite-link', [ClubesSignupController::class, 'createInvite']);
+    Route::delete('settings/clubes/invite-link', [ClubesSignupController::class, 'disableInvite']);
     Route::put('settings/clubes', [ClubesSettingsController::class, 'update']);
     Route::post('settings/clubes/assets/{asset}', [ClubesSettingsController::class, 'uploadAsset']);
     Route::delete('settings/clubes/assets/{asset}', [ClubesSettingsController::class, 'resetAsset']);
@@ -64,6 +66,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('settings/clubes/abonos/{abono}', [ClubesAbonosController::class, 'updateMonto']);
     Route::get('settings/clubes/finanzas', [ClubesFinanzasController::class, 'resumen']);
     Route::post('settings/clubes/finanzas/movimientos', [ClubesFinanzasController::class, 'storeMovimiento']);
+    Route::delete('settings/clubes/finanzas/movimientos/{movimiento}', [ClubesFinanzasController::class, 'destroyMovimiento']);
     Route::get('settings/clubes/cuentas-bancarias', [ClubesCuentasBancariasController::class, 'index']);
     Route::post('settings/clubes/cuentas-bancarias', [ClubesCuentasBancariasController::class, 'store']);
     Route::put('settings/clubes/cuentas-bancarias/{cuenta}', [ClubesCuentasBancariasController::class, 'update']);

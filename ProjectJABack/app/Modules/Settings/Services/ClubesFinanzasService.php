@@ -9,6 +9,7 @@ use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Settings\Models\AppSetting;
 use App\Modules\Settings\Models\ClubesCajaCuenta;
 use App\Modules\Settings\Models\ClubesCajaMovimiento;
+use App\Modules\Settings\Models\CuentaBancaria;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -16,10 +17,12 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class ClubesFinanzasService
 {
+    private ?bool $orgHasAssignedCuentas = null;
+
     /**
      * @return array<string, mixed>
      */
-    public function resumen(User $actor, ?string $desde, ?string $hasta, ?int $eventoId): array
+    public function resumen(User $actor, ?string $desde, ?string $hasta, ?int $cuentaBancariaId): array
     {
         $orgId = $this->assertCanView($actor);
         $this->ensureCuentas($orgId);
@@ -32,7 +35,8 @@ final class ClubesFinanzasService
             ->with(['cuenta', 'evento'])
             ->where('organizacion_id', $orgId)
             ->whereBetween('occurred_at', [$from, $to])
-            ->when($eventoId, fn ($query) => $query->where('evento_id', $eventoId))
+            ->tap(fn ($query) => $this->applyCuentaBancariaScope($query, $orgId, $cuentaBancariaId))
+            ->tap(fn ($query) => $this->excludeCancelledEvents($query))
             ->orderByDesc('occurred_at')
             ->orderByDesc('id')
             ->get();
@@ -41,9 +45,9 @@ final class ClubesFinanzasService
         $gastos = round((float) $movimientos->where('tipo', ClubesCajaMovimiento::TIPO_EGRESO)->sum('monto'), 2);
         $disponible = round($ingresos - $gastos, 2);
 
-        $distribucion = $this->distribucionActividades($orgId, $from, $to, $eventoId);
+        $distribucion = $this->distribucionActividades($orgId, $from, $to, $cuentaBancariaId);
         $serie = $this->serieMensual($movimientos, $from, $to);
-        $cuentas = $this->saldosCuentas($orgId, $from, $to, $eventoId);
+        $cuentas = $this->saldosCuentas($orgId, $from, $to, $cuentaBancariaId);
         $actividades = $distribucion['actividades'];
         $partes = $distribucion['partes'];
         $porDistribuir = round(
@@ -56,7 +60,7 @@ final class ClubesFinanzasService
         return [
             'desde' => $from->toDateString(),
             'hasta' => $to->toDateString(),
-            'evento_id' => $eventoId,
+            'cuenta_bancaria_id' => $cuentaBancariaId,
             'kpis' => [
                 'ingresos' => $ingresos,
                 'gastos' => $gastos,
@@ -71,6 +75,7 @@ final class ClubesFinanzasService
             'movimientos' => $movimientos->take(25)->map(fn (ClubesCajaMovimiento $row) => $this->presentMovimiento($row))->values()->all(),
             'actividades' => $actividades,
             'eventos' => $this->opcionesEventos($orgId),
+            'cuentas_bancarias' => $this->opcionesCuentasBancariasUsadas($orgId),
         ];
     }
 
@@ -89,6 +94,16 @@ final class ClubesFinanzasService
             ->where('activa', true)
             ->firstOrFail();
 
+        $eventoId = isset($data['evento_id']) ? (int) $data['evento_id'] : null;
+        if ($eventoId) {
+            $event = Event::query()->where('organizacion_id', $orgId)->where('id', $eventoId)->first();
+            abort_unless(
+                $event instanceof Event && ! $this->eventIsCancelled($event),
+                Response::HTTP_UNPROCESSABLE_ENTITY,
+                'No se registra caja en una actividad cancelada.',
+            );
+        }
+
         $movimiento = ClubesCajaMovimiento::query()->create([
             'organizacion_id' => $orgId,
             'cuenta_id' => $cuenta->id,
@@ -96,7 +111,7 @@ final class ClubesFinanzasService
             'origen' => $data['origen'] ?? ClubesCajaMovimiento::ORIGEN_MANUAL,
             'monto' => round((float) $data['monto'], 2),
             'concepto' => trim((string) $data['concepto']),
-            'evento_id' => isset($data['evento_id']) ? (int) $data['evento_id'] : null,
+            'evento_id' => $eventoId,
             'registrado_por' => $actor->id,
             'occurred_at' => isset($data['occurred_at'])
                 ? Carbon::parse($data['occurred_at'])
@@ -106,9 +121,49 @@ final class ClubesFinanzasService
         return $this->presentMovimiento($movimiento->load(['cuenta', 'evento']));
     }
 
+    public function deleteMovimiento(User $actor, int $id): void
+    {
+        abort_unless(
+            $actor->isSuperAdmin(),
+            Response::HTTP_FORBIDDEN,
+            'Solo el superadministrador puede eliminar movimientos de caja.',
+        );
+        $orgId = $this->assertCanView($actor);
+        $row = ClubesCajaMovimiento::query()
+            ->where('organizacion_id', $orgId)
+            ->where('id', $id)
+            ->firstOrFail();
+
+        if (
+            $row->origen === ClubesCajaMovimiento::ORIGEN_ABONO
+            && $row->referencia_tipo === EventoParticipacionAbono::class
+            && $row->referencia_id
+        ) {
+            $abono = EventoParticipacionAbono::query()->find((int) $row->referencia_id);
+            if ($abono) {
+                $abono->estado = EventoParticipacionAbono::ESTADO_ELIMINADO;
+                $abono->save();
+            }
+            ClubesCajaMovimiento::query()
+                ->where('organizacion_id', $orgId)
+                ->where('referencia_tipo', EventoParticipacionAbono::class)
+                ->where('referencia_id', $row->referencia_id)
+                ->delete();
+
+            return;
+        }
+
+        $row->delete();
+    }
+
     public function registrarAbonoAprobado(EventoParticipacionAbono $abono): void
     {
         if (! $this->tablesReady()) {
+            return;
+        }
+
+        $abono->loadMissing('evento');
+        if ($this->eventIsCancelled($abono->evento)) {
             return;
         }
 
@@ -241,11 +296,13 @@ final class ClubesFinanzasService
             ->all();
 
         EventoParticipacionAbono::query()
+            ->with('evento')
             ->where('organizacion_id', $orgId)
             ->where(function ($query) {
                 $query->where('estado', EventoParticipacionAbono::ESTADO_APROBADO)
                     ->orWhereNull('estado');
             })
+            ->whereHas('evento', fn ($evento) => $this->whereEventNotCancelled($evento))
             ->when($synced !== [], fn ($query) => $query->whereNotIn('id', $synced))
             ->orderBy('id')
             ->each(fn (EventoParticipacionAbono $abono) => $this->registrarAbonoAprobado($abono));
@@ -254,14 +311,14 @@ final class ClubesFinanzasService
     /**
      * @return array{partes: array<string, array<string, mixed>>, actividades: list<array<string, mixed>>}
      */
-    private function distribucionActividades(int $orgId, Carbon $from, Carbon $to, ?int $eventoId): array
+    private function distribucionActividades(int $orgId, Carbon $from, Carbon $to, ?int $cuentaBancariaId): array
     {
         $events = Event::query()
             ->where('organizacion_id', $orgId)
             ->whereNull('evento_padre_id')
-            ->where('estado', '!=', Event::ESTADO_CANCELADO)
+            ->tap(fn ($query) => $this->whereEventNotCancelled($query))
             ->whereHas('tipoEvento', fn ($tipo) => $tipo->where('slug', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA))
-            ->when($eventoId, fn ($query) => $query->where('id', $eventoId))
+            ->when($cuentaBancariaId, fn ($query) => $this->whereEventoDeCuentaBancaria($query, $orgId, $cuentaBancariaId))
             ->orderBy('starts_at')
             ->get();
 
@@ -285,7 +342,7 @@ final class ClubesFinanzasService
         foreach ($events as $event) {
             $lista = $abonos->get((int) $event->id, collect());
             $abonado = round((float) $lista->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2);
-            if ($abonado <= 0 && ! $eventoId) {
+            if ($abonado <= 0 && ! $cuentaBancariaId) {
                 continue;
             }
 
@@ -374,7 +431,7 @@ final class ClubesFinanzasService
     /**
      * @return list<array<string, mixed>>
      */
-    private function saldosCuentas(int $orgId, Carbon $from, Carbon $to, ?int $eventoId): array
+    private function saldosCuentas(int $orgId, Carbon $from, Carbon $to, ?int $cuentaBancariaId): array
     {
         $cuentas = ClubesCajaCuenta::query()
             ->where('organizacion_id', $orgId)
@@ -385,7 +442,8 @@ final class ClubesFinanzasService
         $movimientos = ClubesCajaMovimiento::query()
             ->where('organizacion_id', $orgId)
             ->whereBetween('occurred_at', [$from, $to])
-            ->when($eventoId, fn ($query) => $query->where('evento_id', $eventoId))
+            ->tap(fn ($query) => $this->applyCuentaBancariaScope($query, $orgId, $cuentaBancariaId))
+            ->tap(fn ($query) => $this->excludeCancelledEvents($query))
             ->get()
             ->groupBy(fn (ClubesCajaMovimiento $row) => (int) $row->cuenta_id);
 
@@ -410,7 +468,7 @@ final class ClubesFinanzasService
         return Event::query()
             ->where('organizacion_id', $orgId)
             ->whereNull('evento_padre_id')
-            ->where('estado', '!=', Event::ESTADO_CANCELADO)
+            ->tap(fn ($query) => $this->whereEventNotCancelled($query))
             ->whereHas('tipoEvento', fn ($tipo) => $tipo->where('slug', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA))
             ->orderByDesc('starts_at')
             ->get(['id', 'name', 'starts_at'])
@@ -424,8 +482,108 @@ final class ClubesFinanzasService
     }
 
     /**
+     * Cuentas bancarias distintas ya asignadas a actividades económicas del club.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function opcionesCuentasBancariasUsadas(int $orgId): array
+    {
+        $cuentaIds = Event::query()
+            ->where('organizacion_id', $orgId)
+            ->whereNull('evento_padre_id')
+            ->whereNotNull('cuenta_bancaria_id')
+            ->tap(fn ($query) => $this->whereEventNotCancelled($query))
+            ->whereHas('tipoEvento', fn ($tipo) => $tipo->where('slug', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA))
+            ->select('cuenta_bancaria_id')
+            ->groupBy('cuenta_bancaria_id')
+            ->pluck('cuenta_bancaria_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $cuentas = CuentaBancaria::query()
+            ->where('organizacion_id', $orgId)
+            ->when(
+                $cuentaIds !== [],
+                fn ($query) => $query->whereIn('id', $cuentaIds),
+                fn ($query) => $query->where('activo', true),
+            )
+            ->orderBy('orden')
+            ->orderBy('nombre')
+            ->get();
+
+        return $cuentas
+            ->map(fn (CuentaBancaria $cuenta) => [
+                'id' => (int) $cuenta->id,
+                'nombre' => $this->etiquetaCuentaBancaria($cuenta),
+                'banco' => $cuenta->banco,
+                'numero_cuenta' => $cuenta->numero_cuenta,
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function etiquetaCuentaBancaria(CuentaBancaria $cuenta): string
+    {
+        $nombre = trim((string) ($cuenta->nombre ?: $cuenta->banco ?: 'Cuenta bancaria'));
+        $numero = trim((string) $cuenta->numero_cuenta);
+
+        return $numero !== '' ? "{$nombre} · {$numero}" : $nombre;
+    }
+
+    private function applyCuentaBancariaScope($query, int $orgId, ?int $cuentaBancariaId)
+    {
+        if (! $cuentaBancariaId) {
+            return $query;
+        }
+
+        return $query->whereHas(
+            'evento',
+            fn ($evento) => $this->whereEventoDeCuentaBancaria($evento, $orgId, $cuentaBancariaId),
+        );
+    }
+
+    private function whereEventoDeCuentaBancaria($query, int $orgId, int $cuentaBancariaId)
+    {
+        return $query->where(function ($inner) use ($orgId, $cuentaBancariaId) {
+            $inner->where('cuenta_bancaria_id', $cuentaBancariaId);
+            if (! $this->orgHasAssignedCuentas($orgId)) {
+                $inner->orWhereNull('cuenta_bancaria_id');
+            }
+        });
+    }
+
+    private function orgHasAssignedCuentas(int $orgId): bool
+    {
+        return $this->orgHasAssignedCuentas ??= Event::query()
+            ->where('organizacion_id', $orgId)
+            ->whereNull('evento_padre_id')
+            ->whereNotNull('cuenta_bancaria_id')
+            ->tap(fn ($query) => $this->whereEventNotCancelled($query))
+            ->whereHas('tipoEvento', fn ($tipo) => $tipo->where('slug', TipoEvento::SLUG_ACTIVIDAD_ECONOMICA))
+            ->exists();
+    }
+
+    /**
      * @return array<string, mixed>
      */
+    private function excludeCancelledEvents($query)
+    {
+        return $query->where(function ($inner) {
+            $inner->whereNull('evento_id')
+                ->orWhereHas('evento', fn ($evento) => $this->whereEventNotCancelled($evento));
+        });
+    }
+
+    private function whereEventNotCancelled($query)
+    {
+        return $query->whereRaw('LOWER(estado) != ?', [Event::ESTADO_CANCELADO]);
+    }
+
+    private function eventIsCancelled(?Event $event): bool
+    {
+        return $event !== null && strcasecmp((string) $event->estado, Event::ESTADO_CANCELADO) === 0;
+    }
+
     private function presentMovimiento(ClubesCajaMovimiento $row): array
     {
         return [

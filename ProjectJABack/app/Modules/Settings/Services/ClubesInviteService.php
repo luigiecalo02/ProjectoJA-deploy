@@ -11,6 +11,7 @@ use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacionRol;
 use App\Modules\Users\Models\Permission;
 use App\Modules\Users\Models\Role;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -27,39 +28,80 @@ final class ClubesInviteService
     ) {}
 
     /**
-     * @return array{url: string, expires_at: string, organizacion_id: int, organizacion_nombre: string}
+     * @return array{activo: bool, url: string|null, expires_at: string|null, organizacion_id: int, organizacion_nombre: string}
+     */
+    public function current(User $actor, string $origin): array
+    {
+        $org = $this->directorOrganization($actor);
+
+        return $this->payloadFor($org, $origin, $this->state((int) $org->id));
+    }
+
+    /**
+     * @return array{activo: bool, url: string, expires_at: string, organizacion_id: int, organizacion_nombre: string}
      */
     public function createLink(User $actor, string $origin): array
     {
         $org = $this->directorOrganization($actor);
         $expires = now()->addDays(self::TTL_DAYS);
+        $nonce = Str::random(16);
         $token = Crypt::encryptString(json_encode([
             'o' => (int) $org->id,
             'e' => $expires->timestamp,
-            'n' => Str::random(16),
+            'n' => $nonce,
         ], JSON_THROW_ON_ERROR));
 
-        return [
-            'url' => rtrim($origin, '/').'/activar?token='.rawurlencode($token),
-            'expires_at' => $expires->toIso8601String(),
-            'organizacion_id' => (int) $org->id,
-            'organizacion_nombre' => $org->nombre,
+        $state = [
+            'activo' => true,
+            'nonce' => $nonce,
+            'token' => $token,
+            'expires_at' => $expires->timestamp,
         ];
+        Cache::forever($this->cacheKey((int) $org->id), $state);
+
+        return $this->payloadFor($org, $origin, $state);
     }
 
     /**
-     * @return array{organizacion_id: int, organizacion_nombre: string, expires_at: string}
+     * @return array{activo: bool, url: null, expires_at: null, organizacion_id: int, organizacion_nombre: string}
+     */
+    public function disable(User $actor, string $origin): array
+    {
+        $org = $this->directorOrganization($actor);
+        $state = $this->state((int) $org->id);
+        $state['activo'] = false;
+        Cache::forever($this->cacheKey((int) $org->id), $state);
+
+        return $this->payloadFor($org, $origin, $state);
+    }
+
+    /**
+     * @return array{organizacion_id: int, organizacion_nombre: string, expires_at: string, path: list<array<string, mixed>>}
      */
     public function show(string $token): array
     {
-        $payload = $this->decode($token);
-        $org = $this->orgInTenant((int) $payload['o']);
+        $org = $this->orgFromActiveToken($token);
 
         return [
             'organizacion_id' => (int) $org->id,
             'organizacion_nombre' => $org->nombre,
-            'expires_at' => now()->setTimestamp((int) $payload['e'])->toIso8601String(),
+            'expires_at' => now()->setTimestamp((int) $this->decode($token)['e'])->toIso8601String(),
+            'path' => $this->organizationPath($org),
         ];
+    }
+
+    public function orgFromActiveToken(string $token): Organizacion
+    {
+        $payload = $this->decode($token);
+        $org = $this->orgInTenant((int) $payload['o']);
+        $state = $this->state((int) $org->id);
+        if (! ($state['activo'] ?? false) || ($state['nonce'] ?? null) !== ($payload['n'] ?? null)) {
+            throw ValidationException::withMessages([
+                'token' => ['El enlace de inscripción no está habilitado. Pídele uno al director.'],
+            ]);
+        }
+
+        return $org;
     }
 
     /**
@@ -67,7 +109,7 @@ final class ClubesInviteService
      */
     public function lookup(string $token, string $identificacion): array
     {
-        $org = $this->orgInTenant((int) $this->decode($token)['o']);
+        $org = $this->orgFromActiveToken($token);
         $persona = $this->personaInOrg($org, $identificacion);
 
         $fields = [
@@ -106,7 +148,7 @@ final class ClubesInviteService
      */
     public function activate(array $data): array
     {
-        $org = $this->orgInTenant((int) $this->decode((string) $data['token'])['o']);
+        $org = $this->orgFromActiveToken((string) $data['token']);
         $persona = $this->personaInOrg($org, (string) $data['identificacion']);
         $role = $this->memberRole();
 
@@ -208,7 +250,7 @@ final class ClubesInviteService
     }
 
     /**
-     * @return array{o: int, e: int}
+     * @return array{o: int, e: int, n: string|null}
      */
     private function decode(string $token): array
     {
@@ -229,7 +271,46 @@ final class ClubesInviteService
         return [
             'o' => (int) ($data['o'] ?? 0),
             'e' => (int) $data['e'],
+            'n' => isset($data['n']) ? (string) $data['n'] : null,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $state
+     * @return array{activo: bool, url: string|null, expires_at: string|null, organizacion_id: int, organizacion_nombre: string}
+     */
+    private function payloadFor(Organizacion $org, string $origin, array $state): array
+    {
+        $activo = (bool) ($state['activo'] ?? false);
+        $token = is_string($state['token'] ?? null) ? $state['token'] : null;
+        $expires = isset($state['expires_at']) ? (int) $state['expires_at'] : 0;
+
+        return [
+            'activo' => $activo,
+            'url' => $activo && $token
+                ? rtrim($origin, '/').'/activar?token='.rawurlencode($token)
+                : null,
+            'expires_at' => $activo && $expires > 0
+                ? now()->setTimestamp($expires)->toIso8601String()
+                : null,
+            'organizacion_id' => (int) $org->id,
+            'organizacion_nombre' => $org->nombre,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function state(int $orgId): array
+    {
+        $state = Cache::get($this->cacheKey($orgId), []);
+
+        return is_array($state) ? $state : [];
+    }
+
+    private function cacheKey(int $orgId): string
+    {
+        return 'clubes.invite.'.$orgId;
     }
 
     private function directorOrganization(User $actor): Organizacion
