@@ -18,9 +18,14 @@ final class ClubesHostMap
             return null;
         }
 
-        $id = $map[$host] ?? null;
+        foreach ($this->lookupHosts($host) as $candidate) {
+            $id = $map[$candidate] ?? null;
+            if (is_int($id) && $id > 0) {
+                return $id;
+            }
+        }
 
-        return is_int($id) && $id > 0 ? $id : null;
+        return null;
     }
 
     public function hostForRequest(Request $request): ?string
@@ -143,6 +148,27 @@ final class ClubesHostMap
         $host = $this->normalizeHost($request->getHost());
 
         return $host !== '' ? $host : null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function lookupHosts(string $host): array
+    {
+        $hosts = [$host];
+        if ($host === 'localhost') {
+            $hosts[] = '127.0.0.1';
+        }
+        if ($host === '127.0.0.1') {
+            $hosts[] = 'localhost';
+        }
+        if (str_starts_with($host, 'www.')) {
+            $hosts[] = substr($host, 4);
+        } else {
+            $hosts[] = 'www.'.$host;
+        }
+
+        return array_values(array_unique($hosts));
     }
 
     private function normalizeHost(string $value): string

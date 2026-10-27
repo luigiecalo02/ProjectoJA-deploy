@@ -360,10 +360,7 @@ final class SessionContextService
 
     private function isClubesRequest(): bool
     {
-        $request = request();
-
-        return $request instanceof \Illuminate\Http\Request
-            && $request->header('X-Clubes-Client') === 'clubes';
+        return $this->clubesTenant->isClubesRequest();
     }
 
     /**
@@ -390,7 +387,13 @@ final class SessionContextService
         }
 
         if ($option === null) {
-            return null;
+            if ((int) ($user->active_organizacion_id ?? 0) === $rootId) {
+                return $user;
+            }
+
+            $user->forceFill(['active_organizacion_id' => $rootId])->save();
+
+            return $user->fresh() ?? $user;
         }
 
         $current = $this->current($user);

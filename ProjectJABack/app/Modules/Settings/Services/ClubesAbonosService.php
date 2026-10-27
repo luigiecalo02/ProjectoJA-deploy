@@ -60,7 +60,7 @@ final class ClubesAbonosService
         $filas = $participaciones
             ->when($personaId, fn (Collection $rows) => $rows->where('persona_id', $personaId))
             ->when($eventoId, fn (Collection $rows) => $rows->where('evento_id', $eventoId))
-            ->map(function (EventoParticipacion $row) use ($abonos, $modo, $personaId, $eventoId, $actor) {
+            ->map(function (EventoParticipacion $row) use ($abonos, $modo, $personaId, $eventoId, $actor, $orgId) {
                 $clave = $this->clave((int) $row->evento_id, (int) $row->persona_id);
                 $lista = $abonos->get($clave, collect());
                 $comprometido = $this->comprometido($row);
