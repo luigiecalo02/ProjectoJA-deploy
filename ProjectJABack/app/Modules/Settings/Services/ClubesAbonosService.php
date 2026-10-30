@@ -13,6 +13,7 @@ use App\Modules\Events\Services\ProductoServicioService;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Models\AppSetting;
+use App\Modules\Settings\Models\ClubesCajaMovimiento;
 use App\Modules\Shared\Services\ImageOptimizer;
 use App\Modules\Shared\Services\PublicFileService;
 use Illuminate\Http\UploadedFile;
@@ -55,6 +56,7 @@ final class ClubesAbonosService
                 ->values();
         }
         $abonos = $this->abonosPorClave($orgId);
+        $ajustes = ClubesCajaMovimiento::ajustesParticipantes($orgId);
 
         $opcionesIntegrantes = $this->opcionesIntegrantes($participaciones);
         $opcionesActividades = $this->opcionesActividades($participaciones);
@@ -62,12 +64,13 @@ final class ClubesAbonosService
         $filas = $participaciones
             ->when($personaId, fn (Collection $rows) => $rows->where('persona_id', $personaId))
             ->when($eventoId, fn (Collection $rows) => $rows->where('evento_id', $eventoId))
-            ->map(function (EventoParticipacion $row) use ($abonos, $modo, $personaId, $eventoId, $actor, $orgId) {
+            ->map(function (EventoParticipacion $row) use ($abonos, $ajustes, $modo, $personaId, $eventoId, $actor, $orgId) {
                 $clave = $this->clave((int) $row->evento_id, (int) $row->persona_id);
                 $lista = $abonos->get($clave, collect());
                 $comprometido = $this->comprometido($row);
                 $abonado = round((float) $lista->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2);
-                $ganancia = $this->gananciaReal($row, $lista);
+                $ajuste = $ajustes[(int) $row->evento_id][(int) $row->persona_id] ?? 0.0;
+                $ganancia = round($this->gananciaReal($row, $lista) + $ajuste, 2);
                 $detalle = ($modo === 'integrante' && $personaId) || ($modo === 'actividad' && $eventoId);
                 $visibles = $lista->filter(fn (EventoParticipacionAbono $abono) => $abono->visiblePara($actor));
 
@@ -229,6 +232,11 @@ final class ClubesAbonosService
             $servicios,
         );
 
+        $ajustesEvento = ClubesCajaMovimiento::ajustesParticipantes($orgId, $eventoId)[$eventoId] ?? [];
+        $ajuste = $personaId
+            ? (float) ($ajustesEvento[$personaId] ?? 0)
+            : (float) array_sum($ajustesEvento);
+
         return [
             'evento_id' => (int) $event->id,
             'evento_name' => $event->name,
@@ -237,6 +245,7 @@ final class ClubesAbonosService
                 : null,
             'reparto' => $this->ganancias->repartoDe($event),
             'ingreso' => round($ingreso, 2),
+            'ajuste_participantes' => round($ajuste, 2),
             'servicios' => $servicios->all(),
             'lineas' => $lineas->all(),
             'abonos_por_producto' => $abonosPorProducto,
@@ -492,9 +501,9 @@ final class ClubesAbonosService
         $venta = $participacion->ventas
             ->first(fn (EventoParticipacionVenta $row) => (int) $row->producto_servicio_id === $productoServicioId);
 
-        if (! $venta || (int) $venta->cantidad <= 0) {
+        if (! $venta || $venta->cantidadContable() <= 0) {
             throw ValidationException::withMessages([
-                'producto_servicio_id' => ['Ese producto no está en el pedido de este participante.'],
+                'producto_servicio_id' => ['Ese producto no está en la entrega de este participante.'],
             ]);
         }
 
@@ -730,9 +739,9 @@ final class ClubesAbonosService
     private function pedidos(EventoParticipacion $row): array
     {
         return $row->ventas
-            ->filter(fn (EventoParticipacionVenta $venta) => (int) $venta->cantidad > 0)
+            ->filter(fn (EventoParticipacionVenta $venta) => $venta->cantidadContable() > 0)
             ->map(function (EventoParticipacionVenta $venta) use ($row) {
-                $cantidad = (int) $venta->cantidad;
+                $cantidad = $venta->cantidadContable();
                 $precio = $this->precioDeVenta($venta, (int) $row->evento_id);
 
                 $productoId = (int) $venta->producto_servicio_id;

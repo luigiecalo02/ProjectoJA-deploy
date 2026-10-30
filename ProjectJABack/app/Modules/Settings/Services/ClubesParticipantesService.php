@@ -13,6 +13,7 @@ use App\Modules\Events\Models\ProductoServicio;
 use App\Modules\Events\Services\ProductoServicioService;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Models\AppSetting;
+use App\Modules\Settings\Models\ClubesCajaMovimiento;
 use App\Modules\Settings\Models\ClubesGananciaEclesiastica;
 use App\Modules\Shared\Services\PublicFileService;
 use Illuminate\Support\Facades\DB;
@@ -52,6 +53,7 @@ final class ClubesParticipantesService
             ->orderByDesc('created_at')
             ->get()
             ->groupBy(fn (EventoParticipacionAbono $abono) => (int) $abono->persona_id);
+        $ajustes = ClubesCajaMovimiento::ajustesParticipantes($orgId, (int) $event->id)[(int) $event->id] ?? [];
 
         $integrantes = $this->members($orgId)->map(
             fn (Persona $persona) => $this->mapIntegrante(
@@ -60,6 +62,7 @@ final class ClubesParticipantesService
                 $servicioIds,
                 $abonos->get((int) $persona->id),
                 $actor,
+                (float) ($ajustes[(int) $persona->id] ?? 0),
             )
         )->values()->all();
 
@@ -194,11 +197,12 @@ final class ClubesParticipantesService
             ->where('organizacion_id', $orgId)
             ->where('persona_id', $personaId)
             ->first();
+        $ajuste = ClubesCajaMovimiento::ajustesParticipantes($orgId, (int) $event->id)[(int) $event->id][$personaId] ?? 0.0;
 
         return [
             'evento' => $this->eventPayload($event),
             'servicios' => $servicios,
-            'integrante' => $this->mapIntegrante($persona, $row, $servicioIds, null, $actor),
+            'integrante' => $this->mapIntegrante($persona, $row, $servicioIds, null, $actor, (float) $ajuste),
             'recaudo' => $this->selfRecaudo($orgId, (int) $event->id, $personaId, $actor),
             'ganancia' => [
                 'capital' => round((float) ($event->capital ?? 0), 2),
@@ -312,6 +316,7 @@ final class ClubesParticipantesService
         array $servicioIds,
         $abonos = null,
         ?User $viewer = null,
+        float $ajusteParticipantes = 0.0,
     ): array {
         $ventas = [];
         if ($row) {
@@ -338,6 +343,7 @@ final class ClubesParticipantesService
             'participa' => $row ? (bool) $row->participa : null,
             'ventas' => $ventas,
             'abonado' => $abonado,
+            'ajuste_participantes' => round($ajusteParticipantes, 2),
             'abonos' => $visibles->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all(),
         ];
     }
@@ -417,8 +423,11 @@ final class ClubesParticipantesService
             ->get();
         $visibles = $abonos->filter(fn (EventoParticipacionAbono $abono) => $abono->visiblePara($viewer));
 
+        $ajuste = ClubesCajaMovimiento::ajustesParticipantes($orgId, $eventoId)[$eventoId][$personaId] ?? 0.0;
+
         return [
             'abonado' => round((float) $abonos->sum(fn (EventoParticipacionAbono $abono) => $abono->montoContable()), 2),
+            'ajuste_participantes' => round((float) $ajuste, 2),
             'abonos' => $visibles->map(fn (EventoParticipacionAbono $abono) => $this->presentacion->movimiento($abono))->values()->all(),
         ];
     }

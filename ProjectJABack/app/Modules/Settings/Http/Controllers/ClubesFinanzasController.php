@@ -35,15 +35,44 @@ final class ClubesFinanzasController
         $this->assertClubesClient($request);
         $data = $request->validate([
             'cuenta_bancaria_id' => ['required', 'integer', 'exists:cuentas_bancarias,id'],
-            'tipo' => ['required', Rule::in([ClubesCajaMovimiento::TIPO_INGRESO, ClubesCajaMovimiento::TIPO_EGRESO])],
+            'cuenta_destino_id' => [
+                'required_if:tipo,'.ClubesCajaMovimiento::TIPO_TRANSFERENCIA,
+                'nullable',
+                'integer',
+                'different:cuenta_bancaria_id',
+                'exists:cuentas_bancarias,id',
+            ],
+            'tipo' => ['required', Rule::in([
+                ClubesCajaMovimiento::TIPO_INGRESO,
+                ClubesCajaMovimiento::TIPO_EGRESO,
+                ClubesCajaMovimiento::TIPO_TRANSFERENCIA,
+            ])],
             'origen' => ['nullable', Rule::in([
                 ClubesCajaMovimiento::ORIGEN_MANUAL,
                 ClubesCajaMovimiento::ORIGEN_GASTO,
                 ClubesCajaMovimiento::ORIGEN_AJUSTE,
+                ClubesCajaMovimiento::ORIGEN_TRANSFERENCIA,
             ])],
             'monto' => ['required', 'numeric', 'min:0.01', 'max:999999999.99'],
             'concepto' => ['required', 'string', 'max:255'],
-            'evento_id' => ['nullable', 'integer', 'exists:events,id'],
+            'destino' => [
+                'required_if:tipo,'.ClubesCajaMovimiento::TIPO_INGRESO,
+                'nullable',
+                'exclude_if:tipo,'.ClubesCajaMovimiento::TIPO_TRANSFERENCIA,
+                Rule::in(ClubesCajaMovimiento::DESTINOS),
+            ],
+            'evento_id' => [
+                'required_if:destino,'.ClubesCajaMovimiento::DESTINO_PARTICIPANTES,
+                'nullable',
+                'integer',
+                'exists:events,id',
+            ],
+            'persona_id' => [
+                'required_if:destino,'.ClubesCajaMovimiento::DESTINO_PARTICIPANTES,
+                'nullable',
+                'integer',
+                'exists:personas,id',
+            ],
             'occurred_at' => ['nullable', 'date'],
         ]);
 
