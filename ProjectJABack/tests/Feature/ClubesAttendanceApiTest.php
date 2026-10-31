@@ -98,6 +98,31 @@ class ClubesAttendanceApiTest extends TestCase
         ])->assertOk()->json('data.integrantes');
         $this->assertSame(1, $rankedPuntual[0]['puntos']);
         $this->assertSame(1, $rankedPuntual[0]['puntuales']);
+
+        $this->putJson("/api/v1/settings/clubes/asistencia/{$eventId}", [
+            'persona_ids' => [$member->id],
+            'tardes' => [$member->id],
+            'justificados' => [$director->persona_id],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.resumen.presentes', 1)
+            ->assertJsonPath('data.resumen.tardes', 1)
+            ->assertJsonPath('data.resumen.puntuales', 0);
+
+        $this->assertDatabaseHas('evento_asistencias', [
+            'evento_id' => $eventId,
+            'persona_id' => $member->id,
+            'estado' => EventoAsistencia::ESTADO_TARDE,
+        ]);
+
+        $history = $this->getJson('/api/v1/settings/clubes/asistencia/integrante/'.$member->id, [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk()
+            ->assertJsonPath('data.tardes', 1)
+            ->assertJsonPath('data.presentes', 1)
+            ->json('data.registros');
+        $this->assertSame('tarde', $history[0]['estado']);
     }
 
     public function test_ranking_and_history_use_selected_dates(): void

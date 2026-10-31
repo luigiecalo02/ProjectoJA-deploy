@@ -68,6 +68,8 @@ final class ClubesAttendanceController
             'justificados.*' => ['integer', 'exists:personas,id'],
             'puntuales' => ['sometimes', 'array'],
             'puntuales.*' => ['integer', 'exists:personas,id'],
+            'tardes' => ['sometimes', 'array'],
+            'tardes.*' => ['integer', 'exists:personas,id'],
         ]);
 
         return ApiResponse::success(
@@ -77,6 +79,7 @@ final class ClubesAttendanceController
                 $data['persona_ids'] ?? [],
                 $data['justificados'] ?? [],
                 $data['puntuales'] ?? [],
+                $data['tardes'] ?? [],
             ),
             'Asistencia guardada',
         );

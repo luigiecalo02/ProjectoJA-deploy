@@ -790,7 +790,7 @@ class Event extends Model
 
         $rows = EventoAsistencia::query()
             ->whereIn('evento_id', $ids)
-            ->whereIn('estado', [EventoAsistencia::ESTADO_PRESENTE, EventoAsistencia::ESTADO_PUNTUAL])
+            ->whereIn('estado', EventoAsistencia::ESTADOS_ASISTIO)
             ->selectRaw('evento_id, COUNT(*) as total')
             ->groupBy('evento_id')
             ->pluck('total', 'evento_id');

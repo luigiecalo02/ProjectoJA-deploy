@@ -44,7 +44,7 @@ final class ClubesAttendanceService
         $eventIds = $events->pluck('id')->all() ?: [0];
         $presentCounts = EventoAsistencia::query()
             ->where('organizacion_id', $orgId)
-            ->whereIn('estado', [EventoAsistencia::ESTADO_PRESENTE, EventoAsistencia::ESTADO_PUNTUAL])
+            ->whereIn('estado', EventoAsistencia::ESTADOS_ASISTIO)
             ->whereIn('evento_id', $eventIds)
             ->selectRaw('evento_id, COUNT(*) as total')
             ->groupBy('evento_id')
@@ -104,6 +104,7 @@ final class ClubesAttendanceService
      * @param  list<int>  $presenteIds
      * @param  list<int>  $justificadoIds
      * @param  list<int>  $puntualIds
+     * @param  list<int>  $tardeIds
      * @return array<string, mixed>
      */
     public function sync(
@@ -112,23 +113,30 @@ final class ClubesAttendanceService
         array $presenteIds,
         array $justificadoIds = [],
         array $puntualIds = [],
+        array $tardeIds = [],
     ): array {
         $orgId = $this->assertCanUpdate($actor);
         $this->assertVisibleEvent($actor, $event);
 
         $memberIds = $this->members($orgId)->pluck('id')->map(fn ($id) => (int) $id)->all();
         $puntualIds = array_values(array_unique(array_map('intval', $puntualIds)));
+        $tardeIds = array_values(array_unique(array_diff(
+            array_map('intval', $tardeIds),
+            $puntualIds,
+        )));
         $presenteIds = array_values(array_unique(array_diff(
             array_map('intval', $presenteIds),
             $puntualIds,
+            $tardeIds,
         )));
         $justificadoIds = array_values(array_unique(array_diff(
             array_map('intval', $justificadoIds),
             $presenteIds,
             $puntualIds,
+            $tardeIds,
         )));
 
-        foreach ([...$presenteIds, ...$justificadoIds, ...$puntualIds] as $personaId) {
+        foreach ([...$presenteIds, ...$justificadoIds, ...$puntualIds, ...$tardeIds] as $personaId) {
             if (! in_array($personaId, $memberIds, true)) {
                 throw ValidationException::withMessages([
                     'persona_ids' => ['Hay personas que no son integrantes de este club.'],
@@ -147,12 +155,15 @@ final class ClubesAttendanceService
             $presenteIds,
             $justificadoIds,
             $puntualIds,
+            $tardeIds,
             $actor,
         ) {
             foreach ($memberIds as $personaId) {
                 $estado = null;
                 if (in_array($personaId, $puntualIds, true)) {
                     $estado = EventoAsistencia::ESTADO_PUNTUAL;
+                } elseif (in_array($personaId, $tardeIds, true)) {
+                    $estado = EventoAsistencia::ESTADO_TARDE;
                 } elseif (in_array($personaId, $presenteIds, true)) {
                     $estado = EventoAsistencia::ESTADO_PRESENTE;
                 } elseif (in_array($personaId, $justificadoIds, true)) {
@@ -201,11 +212,12 @@ final class ClubesAttendanceService
         $integrantes = $this->members($orgId)
             ->map(function (Persona $persona) use ($counts, $eventos) {
                 $rows = $counts->get((int) $persona->id) ?? collect();
-                $presentesTarde = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_PRESENTE)?->total ?? 0);
+                $presentesSolo = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_PRESENTE)?->total ?? 0);
                 $puntuales = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_PUNTUAL)?->total ?? 0);
+                $tardes = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_TARDE)?->total ?? 0);
                 $ausentes = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_AUSENTE)?->total ?? 0);
                 $justificados = (int) ($rows->firstWhere('estado', EventoAsistencia::ESTADO_JUSTIFICADO)?->total ?? 0);
-                $presentes = $presentesTarde + $puntuales;
+                $presentes = $presentesSolo + $puntuales + $tardes;
                 $marcados = $presentes + $ausentes + $justificados;
                 $porcentaje = $eventos > 0 ? (int) round(($presentes / $eventos) * 100) : 0;
 
@@ -216,6 +228,7 @@ final class ClubesAttendanceService
                     'foto_url' => $this->photoUrl($persona),
                     'presentes' => $presentes,
                     'puntuales' => $puntuales,
+                    'tardes' => $tardes,
                     'ausentes' => $ausentes,
                     'justificados' => $justificados,
                     'sin_marcar' => max($eventos - $marcados, 0),
@@ -300,11 +313,9 @@ final class ClubesAttendanceService
         $conAsistencia = collect($registros)->filter(
             fn (array $row) => $row['inscrito'] || $row['estado'] !== null,
         );
-        $presentes = $conAsistencia->whereIn('estado', [
-            EventoAsistencia::ESTADO_PRESENTE,
-            EventoAsistencia::ESTADO_PUNTUAL,
-        ])->count();
+        $presentes = $conAsistencia->whereIn('estado', EventoAsistencia::ESTADOS_ASISTIO)->count();
         $puntuales = $conAsistencia->where('estado', EventoAsistencia::ESTADO_PUNTUAL)->count();
+        $tardes = $conAsistencia->where('estado', EventoAsistencia::ESTADO_TARDE)->count();
         $justificados = $conAsistencia->where('estado', EventoAsistencia::ESTADO_JUSTIFICADO)->count();
         $ausentes = $conAsistencia->where('estado', EventoAsistencia::ESTADO_AUSENTE)->count();
         $eventos = $conAsistencia->count();
@@ -318,6 +329,7 @@ final class ClubesAttendanceService
             'hasta' => $hasta,
             'presentes' => $presentes,
             'puntuales' => $puntuales,
+            'tardes' => $tardes,
             'justificados' => $justificados,
             'ausentes' => $ausentes,
             'sin_marcar' => max($eventos - $marcados, 0),
@@ -397,10 +409,7 @@ final class ClubesAttendanceService
 
     private function puntosPorEstado(?string $estado): int
     {
-        return in_array($estado, [
-            EventoAsistencia::ESTADO_PRESENTE,
-            EventoAsistencia::ESTADO_PUNTUAL,
-        ], true) ? 1 : 0;
+        return in_array($estado, EventoAsistencia::ESTADOS_ASISTIO, true) ? 1 : 0;
     }
 
     private function assertCanView(User $actor): int
@@ -514,6 +523,7 @@ final class ClubesAttendanceService
     {
         $presentes = 0;
         $puntuales = 0;
+        $tardes = 0;
         $ausentes = 0;
         $justificados = 0;
         $sinMarcar = 0;
@@ -521,6 +531,7 @@ final class ClubesAttendanceService
         foreach ($integrantes as $row) {
             match ($row['estado'] ?? null) {
                 EventoAsistencia::ESTADO_PUNTUAL => $puntuales++,
+                EventoAsistencia::ESTADO_TARDE => $tardes++,
                 EventoAsistencia::ESTADO_PRESENTE => $presentes++,
                 EventoAsistencia::ESTADO_AUSENTE => $ausentes++,
                 EventoAsistencia::ESTADO_JUSTIFICADO => $justificados++,
@@ -530,8 +541,9 @@ final class ClubesAttendanceService
 
         return [
             'total' => count($integrantes),
-            'presentes' => $presentes + $puntuales,
+            'presentes' => $presentes + $puntuales + $tardes,
             'puntuales' => $puntuales,
+            'tardes' => $tardes,
             'ausentes' => $ausentes,
             'justificados' => $justificados,
             'sin_marcar' => $sinMarcar,

@@ -18,6 +18,8 @@ class EventoAsistencia extends Model
 
     public const ESTADO_PUNTUAL = 'puntual';
 
+    public const ESTADO_TARDE = 'tarde';
+
     public const PUNTOS_PRESENTE = 1;
 
     public const PUNTOS_PUNTUAL = 2;
@@ -27,6 +29,13 @@ class EventoAsistencia extends Model
         self::ESTADO_AUSENTE,
         self::ESTADO_JUSTIFICADO,
         self::ESTADO_PUNTUAL,
+        self::ESTADO_TARDE,
+    ];
+
+    public const ESTADOS_ASISTIO = [
+        self::ESTADO_PRESENTE,
+        self::ESTADO_PUNTUAL,
+        self::ESTADO_TARDE,
     ];
 
     protected $fillable = [
