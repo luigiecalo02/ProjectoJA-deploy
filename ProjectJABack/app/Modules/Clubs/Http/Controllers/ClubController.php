@@ -226,13 +226,14 @@ final class ClubController
             $personas = $this->clubService->memberPersonas($club);
             $data['persona_ids'] = $personas->pluck('id')->values()->all();
             $data['personas'] = $personas->map(function (Persona $persona) {
-                $userId = $persona->relationLoaded('user')
-                    ? $persona->user?->id
-                    : $persona->user()->value('users.id');
+                $user = $persona->relationLoaded('user')
+                    ? $persona->user
+                    : $persona->user()->first(['id', 'persona_id', 'name', 'email', 'is_active']);
 
                 return [
                     'id' => $persona->id,
-                    'user_id' => $userId,
+                    'user_id' => $user?->id,
+                    'user_is_active' => $user ? (bool) $user->is_active : null,
                     'tipo_identificacion' => $persona->tipo_identificacion,
                     'identificacion' => $persona->identificacion,
                     'nombre1' => $persona->nombre1,

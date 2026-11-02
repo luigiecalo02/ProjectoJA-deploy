@@ -213,6 +213,9 @@ final class UserService
     {
         $old = ['is_active' => $user->is_active];
         $user->update(['is_active' => $isActive]);
+        if (! $isActive) {
+            $user->tokens()->delete();
+        }
         $this->auditLogger->log('users', 'status', $old, ['is_active' => $isActive], $user);
 
         return $user->fresh(['clubs', 'persona']);

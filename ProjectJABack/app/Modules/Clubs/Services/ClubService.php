@@ -1193,7 +1193,7 @@ final class ClubService
             ->pluck('persona_id');
 
         return Persona::query()
-            ->with('user:id,persona_id,name,email')
+            ->with('user:id,persona_id,name,email,is_active')
             ->whereIn('id', $personaIds)
             ->orderBy('apellido1')
             ->orderBy('nombre1')

@@ -7,14 +7,17 @@ use App\Modules\Clubs\Models\Club;
 use App\Modules\Clubs\Models\Persona;
 use App\Modules\Organizations\Models\Organizacion;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
+use App\Modules\Organizations\Models\PersonaOrganizacionRol;
 use App\Modules\Organizations\Services\OrganizationAccessService;
 use App\Modules\Shared\Models\StoredFile;
 use App\Modules\Shared\Services\AuditLogger;
 use App\Modules\Shared\Services\ImageOptimizer;
+use App\Modules\Users\Models\Role;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 final class PersonaService
@@ -174,7 +177,7 @@ final class PersonaService
     {
         $query = Persona::query()
             ->with([
-                'user:id,persona_id,name,email',
+                'user:id,persona_id,name,email,is_active',
                 'organizaciones.organizacion:id,nombre,codigo,organizacion_padre_id,tipo_organizacion_id',
             ]);
 
@@ -281,7 +284,7 @@ final class PersonaService
     {
         return Persona::query()
             ->with([
-                'user:id,persona_id,name,email',
+                'user:id,persona_id,name,email,is_active',
                 'organizaciones.organizacion:id,nombre,codigo',
             ])
             ->findOrFail($id);
@@ -469,6 +472,153 @@ final class PersonaService
         ], $persona);
 
         return $user;
+    }
+
+    /**
+     * Activa o desactiva el acceso de login del integrante.
+     * Si no tiene usuario y se activa, lo crea con los datos de la persona y la contraseña indicada.
+     */
+    public function setUserAccess(Persona $persona, bool $active, User $actor, ?string $password = null): Persona
+    {
+        if (! $this->actorCanManageClubAccount($actor, $persona)) {
+            throw ValidationException::withMessages([
+                'persona' => ['No puedes gestionar el acceso de este integrante.'],
+            ]);
+        }
+
+        return DB::transaction(function () use ($persona, $active, $actor, $password) {
+            $persona->loadMissing('user');
+            $user = $persona->user;
+
+            if (! $active) {
+                if (! $user) {
+                    throw ValidationException::withMessages([
+                        'is_active' => ['Este integrante aún no tiene usuario para desactivar.'],
+                    ]);
+                }
+                if ((int) $user->id === (int) $actor->id) {
+                    throw ValidationException::withMessages([
+                        'is_active' => ['No puedes desactivar tu propio usuario.'],
+                    ]);
+                }
+
+                $old = ['is_active' => (bool) $user->is_active];
+                $user->forceFill(['is_active' => false])->save();
+                $user->tokens()->delete();
+                $this->auditLogger->log('personas', 'user.deactivate', $old, [
+                    'is_active' => false,
+                    'user_id' => $user->id,
+                ], $persona);
+
+                return $persona->fresh(['user', 'organizaciones.organizacion']) ?? $persona;
+            }
+
+            if ($user) {
+                $old = ['is_active' => (bool) $user->is_active];
+                $payload = ['is_active' => true];
+                if (filled($password)) {
+                    $payload['password'] = $password;
+                }
+                $user->forceFill($payload)->save();
+                $this->ensureMemberRole($user, $actor);
+                $this->auditLogger->log('personas', 'user.activate', $old, [
+                    'is_active' => true,
+                    'user_id' => $user->id,
+                    'password_set' => filled($password),
+                ], $persona);
+
+                return $persona->fresh(['user', 'organizaciones.organizacion']) ?? $persona;
+            }
+
+            if (! filled($password)) {
+                throw ValidationException::withMessages([
+                    'password' => ['Define una contraseña para crear el acceso de este integrante.'],
+                ]);
+            }
+
+            $email = filled($persona->correo) ? Str::lower(trim((string) $persona->correo)) : null;
+            if (! $email) {
+                throw ValidationException::withMessages([
+                    'correo' => ['El integrante necesita un correo para crear su usuario.'],
+                ]);
+            }
+
+            $existing = User::query()->whereRaw('LOWER(email) = ?', [$email])->first();
+            if ($existing) {
+                if ($existing->persona_id && (int) $existing->persona_id !== (int) $persona->id) {
+                    throw ValidationException::withMessages([
+                        'correo' => ['Ese correo ya pertenece a otro usuario.'],
+                    ]);
+                }
+                $existing->forceFill([
+                    'persona_id' => $persona->id,
+                    'name' => $persona->full_name,
+                    'password' => $password,
+                    'is_active' => true,
+                    'email_verified_at' => $existing->email_verified_at ?? now(),
+                ])->save();
+                $user = $existing;
+            } else {
+                $user = User::query()->create([
+                    'persona_id' => $persona->id,
+                    'name' => $persona->full_name,
+                    'email' => $email,
+                    'password' => $password,
+                    'is_active' => true,
+                    'email_verified_at' => now(),
+                    'avatar_url' => $persona->foto,
+                ]);
+            }
+
+            $this->ensureMemberRole($user, $actor);
+            $this->auditLogger->log('personas', 'user.create', null, [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'is_active' => true,
+            ], $persona);
+
+            return $persona->fresh(['user', 'organizaciones.organizacion']) ?? $persona;
+        });
+    }
+
+    private function ensureMemberRole(User $user, User $actor): void
+    {
+        $orgId = $this->orgAccess->activeClubOrganizationId($actor);
+        if ($orgId === null || ! $user->persona_id) {
+            return;
+        }
+
+        $roleId = Role::query()->where('name', 'miembro')->value('id');
+        if (! $roleId) {
+            return;
+        }
+
+        $personaOrg = PersonaOrganizacion::query()->firstOrCreate(
+            [
+                'persona_id' => $user->persona_id,
+                'organizacion_id' => $orgId,
+            ],
+            [
+                'fecha_inicio' => now()->toDateString(),
+                'estado' => true,
+            ]
+        );
+
+        if (! $personaOrg->estado) {
+            $personaOrg->forceFill(['estado' => true])->save();
+        }
+
+        PersonaOrganizacionRol::query()->firstOrCreate(
+            [
+                'persona_organizacion_id' => $personaOrg->id,
+                'rol_id' => (int) $roleId,
+            ],
+            [
+                'created_at' => now(),
+            ]
+        );
+
+        $user->clearPermissionCache();
     }
 
     public function delete(Persona $persona): void

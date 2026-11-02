@@ -25,6 +25,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // API autenticada por Bearer token (Sanctum); sin CSRF de SPA stateful.
         $middleware->trustProxies(at: '*');
+        // Si el usuario fue desactivado, corta la sesión en la siguiente petición.
+        $middleware->appendToGroup('api', \App\Http\Middleware\EnsureUserIsActive::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

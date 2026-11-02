@@ -2,6 +2,7 @@
 
 namespace App\Modules\Clubs\Http\Controllers;
 
+use App\Modules\Clubs\Http\Requests\SetPersonaUserAccessRequest;
 use App\Modules\Clubs\Http\Requests\StorePersonaRequest;
 use App\Modules\Clubs\Http\Requests\UpdatePersonaPasswordRequest;
 use App\Modules\Clubs\Http\Requests\UpdatePersonaRequest;
@@ -56,7 +57,7 @@ final class PersonaController
     {
         abort_unless($request->user()->can('view', $persona), Response::HTTP_FORBIDDEN);
         $persona->loadMissing([
-            'user:id,persona_id,name,email',
+            'user:id,persona_id,name,email,is_active',
             'organizaciones.organizacion:id,nombre,codigo',
         ]);
 
@@ -79,6 +80,21 @@ final class PersonaController
         );
 
         return ApiResponse::success(null, 'Contraseña actualizada');
+    }
+
+    public function setUserAccess(SetPersonaUserAccessRequest $request, Persona $persona): JsonResponse
+    {
+        $persona = $this->personaService->setUserAccess(
+            $persona,
+            $request->boolean('is_active'),
+            $request->user(),
+            $request->validated('password'),
+        );
+
+        return ApiResponse::success(
+            $this->payload($persona),
+            $request->boolean('is_active') ? 'Acceso activado' : 'Acceso desactivado',
+        );
     }
 
     public function storeFoto(Request $request, Persona $persona): JsonResponse
@@ -117,11 +133,14 @@ final class PersonaController
             ? $persona->organizaciones
             : $persona->organizaciones()->with('organizacion:id,nombre,codigo')->get();
 
+        $user = $persona->relationLoaded('user')
+            ? $persona->user
+            : $persona->user()->first(['id', 'persona_id', 'name', 'email', 'is_active', 'avatar_url']);
+
         return [
             'id' => $persona->id,
-            'user_id' => $persona->relationLoaded('user')
-                ? $persona->user?->id
-                : $persona->user()->value('users.id'),
+            'user_id' => $user?->id,
+            'user_is_active' => $user ? (bool) $user->is_active : null,
             'tipo_identificacion' => $persona->tipo_identificacion,
             'identificacion' => $persona->identificacion,
             'nombre1' => $persona->nombre1,
@@ -135,11 +154,7 @@ final class PersonaController
             'direccion_actual' => $persona->direccion_actual,
             'foto' => $persona->foto,
             'foto_url' => $this->publicFiles->url($persona->foto)
-                ?: $this->publicFiles->url(
-                    $persona->relationLoaded('user')
-                        ? $persona->user?->avatar_url
-                        : $persona->user()->value('users.avatar_url')
-                ),
+                ?: $this->publicFiles->url($user?->avatar_url),
             'full_name' => $persona->full_name,
             'club_ids' => $clubs->pluck('id')->values()->all(),
             'clubs' => $clubs->map(fn (Club $club) => [
