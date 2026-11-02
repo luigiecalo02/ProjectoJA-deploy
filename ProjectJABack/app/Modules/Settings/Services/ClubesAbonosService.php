@@ -11,6 +11,7 @@ use App\Modules\Events\Models\EventoProductoServicio;
 use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Events\Services\ProductoServicioService;
 use App\Modules\Clubs\Models\Persona;
+use App\Modules\Notifications\Services\ClubNotifier;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Models\AppSetting;
 use App\Modules\Settings\Models\ClubesCajaMovimiento;
@@ -31,6 +32,7 @@ final class ClubesAbonosService
         private readonly ClubesFinanzasService $finanzas,
         private readonly ClubesCuentasBancariasService $cuentas,
         private readonly EventoGananciaRegistro $ganancias,
+        private readonly ClubNotifier $notifier,
     ) {}
 
     /**
@@ -566,6 +568,7 @@ final class ClubesAbonosService
         $abono->save();
         if ($abono->estado === EventoParticipacionAbono::ESTADO_APROBADO) {
             $this->finanzas->registrarAbonoAprobado($abono->loadMissing(['evento', 'producto']));
+            $this->notifier->abonoAprobado($abono, $actor);
         }
 
         $recaudo = $this->recaudo((int) $abono->organizacion_id, (int) $abono->evento_id, (int) $abono->persona_id, $actor);

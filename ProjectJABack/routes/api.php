@@ -14,4 +14,5 @@ Route::prefix('v1')->group(function () {
     require app_path('Modules/Cabanas/Routes/api.php');
     require app_path('Modules/Lugares/Routes/api.php');
     require app_path('Modules/Settings/Routes/api.php');
+    require app_path('Modules/Notifications/Routes/api.php');
 });

@@ -9,6 +9,7 @@ use App\Modules\Events\Models\EventoAsistencia;
 use App\Modules\Events\Models\EventoInscripcion;
 use App\Modules\Events\Models\EventoInscripcionPersona;
 use App\Modules\Events\Models\TipoEvento;
+use App\Modules\Notifications\Services\ClubNotifier;
 use App\Modules\Organizations\Models\PersonaOrganizacion;
 use App\Modules\Settings\Models\AppSetting;
 use App\Modules\Shared\Services\PublicFileService;
@@ -18,7 +19,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class ClubesAttendanceService
 {
-    public function __construct(private readonly PublicFileService $publicFiles) {}
+    public function __construct(
+        private readonly PublicFileService $publicFiles,
+        private readonly ClubNotifier $notifier,
+    ) {}
 
     /**
      * @return list<array<string, mixed>>
@@ -147,6 +151,16 @@ final class ClubesAttendanceService
         $inscritosIds = $this->inscritosIds((int) $event->id, $orgId);
         $expectedIds = $inscritosIds !== [] ? $inscritosIds : $memberIds;
 
+        $previous = EventoAsistencia::query()
+            ->where('evento_id', $event->id)
+            ->where('organizacion_id', $orgId)
+            ->pluck('estado', 'persona_id')
+            ->mapWithKeys(fn ($estado, $personaId) => [(int) $personaId => (string) $estado])
+            ->all();
+
+        /** @var list<array{persona_id: int, estado: string}> $changed */
+        $changed = [];
+
         DB::transaction(function () use (
             $event,
             $orgId,
@@ -157,6 +171,8 @@ final class ClubesAttendanceService
             $puntualIds,
             $tardeIds,
             $actor,
+            $previous,
+            &$changed,
         ) {
             foreach ($memberIds as $personaId) {
                 $estado = null;
@@ -183,12 +199,28 @@ final class ClubesAttendanceService
                     continue;
                 }
 
+                $before = $previous[$personaId] ?? null;
                 EventoAsistencia::query()->updateOrCreate($keys, [
                     'estado' => $estado,
                     'registrado_por' => $actor->id,
                 ]);
+
+                // Solo avisar a quien se marcó explícitamente (presente/puntual/tarde/justificado).
+                // El ausente automático del resto del roster no dispara notificación.
+                $explicitamenteMarcado = in_array($personaId, $presenteIds, true)
+                    || in_array($personaId, $justificadoIds, true)
+                    || in_array($personaId, $puntualIds, true)
+                    || in_array($personaId, $tardeIds, true);
+
+                if ($before !== $estado && $explicitamenteMarcado) {
+                    $changed[] = ['persona_id' => $personaId, 'estado' => $estado];
+                }
             }
         });
+
+        foreach ($changed as $item) {
+            $this->notifier->asistenciaMarcada($event, $item['persona_id'], $item['estado'], $actor);
+        }
 
         return $this->show($actor, $event->fresh());
     }
