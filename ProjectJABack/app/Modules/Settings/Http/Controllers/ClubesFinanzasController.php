@@ -30,6 +30,26 @@ final class ClubesFinanzasController
         ));
     }
 
+    public function detalleDistribucion(Request $request, string $destino): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'desde' => ['nullable', 'date'],
+            'hasta' => ['nullable', 'date', 'after_or_equal:desde'],
+            'cuenta_bancaria_id' => ['nullable', 'integer', 'exists:cuentas_bancarias,id'],
+            'persona_id' => ['nullable', 'integer', 'exists:personas,id'],
+        ]);
+
+        return ApiResponse::success($this->finanzas->detalleDistribucion(
+            $request->user(),
+            $destino,
+            $data['desde'] ?? null,
+            $data['hasta'] ?? null,
+            isset($data['cuenta_bancaria_id']) ? (int) $data['cuenta_bancaria_id'] : null,
+            isset($data['persona_id']) ? (int) $data['persona_id'] : null,
+        ));
+    }
+
     public function storeMovimiento(Request $request): JsonResponse
     {
         $this->assertClubesClient($request);

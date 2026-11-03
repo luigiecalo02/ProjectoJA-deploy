@@ -115,6 +115,10 @@ final class ClubesAbonosService
             'opciones_integrantes' => $opcionesIntegrantes,
             'opciones_actividades' => $opcionesActividades,
             'filas' => $filas->all(),
+            'cuenta_bancaria_libre' => $this->cuentas->forAbono(null, $orgId),
+            'abonos_libres' => EventoParticipacionAbono::hasTipoColumn()
+                ? $this->abonosLibresPresentados($orgId, $actor, $personaId, $ownOnly)
+                : [],
         ];
     }
 
@@ -325,6 +329,69 @@ final class ClubesAbonosService
     }
 
     /**
+     * Abono libre: monto a elección del integrante, con comprobante y detalle.
+     * No está amarrado a una actividad: tras aprobación queda como ganancia
+     * exclusiva de ese participante en Finanzas.
+     *
+     * @return array{abonado: float, abonos: list<array<string, mixed>>}
+     */
+    public function submitLibre(
+        User $actor,
+        float $monto,
+        UploadedFile $file,
+        ?string $detalle = null,
+    ): array {
+        abort_unless(
+            $actor->hasPermission('mis_abonos.update'),
+            Response::HTTP_FORBIDDEN,
+            'No puedes enviar un abono libre.',
+        );
+
+        $orgId = AppSetting::resolveOrganizacionId();
+        abort_unless($orgId, Response::HTTP_FORBIDDEN, 'Debes tener una organización activa.');
+        $personaId = (int) ($actor->persona_id ?? 0);
+        abort_unless($personaId > 0, Response::HTTP_UNPROCESSABLE_ENTITY, 'Tu usuario no está vinculado a una persona.');
+        abort_unless(
+            PersonaOrganizacion::query()
+                ->where('organizacion_id', $orgId)
+                ->where('persona_id', $personaId)
+                ->where('estado', true)
+                ->exists(),
+            Response::HTTP_FORBIDDEN,
+            'Solo los integrantes del club pueden abonar.',
+        );
+        abort_unless($monto > 0, Response::HTTP_UNPROCESSABLE_ENTITY, 'Indica un monto mayor a cero.');
+        abort_unless(
+            EventoParticipacionAbono::hasTipoColumn(),
+            Response::HTTP_SERVICE_UNAVAILABLE,
+            'El abono libre aún no está disponible. Falta aplicar la migración de base de datos.',
+        );
+
+        $stored = $this->images->storeCompact($file, 'abonos/'.$orgId, 'pantallazo');
+        $nota = trim((string) ($detalle ?? ''));
+
+        $created = EventoParticipacionAbono::query()->create([
+            'evento_id' => null,
+            'organizacion_id' => $orgId,
+            'persona_id' => $personaId,
+            'producto_servicio_id' => null,
+            'tipo' => EventoParticipacionAbono::TIPO_LIBRE,
+            'monto' => round($monto, 2),
+            'nota' => $nota !== '' ? mb_substr($nota, 0, 255) : null,
+            'estado' => EventoParticipacionAbono::ESTADO_PENDIENTE,
+            'comprobante_path' => $stored->path,
+            'registrado_por' => $actor->id,
+        ]);
+
+        $this->notifier->abonoComprobanteSubido($created, $actor);
+
+        return [
+            'abonado' => 0.0,
+            'abonos' => $this->abonosLibresPresentados($orgId, $actor, $personaId, true),
+        ];
+    }
+
+    /**
      * @param  list<array{producto_servicio_id?: mixed, monto?: mixed}>|null  $partidas
      * @return array{abonado: float, abonos: list<array<string, mixed>>}
      */
@@ -379,8 +446,9 @@ final class ClubesAbonosService
             ]];
         $stored = $this->images->storeCompact($file, 'abonos/'.$orgId, 'pantallazo');
 
+        $created = null;
         foreach ($lines as $line) {
-            EventoParticipacionAbono::query()->create([
+            $created = EventoParticipacionAbono::query()->create([
                 'evento_id' => $eventoId,
                 'organizacion_id' => $orgId,
                 'persona_id' => $personaId,
@@ -390,6 +458,10 @@ final class ClubesAbonosService
                 'comprobante_path' => $stored->path,
                 'registrado_por' => $actor->id,
             ]);
+        }
+
+        if ($created) {
+            $this->notifier->abonoComprobanteSubido($created, $actor);
         }
 
         return $this->recaudo($orgId, $eventoId, $personaId, $actor);
@@ -558,7 +630,9 @@ final class ClubesAbonosService
             'Este abono ya fue revisado.',
         );
         if ($estado === EventoParticipacionAbono::ESTADO_APROBADO) {
-            $this->assertEventoAbonable($abono->loadMissing(['evento.tipoEvento'])->evento, $actor);
+            if (! $abono->isLibre() || $abono->evento_id) {
+                $this->assertEventoAbonable($abono->loadMissing(['evento.tipoEvento'])->evento, $actor);
+            }
             abort_unless($monto !== null && $monto > 0, Response::HTTP_UNPROCESSABLE_ENTITY, 'Indica el valor del abono.');
             $abono->monto = round($monto, 2);
             $abono->estado = EventoParticipacionAbono::ESTADO_APROBADO;
@@ -571,13 +645,17 @@ final class ClubesAbonosService
             $this->notifier->abonoAprobado($abono, $actor);
         }
 
-        $recaudo = $this->recaudo((int) $abono->organizacion_id, (int) $abono->evento_id, (int) $abono->persona_id, $actor);
+        $eventoId = (int) ($abono->evento_id ?? 0);
+        $recaudo = $eventoId > 0
+            ? $this->recaudo((int) $abono->organizacion_id, $eventoId, (int) $abono->persona_id, $actor)
+            : ['abonado' => 0.0, 'abonos' => []];
 
         return [
             'abono' => $this->presentacion->movimiento($abono->fresh() ?? $abono),
             'persona_id' => (int) $abono->persona_id,
-            'evento_id' => (int) $abono->evento_id,
+            'evento_id' => $abono->evento_id !== null ? (int) $abono->evento_id : null,
             'abonado' => $recaudo['abonado'],
+            'abonos' => $recaudo['abonos'] ?? [],
         ];
     }
 
@@ -599,13 +677,17 @@ final class ClubesAbonosService
         $abono->save();
         $this->finanzas->anularAbono($abono->loadMissing(['evento', 'producto']));
 
-        $recaudo = $this->recaudo((int) $abono->organizacion_id, (int) $abono->evento_id, (int) $abono->persona_id, $actor);
+        $eventoId = (int) ($abono->evento_id ?? 0);
+        $recaudo = $eventoId > 0
+            ? $this->recaudo((int) $abono->organizacion_id, $eventoId, (int) $abono->persona_id, $actor)
+            : ['abonado' => 0.0, 'abonos' => []];
 
         return [
             'abono' => $this->presentacion->movimiento($abono->fresh() ?? $abono),
             'persona_id' => (int) $abono->persona_id,
-            'evento_id' => (int) $abono->evento_id,
+            'evento_id' => $abono->evento_id !== null ? (int) $abono->evento_id : null,
             'abonado' => $recaudo['abonado'],
+            'abonos' => $recaudo['abonos'] ?? [],
         ];
     }
 
@@ -683,9 +765,56 @@ final class ClubesAbonosService
         return EventoParticipacionAbono::query()
             ->with('producto')
             ->where('organizacion_id', $orgId)
+            ->when(EventoParticipacionAbono::hasTipoColumn(), function ($query) {
+                $query->where(function ($inner) {
+                    $inner->where('tipo', '!=', EventoParticipacionAbono::TIPO_LIBRE)
+                        ->orWhereNotNull('evento_id');
+                });
+            })
             ->orderByDesc('created_at')
             ->get()
             ->groupBy(fn (EventoParticipacionAbono $row) => $this->clave((int) $row->evento_id, (int) $row->persona_id));
+    }
+
+    /**
+     * Abonos libres sin actividad (ingreso directo al participante).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function abonosLibresPresentados(int $orgId, User $actor, ?int $personaId, bool $ownOnly): array
+    {
+        if (! EventoParticipacionAbono::hasTipoColumn()) {
+            return [];
+        }
+
+        $query = EventoParticipacionAbono::query()
+            ->with(['persona.user'])
+            ->where('organizacion_id', $orgId)
+            ->where('tipo', EventoParticipacionAbono::TIPO_LIBRE)
+            ->whereNull('evento_id')
+            ->orderByDesc('created_at');
+
+        if ($ownOnly) {
+            $query->where('persona_id', (int) $actor->persona_id);
+        } elseif ($personaId) {
+            $query->where('persona_id', $personaId);
+        } else {
+            $query->where('estado', EventoParticipacionAbono::ESTADO_PENDIENTE);
+        }
+
+        return $query
+            ->get()
+            ->filter(fn (EventoParticipacionAbono $abono) => $abono->visiblePara($actor))
+            ->map(function (EventoParticipacionAbono $abono) {
+                $payload = $this->presentacion->movimiento($abono);
+                $payload['persona_id'] = (int) $abono->persona_id;
+                $payload['persona_nombre'] = $abono->persona?->full_name ?: 'Participante';
+                $payload['foto_url'] = $this->photoUrl($abono->persona);
+
+                return $payload;
+            })
+            ->values()
+            ->all();
     }
 
     private function precioDeVenta(EventoParticipacionVenta $venta, int $eventoId): float

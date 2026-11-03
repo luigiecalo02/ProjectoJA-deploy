@@ -272,6 +272,28 @@ final class EventoGananciaRegistro
             ];
         }
 
+        // Abonos libres: suman al recaudo visible, pero la ganancia de participantes
+        // llega por el movimiento de caja con destino=participantes (sin repartir iglesia).
+        if (EventoParticipacionAbono::hasTipoColumn()) {
+            EventoParticipacionAbono::query()
+                ->whereIn('evento_id', $ids)
+                ->where('tipo', EventoParticipacionAbono::TIPO_LIBRE)
+                ->where('estado', EventoParticipacionAbono::ESTADO_APROBADO)
+                ->when($from && $to, fn ($query) => $query->whereBetween('created_at', [$from, $to]))
+                ->get(['evento_id', 'monto'])
+                ->each(function (EventoParticipacionAbono $abono) use (&$out): void {
+                    $monto = round((float) $abono->monto, 2);
+                    if ($monto <= 0) {
+                        return;
+                    }
+                    $eventoId = (int) $abono->evento_id;
+                    if (! isset($out[$eventoId])) {
+                        return;
+                    }
+                    $out[$eventoId]['abonado'] = round((float) $out[$eventoId]['abonado'] + $monto, 2);
+                });
+        }
+
         return $out;
     }
 
@@ -360,6 +382,136 @@ final class EventoGananciaRegistro
         }
 
         return $out;
+    }
+
+    /**
+     * Líneas de lo recogido por persona/producto, para desglosar una parte
+     * (participantes, diezmo, ofrenda, club, extras o capital).
+     *
+     * @param  Collection<int, Event>  $events
+     * @return list<array{
+     *   evento_id: int,
+     *   evento_nombre: string,
+     *   persona_id: int,
+     *   producto_servicio_id: int,
+     *   capital: float,
+     *   diezmo: float,
+     *   ofrenda: float,
+     *   participantes: float,
+     *   club: float,
+     *   extras: float,
+     *   occurred_at: ?string
+     * }>
+     */
+    public function lineasRecogidas(Collection $events, ?Carbon $from = null, ?Carbon $to = null): array
+    {
+        $ids = $events->map(fn (Event $event) => (int) $event->id)->all();
+        if ($ids === []) {
+            return [];
+        }
+
+        $eventNames = $events->mapWithKeys(
+            fn (Event $event) => [(int) $event->id => (string) ($event->name ?? 'Actividad')],
+        );
+
+        $ofertas = EventoProductoServicio::query()
+            ->whereIn('evento_id', $ids)
+            ->where('activo', true)
+            ->get()
+            ->groupBy(fn (EventoProductoServicio $row) => (int) $row->evento_id);
+
+        $ventas = EventoParticipacionVenta::query()
+            ->join(
+                'evento_participacion',
+                'evento_participacion.id',
+                '=',
+                'evento_participacion_venta.evento_participacion_id',
+            )
+            ->whereIn('evento_participacion.evento_id', $ids)
+            ->where('evento_participacion.participa', true)
+            ->get([
+                'evento_participacion.evento_id',
+                'evento_participacion.persona_id',
+                'evento_participacion_venta.producto_servicio_id',
+                'evento_participacion_venta.cantidad',
+                'evento_participacion_venta.cantidad_entregada',
+            ])
+            ->groupBy(fn (EventoParticipacionVenta $row) => (int) $row->evento_id);
+
+        $pagado = [];
+        $ultimaFecha = [];
+        EventoParticipacionAbono::query()
+            ->whereIn('evento_id', $ids)
+            ->when($from && $to, fn ($query) => $query->whereBetween('created_at', [$from, $to]))
+            ->get()
+            ->each(function (EventoParticipacionAbono $abono) use (&$pagado, &$ultimaFecha): void {
+                $monto = $abono->montoContable();
+                if ($monto <= 0) {
+                    return;
+                }
+                $eventoId = (int) $abono->evento_id;
+                $personaId = (int) $abono->persona_id;
+                $productoId = (int) $abono->producto_servicio_id;
+                $pagado[$eventoId][$personaId][$productoId] = ($pagado[$eventoId][$personaId][$productoId] ?? 0) + $monto;
+                $iso = $abono->created_at?->toIso8601String();
+                $clave = $eventoId.'-'.$personaId.'-'.$productoId;
+                if ($iso && (! isset($ultimaFecha[$clave]) || $iso > $ultimaFecha[$clave])) {
+                    $ultimaFecha[$clave] = $iso;
+                }
+            });
+
+        $lineas = [];
+        foreach ($events as $event) {
+            $eventoId = (int) $event->id;
+            $reparto = $this->repartoDe($event);
+            $listaVentas = $ventas->get($eventoId, collect());
+            $totales = [];
+            foreach ($listaVentas as $venta) {
+                $productoId = (int) $venta->producto_servicio_id;
+                $totales[$productoId] = ($totales[$productoId] ?? 0) + $venta->cantidadContable();
+            }
+
+            $capitalUnidad = [];
+            foreach ($ofertas->get($eventoId, collect()) as $oferta) {
+                $productoId = (int) $oferta->producto_servicio_id;
+                $proyectada = (int) ($totales[$productoId] ?? $oferta->cantidad_proyectada ?? 0);
+                $inversion = (float) ($oferta->inversion ?? 0);
+                $capitalUnidad[$productoId] = $proyectada > 0 ? (int) round($inversion / $proyectada) : 0;
+            }
+
+            foreach ($listaVentas as $venta) {
+                $productoId = (int) $venta->producto_servicio_id;
+                $personaId = (int) $venta->persona_id;
+                $qty = $venta->cantidadContable();
+                if ($qty <= 0) {
+                    continue;
+                }
+                $costo = $qty * ($capitalUnidad[$productoId] ?? 0);
+                $abonado = (float) ($pagado[$eventoId][$personaId][$productoId] ?? 0);
+                if ($abonado <= 0) {
+                    continue;
+                }
+                $cubierto = min($abonado, $costo);
+                $ganancia = max(0, $abonado - $costo);
+                $partes = $this->partesDeGanancia($ganancia, $reparto);
+                $clave = $eventoId.'-'.$personaId.'-'.$productoId;
+                $lineas[] = [
+                    'evento_id' => $eventoId,
+                    'evento_nombre' => $eventNames[$eventoId] ?? 'Actividad',
+                    'persona_id' => $personaId,
+                    'producto_servicio_id' => $productoId,
+                    'capital' => round($cubierto, 2),
+                    'diezmo' => round((float) $partes['diezmo'], 2),
+                    'ofrenda' => round((float) $partes['ofrenda'], 2),
+                    'participantes' => round((float) $partes['participantes'], 2),
+                    'club' => round((float) $partes['club'], 2),
+                    'extras' => round((float) $partes['extras'], 2),
+                    'occurred_at' => $ultimaFecha[$clave] ?? $event->starts_at?->toIso8601String(),
+                ];
+            }
+        }
+
+        return $lineas;
     }
 
     /**

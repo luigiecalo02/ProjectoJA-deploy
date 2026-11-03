@@ -53,17 +53,23 @@ final class AbonoAprobadoNotification extends Notification implements ShouldQueu
     private function payload(): array
     {
         $this->abono->loadMissing('evento');
-        $evento = $this->abono->evento?->name ?? 'tu actividad';
         $monto = number_format((float) $this->abono->monto, 0, ',', '.');
+        $body = $this->abono->isLibre() && ! $this->abono->evento_id
+            ? sprintf('Se aprobó tu abono libre de $ %s. Queda como ganancia tuya.', $monto)
+            : sprintf(
+                'Se aprobó tu abono de $ %s en "%s".',
+                $monto,
+                $this->abono->evento?->name ?? 'tu actividad',
+            );
 
         return [
             'tipo' => ClubNotificationType::ABONO_APROBADO->value,
             'title' => 'Abono aprobado',
-            'body' => sprintf('Se aprobó tu abono de $ %s en "%s".', $monto, $evento),
+            'body' => $body,
             'icon' => '/pwa-192x192.png',
             'url' => '/abonos',
             'abono_id' => (int) $this->abono->id,
-            'evento_id' => (int) $this->abono->evento_id,
+            'evento_id' => $this->abono->evento_id !== null ? (int) $this->abono->evento_id : null,
             'monto' => (float) $this->abono->monto,
         ];
     }

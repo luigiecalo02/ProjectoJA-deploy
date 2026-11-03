@@ -11,6 +11,7 @@ use App\Modules\Events\Models\TipoEvento;
 use App\Modules\Notifications\Enums\ClubNotificationType;
 use App\Modules\Notifications\Models\OrganizacionNotificacionTipo;
 use App\Modules\Notifications\Notifications\AbonoAprobadoNotification;
+use App\Modules\Notifications\Notifications\AbonoComprobanteSubidoNotification;
 use App\Modules\Notifications\Notifications\AsistenciaMarcadaNotification;
 use App\Modules\Notifications\Services\ReadNotificationPruner;
 use App\Modules\Organizations\Models\Organizacion;
@@ -113,8 +114,10 @@ class ClubNotificationsApiTest extends TestCase
         ])->assertOk();
 
         $abonoId = (int) $pending->json('data.abonos.0.id');
-        Notification::assertNothingSent();
+        Notification::assertSentTo($director, AbonoComprobanteSubidoNotification::class);
+        Notification::assertNotSentTo($memberUser, AbonoComprobanteSubidoNotification::class);
 
+        Notification::fake();
         Sanctum::actingAs($director);
         $this->patchJson("/api/v1/settings/clubes/abonos/{$abonoId}/revision", [
             'estado' => 'aprobado',
@@ -176,6 +179,87 @@ class ClubNotificationsApiTest extends TestCase
             'persona_id' => $memberUser->persona_id,
             'estado' => EventoAsistencia::ESTADO_PRESENTE,
         ]);
+    }
+
+    public function test_member_comprobante_notifies_all_board(): void
+    {
+        Notification::fake();
+        Storage::fake('public');
+
+        $org = $this->createClubOrg('Club Notif Comprobante');
+        $director = $this->boardUser('director', $org, 'dir-notif-comp@test.local');
+        $tesorero = $this->boardUser('tesorero', $org, 'tes-notif-comp@test.local');
+        $memberUser = $this->memberUser($org, 'mem-notif-comp@test.local');
+        $otherMember = $this->memberUser($org, 'mem-notif-comp-2@test.local');
+
+        Sanctum::actingAs($director);
+        $economicId = $this->postJson('/api/v1/settings/clubes/events', $this->eventPayload('Venta comprobante', $this->economicTipoId()), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertCreated()->json('data.id');
+
+        Sanctum::actingAs($memberUser);
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/participantes/yo", [
+            'participa' => true,
+            'ventas' => [],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        Event::query()->whereKey($economicId)->update(['estado' => Event::ESTADO_EN_PROCESO]);
+
+        $this->post('/api/v1/settings/clubes/abonos/comprobante', [
+            'evento_id' => $economicId,
+            'comprobante' => UploadedFile::fake()->image('pago.jpg', 800, 1200),
+        ], [
+            'X-Clubes-Client' => 'clubes',
+            'Accept' => 'application/json',
+        ])->assertOk();
+
+        Notification::assertSentTo($director, AbonoComprobanteSubidoNotification::class);
+        Notification::assertSentTo($tesorero, AbonoComprobanteSubidoNotification::class);
+        Notification::assertNotSentTo($memberUser, AbonoComprobanteSubidoNotification::class);
+        Notification::assertNotSentTo($otherMember, AbonoComprobanteSubidoNotification::class);
+    }
+
+    public function test_disabled_comprobante_type_does_not_notify_board(): void
+    {
+        Notification::fake();
+        Storage::fake('public');
+
+        $org = $this->createClubOrg('Club Notif Comp Off');
+        $director = $this->boardUser('director', $org, 'dir-notif-comp-off@test.local');
+        $memberUser = $this->memberUser($org, 'mem-notif-comp-off@test.local');
+
+        OrganizacionNotificacionTipo::query()->create([
+            'organizacion_id' => $org->id,
+            'tipo' => ClubNotificationType::ABONO_COMPROBANTE_SUBIDO->value,
+            'activo' => false,
+        ]);
+
+        Sanctum::actingAs($director);
+        $economicId = $this->postJson('/api/v1/settings/clubes/events', $this->eventPayload('Venta off', $this->economicTipoId()), [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertCreated()->json('data.id');
+
+        Sanctum::actingAs($memberUser);
+        $this->putJson("/api/v1/settings/clubes/events/{$economicId}/participantes/yo", [
+            'participa' => true,
+            'ventas' => [],
+        ], [
+            'X-Clubes-Client' => 'clubes',
+        ])->assertOk();
+
+        Event::query()->whereKey($economicId)->update(['estado' => Event::ESTADO_EN_PROCESO]);
+
+        $this->post('/api/v1/settings/clubes/abonos/comprobante', [
+            'evento_id' => $economicId,
+            'comprobante' => UploadedFile::fake()->image('pago.jpg', 800, 1200),
+        ], [
+            'X-Clubes-Client' => 'clubes',
+            'Accept' => 'application/json',
+        ])->assertOk();
+
+        Notification::assertNothingSent();
     }
 
     public function test_prunes_old_read_notifications_and_keeps_unread(): void

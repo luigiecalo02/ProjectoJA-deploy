@@ -63,10 +63,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('settings/clubes/abonos/distribucion', [ClubesAbonosController::class, 'distribucion']);
     Route::post('settings/clubes/abonos', [ClubesAbonosController::class, 'store']);
     Route::post('settings/clubes/abonos/comprobante', [ClubesAbonosController::class, 'storeComprobante']);
+    Route::post('settings/clubes/abonos/libre', [ClubesAbonosController::class, 'storeLibre']);
     Route::post('settings/clubes/abonos/{abono}/comprobante', [ClubesAbonosController::class, 'attachComprobante']);
     Route::patch('settings/clubes/abonos/{abono}/revision', [ClubesAbonosController::class, 'review']);
     Route::patch('settings/clubes/abonos/{abono}', [ClubesAbonosController::class, 'updateMonto']);
     Route::get('settings/clubes/finanzas', [ClubesFinanzasController::class, 'resumen']);
+    Route::get('settings/clubes/finanzas/distribucion/{destino}', [ClubesFinanzasController::class, 'detalleDistribucion']);
     Route::post('settings/clubes/finanzas/movimientos', [ClubesFinanzasController::class, 'storeMovimiento']);
     Route::delete('settings/clubes/finanzas/movimientos/{movimiento}', [ClubesFinanzasController::class, 'destroyMovimiento']);
     Route::get('settings/clubes/cuentas-bancarias', [ClubesCuentasBancariasController::class, 'index']);

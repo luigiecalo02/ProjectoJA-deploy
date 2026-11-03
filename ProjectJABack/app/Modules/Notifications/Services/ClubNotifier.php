@@ -7,6 +7,7 @@ use App\Modules\Events\Models\Event;
 use App\Modules\Events\Models\EventoParticipacionAbono;
 use App\Modules\Notifications\Enums\ClubNotificationType;
 use App\Modules\Notifications\Notifications\AbonoAprobadoNotification;
+use App\Modules\Notifications\Notifications\AbonoComprobanteSubidoNotification;
 use App\Modules\Notifications\Notifications\AsistenciaMarcadaNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
@@ -64,6 +65,30 @@ final class ClubNotifier
             }
 
             Notification::send($users, new AbonoAprobadoNotification($abono));
+        });
+    }
+
+    public function abonoComprobanteSubido(EventoParticipacionAbono $abono, ?User $actor = null): void
+    {
+        $orgId = (int) ($abono->organizacion_id ?? 0);
+        if ($orgId <= 0) {
+            return;
+        }
+
+        $this->dispatchAfterCommit(function () use ($abono, $actor, $orgId) {
+            if (! $this->preferences->isEnabled($orgId, ClubNotificationType::ABONO_COMPROBANTE_SUBIDO)) {
+                return;
+            }
+
+            $users = $this->recipients->directivaUsersForOrganizacion($orgId);
+            if ($actor) {
+                $users = $users->reject(fn (User $user) => (int) $user->id === (int) $actor->id);
+            }
+            if ($users->isEmpty()) {
+                return;
+            }
+
+            Notification::send($users, new AbonoComprobanteSubidoNotification($abono));
         });
     }
 

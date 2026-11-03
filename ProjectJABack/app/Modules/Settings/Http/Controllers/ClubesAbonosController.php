@@ -108,6 +108,29 @@ final class ClubesAbonosController
         );
     }
 
+    public function storeLibre(Request $request): JsonResponse
+    {
+        $this->assertClubesClient($request);
+        $data = $request->validate([
+            'monto' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
+            'detalle' => ['nullable', 'string', 'max:255'],
+            'comprobante' => ['required', 'file', 'image', 'mimes:jpeg,jpg,png,webp', 'max:8192'],
+        ]);
+
+        $comprobante = $request->file('comprobante');
+        abort_unless($comprobante instanceof UploadedFile, 422, 'Adjunta el pantallazo del abono.');
+
+        return ApiResponse::success(
+            $this->abonos->submitLibre(
+                $request->user(),
+                (float) $data['monto'],
+                $comprobante,
+                $data['detalle'] ?? null,
+            ),
+            'Abono libre pendiente de aprobación',
+        );
+    }
+
     public function attachComprobante(Request $request, EventoParticipacionAbono $abono): JsonResponse
     {
         $this->assertClubesClient($request);
