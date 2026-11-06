@@ -36,17 +36,21 @@ final class ClubesInformeParticipantesController
     public function index(Request $request): JsonResponse
     {
         $this->assertClubesClient($request);
+        $data = $request->validate([
+            'origin' => ['nullable', 'string', 'max:255'],
+        ]);
+        $origin = $this->resolveOrigin($request, $data['origin'] ?? null);
 
-        return ApiResponse::success($this->informes->listForOrg($request->user()));
+        return ApiResponse::success($this->informes->listForOrg($request->user(), $origin));
     }
 
-    public function revoke(Request $request, int $informe): JsonResponse
+    public function destroy(Request $request, int $informe): JsonResponse
     {
         $this->assertClubesClient($request);
 
         return ApiResponse::success(
-            $this->informes->revoke($request->user(), $informe),
-            'Informe desactivado',
+            $this->informes->delete($request->user(), $informe),
+            'Informe eliminado',
         );
     }
 

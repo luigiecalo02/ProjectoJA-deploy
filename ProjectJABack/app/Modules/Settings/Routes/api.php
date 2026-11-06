@@ -79,7 +79,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('settings/clubes/finanzas/informes-participantes', [ClubesInformeParticipantesController::class, 'index']);
     Route::post('settings/clubes/finanzas/informes-participantes', [ClubesInformeParticipantesController::class, 'publish']);
     Route::patch('settings/clubes/finanzas/informes-participantes/{informe}', [ClubesInformeParticipantesController::class, 'setActive']);
-    Route::delete('settings/clubes/finanzas/informes-participantes/{informe}', [ClubesInformeParticipantesController::class, 'revoke']);
+    Route::delete('settings/clubes/finanzas/informes-participantes/{informe}', [ClubesInformeParticipantesController::class, 'destroy']);
     Route::get('settings/clubes/cuentas-bancarias', [ClubesCuentasBancariasController::class, 'index']);
     Route::post('settings/clubes/cuentas-bancarias', [ClubesCuentasBancariasController::class, 'store']);
     Route::put('settings/clubes/cuentas-bancarias/{cuenta}', [ClubesCuentasBancariasController::class, 'update']);

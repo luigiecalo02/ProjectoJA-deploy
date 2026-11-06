@@ -16,9 +16,15 @@ class ClubesInformeParticipantes extends Model
         'desde',
         'hasta',
         'token_hash',
+        'token',
         'expires_at',
         'revoked_at',
         'created_by',
+    ];
+
+    protected $hidden = [
+        'token',
+        'token_hash',
     ];
 
     protected function casts(): array

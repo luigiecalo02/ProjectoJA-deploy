@@ -43,6 +43,7 @@ final class ClubesInformeParticipantesService
             'desde' => $from->toDateString(),
             'hasta' => $to->toDateString(),
             'token_hash' => hash('sha256', $token),
+            'token' => $token,
             'expires_at' => now()->addDays(self::TTL_DAYS),
             'created_by' => $actor->id,
         ]);
@@ -53,23 +54,20 @@ final class ClubesInformeParticipantesService
     /**
      * @return list<array<string, mixed>>
      */
-    public function listForOrg(User $actor): array
+    public function listForOrg(User $actor, string $origin): array
     {
         $orgId = $this->assertCanPublish($actor);
 
         return ClubesInformeParticipantes::query()
             ->where('organizacion_id', $orgId)
             ->orderByDesc('id')
-            ->limit(10)
+            ->limit(30)
             ->get()
-            ->map(fn (ClubesInformeParticipantes $row) => [
-                'id' => (int) $row->id,
-                'desde' => $row->desde?->toDateString(),
-                'hasta' => $row->hasta?->toDateString(),
-                'expires_at' => $row->expires_at?->toIso8601String(),
-                'activo' => $row->isActive(),
-                'created_at' => $row->created_at?->toIso8601String(),
-            ])
+            ->map(fn (ClubesInformeParticipantes $row) => $this->presentLink(
+                $row,
+                $origin,
+                is_string($row->token) && $row->token !== '' ? $row->token : null,
+            ))
             ->values()
             ->all();
     }
@@ -80,6 +78,26 @@ final class ClubesInformeParticipantesService
     public function revoke(User $actor, int $informeId): array
     {
         return $this->setActive($actor, $informeId, false);
+    }
+
+    /**
+     * @return array{id: int, deleted: bool}
+     */
+    public function delete(User $actor, int $informeId): array
+    {
+        $orgId = $this->assertCanPublish($actor);
+        $informe = ClubesInformeParticipantes::query()
+            ->where('organizacion_id', $orgId)
+            ->whereKey($informeId)
+            ->firstOrFail();
+
+        $id = (int) $informe->id;
+        $informe->delete();
+
+        return [
+            'id' => $id,
+            'deleted' => true,
+        ];
     }
 
     /**
@@ -133,6 +151,9 @@ final class ClubesInformeParticipantesService
                 'logo_url' => $branding['logo_url'] ?? null,
                 'banner_url' => $branding['banner_url'] ?? null,
                 'background_url' => $branding['background_url'] ?? null,
+                'scene_theme' => (($branding['clubes']['scene_theme'] ?? null) === 'day') ? 'day' : 'night',
+                'color_principal' => $branding['clubes']['color_principal'] ?? null,
+                'color_secundario' => $branding['clubes']['color_secundario'] ?? null,
             ],
             'desde' => $informe->desde?->toDateString(),
             'hasta' => $informe->hasta?->toDateString(),
@@ -394,19 +415,20 @@ final class ClubesInformeParticipantesService
     }
 
     /**
-     * @return array{id: int, url: string, desde: string, hasta: string, expires_at: string|null, activo: bool}
+     * @return array{id: int, url: string|null, desde: string|null, hasta: string|null, expires_at: string|null, activo: bool, created_at: string|null}
      */
-    private function presentLink(ClubesInformeParticipantes $informe, string $origin, string $token): array
+    private function presentLink(ClubesInformeParticipantes $informe, string $origin, ?string $token): array
     {
         $base = rtrim($origin, '/');
 
         return [
             'id' => (int) $informe->id,
-            'url' => $base.'/informe-participantes/'.$token,
+            'url' => $token ? $base.'/informe-participantes/'.$token : null,
             'desde' => $informe->desde?->toDateString(),
             'hasta' => $informe->hasta?->toDateString(),
             'expires_at' => $informe->expires_at?->toIso8601String(),
             'activo' => $informe->isActive(),
+            'created_at' => $informe->created_at?->toIso8601String(),
         ];
     }
 
