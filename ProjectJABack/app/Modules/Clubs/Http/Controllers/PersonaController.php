@@ -2,6 +2,7 @@
 
 namespace App\Modules\Clubs\Http\Controllers;
 
+use App\Modules\Clubs\Http\Requests\SetPersonaMembershipRequest;
 use App\Modules\Clubs\Http\Requests\SetPersonaUserAccessRequest;
 use App\Modules\Clubs\Http\Requests\StorePersonaRequest;
 use App\Modules\Clubs\Http\Requests\UpdatePersonaPasswordRequest;
@@ -28,7 +29,14 @@ final class PersonaController
 
         $paginator = $this->personaService->list(
             $request->user(),
-            $request->only(['q', 'sin_usuario', 'organizacion_id', 'organizacion_padre_id', 'solo_tipo_club']),
+            $request->only([
+                'q',
+                'sin_usuario',
+                'organizacion_id',
+                'organizacion_padre_id',
+                'solo_tipo_club',
+                'include_inactive',
+            ]),
             (int) $request->integer('per_page', 20),
         );
         $paginator->getCollection()->transform(fn (Persona $persona) => $this->payload($persona));
@@ -80,6 +88,25 @@ final class PersonaController
         );
 
         return ApiResponse::success(null, 'Contraseña actualizada');
+    }
+
+    public function setMembership(SetPersonaMembershipRequest $request, Persona $persona): JsonResponse
+    {
+        $persona = $this->personaService->setMembership(
+            $persona,
+            $request->boolean('estado'),
+            $request->user(),
+            $request->validated('organizacion_id') !== null
+                ? (int) $request->validated('organizacion_id')
+                : null,
+        );
+
+        return ApiResponse::success(
+            $this->payload($persona),
+            $request->boolean('estado')
+                ? 'Integrante y acceso reactivados en el club'
+                : 'Integrante marcado como no activo y acceso desactivado',
+        );
     }
 
     public function setUserAccess(SetPersonaUserAccessRequest $request, Persona $persona): JsonResponse

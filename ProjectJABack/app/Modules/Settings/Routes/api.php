@@ -6,6 +6,7 @@ use App\Modules\Settings\Http\Controllers\ClubesAttendanceController;
 use App\Modules\Settings\Http\Controllers\ClubesCuentasBancariasController;
 use App\Modules\Settings\Http\Controllers\ClubesFinanzasController;
 use App\Modules\Settings\Http\Controllers\ClubesGananciasController;
+use App\Modules\Settings\Http\Controllers\ClubesInformeParticipantesController;
 use App\Modules\Settings\Http\Controllers\ClubesInscripcionesController;
 use App\Modules\Settings\Http\Controllers\ClubesPresupuestoController;
 use App\Modules\Settings\Http\Controllers\ClubesParticipantesController;
@@ -30,6 +31,10 @@ Route::post('settings/clubes/public/activate/lookup', [ClubesSignupController::c
     ->middleware('throttle:10,1');
 Route::post('settings/clubes/public/activate', [ClubesSignupController::class, 'inviteActivate'])
     ->middleware('throttle:5,1');
+Route::get('settings/clubes/public/informe-participantes/{token}', [ClubesInformeParticipantesController::class, 'publicSummary'])
+    ->middleware('throttle:60,1');
+Route::get('settings/clubes/public/informe-participantes/{token}/personas/{persona}', [ClubesInformeParticipantesController::class, 'publicPersona'])
+    ->middleware('throttle:60,1');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('settings/clubes', [ClubesSettingsController::class, 'show']);
@@ -71,6 +76,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('settings/clubes/finanzas/distribucion/{destino}', [ClubesFinanzasController::class, 'detalleDistribucion']);
     Route::post('settings/clubes/finanzas/movimientos', [ClubesFinanzasController::class, 'storeMovimiento']);
     Route::delete('settings/clubes/finanzas/movimientos/{movimiento}', [ClubesFinanzasController::class, 'destroyMovimiento']);
+    Route::get('settings/clubes/finanzas/informes-participantes', [ClubesInformeParticipantesController::class, 'index']);
+    Route::post('settings/clubes/finanzas/informes-participantes', [ClubesInformeParticipantesController::class, 'publish']);
+    Route::patch('settings/clubes/finanzas/informes-participantes/{informe}', [ClubesInformeParticipantesController::class, 'setActive']);
+    Route::delete('settings/clubes/finanzas/informes-participantes/{informe}', [ClubesInformeParticipantesController::class, 'revoke']);
     Route::get('settings/clubes/cuentas-bancarias', [ClubesCuentasBancariasController::class, 'index']);
     Route::post('settings/clubes/cuentas-bancarias', [ClubesCuentasBancariasController::class, 'store']);
     Route::put('settings/clubes/cuentas-bancarias/{cuenta}', [ClubesCuentasBancariasController::class, 'update']);

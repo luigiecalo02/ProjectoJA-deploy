@@ -46,7 +46,6 @@ final class PersonaService
 
         return $persona->organizaciones()
             ->whereIn('organizacion_id', $orgIds)
-            ->where('estado', true)
             ->exists();
     }
 
@@ -59,7 +58,6 @@ final class PersonaService
 
         return $persona->organizaciones()
             ->where('organizacion_id', $clubId)
-            ->where('estado', true)
             ->exists();
     }
 
@@ -185,6 +183,10 @@ final class PersonaService
             && $filters['solo_tipo_club'] !== null
             && $filters['solo_tipo_club'] !== ''
             && filter_var($filters['solo_tipo_club'], FILTER_VALIDATE_BOOLEAN);
+        $includeInactive = array_key_exists('include_inactive', $filters)
+            && $filters['include_inactive'] !== null
+            && $filters['include_inactive'] !== ''
+            && filter_var($filters['include_inactive'], FILTER_VALIDATE_BOOLEAN);
         $activeClubOrgId = $this->orgAccess->activeClubOrganizationId($actor);
 
         $familyOrgIds = null;
@@ -212,7 +214,12 @@ final class PersonaService
             } else {
                 $query->whereHas(
                     'organizaciones',
-                    fn ($q) => $q->whereIn('organizacion_id', $familyOrgIds)->where('estado', true)
+                    function ($q) use ($familyOrgIds, $includeInactive) {
+                        $q->whereIn('organizacion_id', $familyOrgIds);
+                        if (! $includeInactive) {
+                            $q->where('estado', true);
+                        }
+                    }
                 );
             }
         } else {
@@ -223,7 +230,12 @@ final class PersonaService
                 } else {
                     $query->whereHas(
                         'organizaciones',
-                        fn ($q) => $q->whereIn('organizacion_id', $scopeOrgIds)->where('estado', true)
+                        function ($q) use ($scopeOrgIds, $includeInactive) {
+                            $q->whereIn('organizacion_id', $scopeOrgIds);
+                            if (! $includeInactive) {
+                                $q->where('estado', true);
+                            }
+                        }
                     );
                 }
             }
@@ -240,19 +252,26 @@ final class PersonaService
             $filterOrgId = (int) $filters['organizacion_id'];
             $query->whereHas(
                 'organizaciones',
-                fn ($q) => $q->where('organizacion_id', $filterOrgId)->where('estado', true)
+                function ($q) use ($filterOrgId, $includeInactive) {
+                    $q->where('organizacion_id', $filterOrgId);
+                    if (! $includeInactive) {
+                        $q->where('estado', true);
+                    }
+                }
             );
         }
 
         if ($soloTipoClub) {
             $query->whereHas(
                 'organizaciones',
-                function ($q) {
-                    $q->where('estado', true)
-                        ->whereHas(
-                            'organizacion',
-                            fn ($org) => $org->where('tipo_organizacion_id', Organizacion::TIPO_CLUB)
-                        );
+                function ($q) use ($includeInactive) {
+                    if (! $includeInactive) {
+                        $q->where('estado', true);
+                    }
+                    $q->whereHas(
+                        'organizacion',
+                        fn ($org) => $org->where('tipo_organizacion_id', Organizacion::TIPO_CLUB)
+                    );
                 }
             );
         }
@@ -472,6 +491,111 @@ final class PersonaService
         ], $persona);
 
         return $user;
+    }
+
+    /**
+     * Activa o desactiva la membresía del integrante en el club (persona_organizacion.estado).
+     * Las listas operativas solo incluyen membresías activas.
+     */
+    public function setMembership(Persona $persona, bool $active, User $actor, ?int $organizacionId = null): Persona
+    {
+        $orgId = $organizacionId ?: $this->orgAccess->activeClubOrganizationId($actor);
+        if ($orgId === null) {
+            throw ValidationException::withMessages([
+                'organizacion_id' => ['No hay un club activo para actualizar la membresía.'],
+            ]);
+        }
+
+        if (! $this->orgAccess->bypassesOrganizationScope($actor)
+            && ! $this->orgAccess->canAccessOrganization($actor, $orgId)) {
+            throw ValidationException::withMessages([
+                'organizacion_id' => ['No puedes gestionar integrantes de esa organización.'],
+            ]);
+        }
+
+        if (! $this->actorCanAccess($actor, $persona)) {
+            throw ValidationException::withMessages([
+                'persona' => ['No puedes gestionar la membresía de este integrante.'],
+            ]);
+        }
+
+        return DB::transaction(function () use ($persona, $active, $actor, $orgId) {
+            $persona->loadMissing('user');
+            $membership = PersonaOrganizacion::query()->firstOrCreate(
+                [
+                    'persona_id' => $persona->id,
+                    'organizacion_id' => $orgId,
+                ],
+                [
+                    'fecha_inicio' => now()->toDateString(),
+                    'estado' => true,
+                ]
+            );
+
+            $old = [
+                'estado' => (bool) $membership->estado,
+                'fecha_fin' => $membership->fecha_fin,
+                'user_is_active' => $persona->user ? (bool) $persona->user->is_active : null,
+            ];
+
+            if ($active) {
+                $membership->forceFill([
+                    'estado' => true,
+                    'fecha_fin' => null,
+                    'fecha_inicio' => $membership->fecha_inicio ?: now()->toDateString(),
+                ])->save();
+            } else {
+                $membership->forceFill([
+                    'estado' => false,
+                    'fecha_fin' => now()->toDateString(),
+                ])->save();
+            }
+
+            $userSynced = $this->syncMembershipUserAccess($persona, $active, $actor);
+
+            $this->auditLogger->log('personas', $active ? 'membership.activate' : 'membership.deactivate', $old, [
+                'estado' => $active,
+                'organizacion_id' => $orgId,
+                'fecha_fin' => $membership->fecha_fin,
+                'user_synced' => $userSynced,
+            ], $persona);
+
+            return $persona->fresh(['user', 'organizaciones.organizacion']) ?? $persona;
+        });
+    }
+
+    /**
+     * Si el integrante tiene usuario, alinea is_active con la membresía del club.
+     */
+    private function syncMembershipUserAccess(Persona $persona, bool $active, User $actor): bool
+    {
+        $user = $persona->user;
+        if (! $user) {
+            return false;
+        }
+
+        if (! $active) {
+            if ((int) $user->id === (int) $actor->id) {
+                throw ValidationException::withMessages([
+                    'estado' => ['No puedes marcar como no activo tu propio usuario.'],
+                ]);
+            }
+            if ((bool) $user->is_active === false) {
+                return false;
+            }
+            $user->forceFill(['is_active' => false])->save();
+            $user->tokens()->delete();
+
+            return true;
+        }
+
+        if ((bool) $user->is_active === true) {
+            return false;
+        }
+        $user->forceFill(['is_active' => true])->save();
+        $this->ensureMemberRole($user, $actor);
+
+        return true;
     }
 
     /**
